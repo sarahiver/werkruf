@@ -300,11 +300,8 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
     if (!result) return;
     const el = document.getElementById('analysis');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Pass in format compatible with usePlacesAnalysis (needs value.value.place_id)
-    setTimeout(() => onPlaceSelect({
-      label: result.label || result.name,
-      value: { place_id: result.placeId },
-    }), 350);
+    // PlacesSearch returns normalised data — pass directly to parent
+    setTimeout(() => onPlaceSelect(result), 350);
   };
 
   return (
@@ -341,6 +338,10 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
             {apiKey ? (
               <PlacesSearch
                 onSelect={handleSelect}
+                onNoResults={() => {
+                  const el = document.getElementById('analysis');
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
                 placeholder={places.searchPlaceholder}
                 dark={false}
               />
