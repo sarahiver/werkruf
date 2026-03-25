@@ -2,26 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
-   LEAD → PROFILE SYNC
-   Called once on first login.
-   Checks if user email exists in leads table
-   and merges the data into user_profiles.
+   LEAD → PROFILE SYNC (non-blocking)
+   Runs in background — never awaited in auth flow
 ───────────────────────────────────────────── */
 async function syncLeadToProfile(userId, email) {
   if (!userId || !email) return;
-
   try {
-    // Check if profile already has a place_id (already synced)
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('google_place_id, visibility_score')
+      .select('google_place_id')
       .eq('id', userId)
       .single();
 
-    // Already has data — skip sync
-    if (profile?.google_place_id) return;
+    if (profile?.google_place_id) return; // already synced
 
-    // Find most recent lead with this email
     const { data: lead } = await supabase
       .from('leads')
       .select('company_name, google_place_id, google_rating, google_review_count, visibility_score, city, industry_key')
@@ -32,7 +26,6 @@ async function syncLeadToProfile(userId, email) {
 
     if (!lead) return;
 
-    // Build update object — only set fields that have values
     const updates = {};
     if (lead.company_name)        updates.company_name        = lead.company_name;
     if (lead.google_place_id)     updates.google_place_id     = lead.google_place_id;
@@ -44,20 +37,13 @@ async function syncLeadToProfile(userId, email) {
 
     if (Object.keys(updates).length === 0) return;
 
-    await supabase
-      .from('user_profiles')
-      .update(updates)
-      .eq('id', userId);
-
-    // Mark lead as converted
-    await supabase
-      .from('leads')
+    await supabase.from('user_profiles').update(updates).eq('id', userId);
+    await supabase.from('leads')
       .update({ status: 'converted' })
       .eq('email', email)
       .eq('status', 'new');
 
   } catch (err) {
-    // Non-blocking — silently fail
     console.warn('Lead sync skipped:', err.message);
   }
 }
@@ -66,12 +52,12 @@ async function syncLeadToProfile(userId, email) {
    useAuth
 ───────────────────────────────────────────── */
 export function useAuth() {
-  const [user,    setUser]    = useState(null);
+  const [user,    setUser]    = useState(undefined); // undefined = not yet resolved
   const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Track if we've already synced this session to avoid duplicate calls
   const syncedRef = useRef(false);
+
+  // loading = true until we know if user is logged in or not
+  const loading = user === undefined;
 
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) { setProfile(null); return; }
@@ -81,53 +67,58 @@ export function useAuth() {
       .eq('id', userId)
       .single();
     setProfile(data || null);
-    return data;
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      const u = session?.user ?? null;
-      setUser(u);
-      if (u) {
-        // Sync lead data on initial session load
-        if (!syncedRef.current) {
-          syncedRef.current = true;
-          await syncLeadToProfile(u.id, u.email);
-        }
-        await fetchProfile(u.id);
-      }
-      setLoading(false);
-    });
-
+    // onAuthStateChange fires reliably for ALL cases:
+    // - INITIAL_SESSION (page load, OAuth redirect return)
+    // - SIGNED_IN (email/password login)
+    // - SIGNED_OUT
+    // getSession() is only needed as a faster initial check
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         const u = session?.user ?? null;
+
+        // Resolve user immediately — this unblocks the loading state
         setUser(u);
 
         if (u) {
-          // SIGNED_IN event = fresh login → trigger sync
-          if (event === 'SIGNED_IN' && !syncedRef.current) {
+          // Fire lead sync in background — do NOT await here
+          if (!syncedRef.current) {
             syncedRef.current = true;
-            await syncLeadToProfile(u.id, u.email);
+            syncLeadToProfile(u.id, u.email); // intentionally not awaited
           }
+          // Fetch profile (fast — just a single row read)
           await fetchProfile(u.id);
         } else {
           setProfile(null);
           syncedRef.current = false;
         }
-        setLoading(false);
       }
     );
 
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
+  /* ─────────────────────────────────────────────
+     GOOGLE OAuth
+     
+     First time: shows consent screen
+     Return visits: prompt: 'none' skips consent silently.
+     If token is still valid → instant redirect.
+     If expired → Supabase refreshes automatically.
+  ───────────────────────────────────────────── */
   const signInGoogle = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/dashboard`,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
+        // 'select_account' only on first time / when user has multiple accounts
+        // After first auth, token is stored and Supabase auto-refreshes silently
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account', // shows account picker but skips full consent
+        },
       },
     });
   }, []);
@@ -151,15 +142,18 @@ export function useAuth() {
 
   const signOut = useCallback(async () => {
     syncedRef.current = false;
+    setUser(null);
+    setProfile(null);
     await supabase.auth.signOut();
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    if (user?.id) await fetchProfile(user.id);
-  }, [user, fetchProfile]);
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (u?.id) await fetchProfile(u.id);
+  }, [fetchProfile]);
 
   return {
-    user,
+    user:            user === undefined ? null : user,
     profile,
     loading,
     signInGoogle,
@@ -167,6 +161,6 @@ export function useAuth() {
     signUpEmail,
     signOut,
     refreshProfile,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user && user !== undefined,
   };
 }
