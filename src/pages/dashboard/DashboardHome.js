@@ -34,17 +34,24 @@ function PlacesSearch({ onSelect, placeholder }) {
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
+        // Try new v1 API first, fall back to legacy if 403/unavailable
+        let usedNewAPI = false;
         if (window.google?.maps?.places?.AutocompleteSuggestion) {
-          // New v1 API
-          const { suggestions: suggs } = await window.google.maps.places
-            .AutocompleteSuggestion.fetchAutocompleteSuggestions({
-              input: val,
-              includedPrimaryTypes: ['establishment'],
-              includedRegionCodes:  ['de'],
-            });
-          setSuggestions(suggs || []);
-        } else if (window.google?.maps?.places?.AutocompleteService) {
-          // Fallback to legacy
+          try {
+            const { suggestions: suggs } = await window.google.maps.places
+              .AutocompleteSuggestion.fetchAutocompleteSuggestions({
+                input: val,
+                includedPrimaryTypes: ['establishment'],
+                includedRegionCodes:  ['de'],
+              });
+            setSuggestions(suggs || []);
+            usedNewAPI = true;
+          } catch (e) {
+            // 403 = Places API (New) not enabled — fall through to legacy
+            usedNewAPI = false;
+          }
+        }
+        if (!usedNewAPI && window.google?.maps?.places?.AutocompleteService) {
           const svc = new window.google.maps.places.AutocompleteService();
           svc.getPlacePredictions(
             { input: val, componentRestrictions: { country: 'de' }, types: ['establishment'] },
@@ -52,9 +59,9 @@ function PlacesSearch({ onSelect, placeholder }) {
               if (status === 'OK') {
                 setSuggestions(predictions.map(p => ({
                   placePrediction: {
-                    placeId:     p.place_id,
-                    text:        { text: p.description },
-                    mainText:    { text: p.structured_formatting.main_text },
+                    placeId:       p.place_id,
+                    text:          { text: p.description },
+                    mainText:      { text: p.structured_formatting.main_text },
                     secondaryText: { text: p.structured_formatting.secondary_text },
                   }
                 })));
