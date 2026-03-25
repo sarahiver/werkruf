@@ -85,40 +85,40 @@ function waitForGoogle(timeout = 10000) {
    Handles BOTH legacy (snake_case) AND v1 (camelCase).
 ───────────────────────────────────────────── */
 function normalisePlace(place) {
-  // ID: v1 uses `id`, legacy uses `place_id`
+  if (!place) return null;
+
+  // ID — Autocomplete gives place_id (legacy), v1 gives id
   const placeId = place.id || place.place_id || null;
 
-  // Name: v1 uses displayName.text, legacy uses name (string)
+  // Name — Autocomplete gives name (string), v1 gives displayName.text
   const name =
-    (typeof place.displayName === 'object'
-      ? place.displayName?.text
+    (place.displayName && typeof place.displayName === 'object'
+      ? place.displayName.text
       : null)
     || (typeof place.name === 'string' ? place.name : null)
     || '';
 
-  // Address: v1 = formattedAddress, legacy = formatted_address
-  const address =
-    place.formattedAddress
-    || place.formatted_address
-    || '';
+  // Address — Autocomplete = formatted_address, v1 = formattedAddress
+  const address = place.formattedAddress || place.formatted_address || '';
 
-  // Address components: v1 = addressComponents, legacy = address_components
-  const addressComponents =
-    place.addressComponents
-    || place.address_components
-    || [];
+  // Address components — Autocomplete = address_components, v1 = addressComponents
+  const addressComponents = place.addressComponents || place.address_components || [];
 
-  // Numeric fields — same in both APIs
-  const rating      = typeof place.rating === 'number'     ? place.rating      : 0;
-  const reviewCount = typeof place.userRatingCount === 'number'
-    ? place.userRatingCount
-    : (typeof place.user_ratings_total === 'number' ? place.user_ratings_total : 0);
+  // Rating — same in both APIs
+  const rating = typeof place.rating === 'number' ? place.rating : 0;
 
-  // Website: v1 = websiteURI, legacy = website
-  const website    = place.websiteURI || place.website || null;
+  // Review count — Autocomplete = user_ratings_total, v1 = userRatingCount
+  const reviewCount =
+    (typeof place.userRatingCount   === 'number' ? place.userRatingCount   : null)
+    ?? (typeof place.user_ratings_total === 'number' ? place.user_ratings_total : 0);
+
+  // Website — Autocomplete = website, v1 = websiteUri / websiteURI
+  const website    = place.websiteUri || place.websiteURI || place.website || null;
   const hasWebsite = !!website;
 
-  return { placeId, name, address, addressComponents, rating, reviewCount, hasWebsite, website };
+  const result = { placeId, name, address, addressComponents, rating, reviewCount, hasWebsite, website };
+  console.log('[PlacesSearch] Normalised result:', result);
+  return result;
 }
 
 /* ─────────────────────────────────────────────

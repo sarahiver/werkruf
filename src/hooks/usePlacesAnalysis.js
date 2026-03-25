@@ -42,6 +42,10 @@ export function fetchPlaceDetails(placeId) {
     svc.getDetails(
       {
         placeId,
+        // Legacy field names — PlacesService uses snake_case
+        // These map to v1 names: place_id→id, name→displayName.text,
+        // formatted_address→formattedAddress, address_components→addressComponents,
+        // user_ratings_total→userRatingCount, website→websiteUri
         fields: [
           'place_id', 'name', 'rating', 'user_ratings_total',
           'website', 'formatted_address', 'address_components',
@@ -49,7 +53,8 @@ export function fetchPlaceDetails(placeId) {
       },
       (place, status) => {
         if (status === window.google.maps.places.PlacesServiceStatus.OK) {
-          resolve(place);
+          // Normalise to unified format immediately
+          resolve(normaliseLegacyPlace(place));
         } else {
           reject(new Error(`Places API: ${status}`));
         }
@@ -58,13 +63,61 @@ export function fetchPlaceDetails(placeId) {
   });
 }
 
+/* ─────────────────────────────────────────────
+   NORMALISE PLACE
+   Converts legacy PlacesService result to a
+   consistent internal format used everywhere.
+   
+   Legacy → Internal mapping:
+     place_id           → placeId
+     name               → name
+     formatted_address  → formattedAddress  (camelCase)
+     address_components → addressComponents (camelCase)
+     user_ratings_total → userRatingCount   (v1 name)
+     website            → websiteUri        (v1 name)
+     rating             → rating            (unchanged)
+───────────────────────────────────────────── */
+export function normaliseLegacyPlace(place) {
+  if (!place) return null;
+  return {
+    // ID — use placeId as canonical name
+    placeId:           place.id || place.place_id || null,
+    // Keep place_id for backward compat with runAnalysis pd.place_id
+    place_id:          place.id || place.place_id || null,
+    // Name — support both v1 (displayName.text) and legacy (name string)
+    name:              place.displayName?.text
+                    || (typeof place.name === 'string' ? place.name : null)
+                    || '',
+    // Address
+    formattedAddress:  place.formattedAddress || place.formatted_address || '',
+    formatted_address: place.formattedAddress || place.formatted_address || '',
+    // Address components
+    addressComponents: place.addressComponents || place.address_components || [],
+    address_components:place.addressComponents || place.address_components || [],
+    // Rating
+    rating:            place.rating || 0,
+    // Review count — v1 = userRatingCount, legacy = user_ratings_total
+    userRatingCount:   place.userRatingCount   || place.user_ratings_total || 0,
+    user_ratings_total:place.userRatingCount   || place.user_ratings_total || 0,
+    // Website — v1 = websiteUri, legacy = website
+    websiteUri:        place.websiteUri || place.websiteURI || place.website || null,
+    website:           place.websiteUri || place.websiteURI || place.website || null,
+  };
+}
+
 export function extractCity(components) {
-  if (!components) return '';
-  return (
-    components.find(x => x.types.includes('sublocality_level_1')) ||
-    components.find(x => x.types.includes('locality')) ||
-    components.find(x => x.types.includes('administrative_area_level_2'))
-  )?.long_name || '';
+  if (!components || !Array.isArray(components) || components.length === 0) return '';
+  try {
+    // Each component can have types as array (legacy) or similar
+    const find = (type) => components.find(x =>
+      Array.isArray(x.types) && x.types.includes(type)
+    );
+    // v1: longText, legacy: long_name
+    const comp = find('sublocality_level_1') || find('locality') || find('administrative_area_level_2');
+    return comp?.longText || comp?.long_name || '';
+  } catch (_) {
+    return '';
+  }
 }
 
 export function estimateUnanswered(count) {
@@ -233,23 +286,24 @@ export function usePlacesAnalysis() {
 
     try {
       if (placeOption.placeId) {
-        // ── New normalised format from PlacesSearch ──
-        pd = {
+        // ── Normalised format from PlacesSearch (already processed) ──
+        // Map to internal pd format using canonical field names
+        pd = normaliseLegacyPlace({
           place_id:           placeOption.placeId,
-          name:               placeOption.name               || '',
-          rating:             placeOption.rating             || 0,
-          user_ratings_total: placeOption.reviewCount        || 0,
-          website:            placeOption.website            || null,
-          formatted_address:  placeOption.address            || '',
-          address_components: placeOption.addressComponents  || [],
-        };
+          name:               placeOption.name,
+          rating:             placeOption.rating,
+          user_ratings_total: placeOption.reviewCount,
+          website:            placeOption.website,
+          formatted_address:  placeOption.address,
+          address_components: placeOption.addressComponents,
+        });
       } else {
-        // ── Legacy format — fetch from PlacesService ──
+        // ── Legacy format — fetch full details from PlacesService ──
         const legacyId = placeOption.value?.place_id
                       || placeOption.value?.value?.place_id
                       || null;
         if (!legacyId) throw new Error('No place_id found in placeOption');
-        pd = await fetchPlaceDetails(legacyId);
+        pd = await fetchPlaceDetails(legacyId); // already normalised inside
       }
     } catch (err) {
       console.error('[usePlacesAnalysis] Failed to resolve place:', err);
@@ -259,8 +313,8 @@ export function usePlacesAnalysis() {
       return;
     }
 
-    // Null-check after all paths
-    if (!pd || (!pd.place_id && !pd.name)) {
+    // Null-check — pd must have at minimum a name or id
+    if (!pd || (!pd.placeId && !pd.name)) {
       setFetchErr('Kein gültiger Betrieb gefunden. Bitte einen anderen auswählen.');
       setPhase('idle');
       setSelectedPlace(null);
@@ -277,22 +331,23 @@ export function usePlacesAnalysis() {
 
     // Build result
     try {
-      const city        = extractCity(pd.address_components || []);
-      const rating      = pd.rating             || 0;
-      const reviewCount = pd.user_ratings_total || 0;
-      const hasWebsite  = !!pd.website;
+      // Use canonical field names (set by normaliseLegacyPlace)
+      const city        = extractCity(pd.addressComponents || pd.address_components || []);
+      const rating      = pd.rating                || 0;
+      const reviewCount = pd.userRatingCount       || pd.user_ratings_total || 0;
+      const hasWebsite  = !!(pd.websiteUri         || pd.website);
       const unanswered  = estimateUnanswered(reviewCount);
       const score       = calcScore({ rating, reviewCount, hasWebsite });
 
       setResult({
-        placeId:     pd.place_id || placeOption.placeId || '',
+        placeId:     pd.placeId  || pd.place_id || placeOption.placeId || '',
         name:        pd.name     || '',
         city,
-        address:     pd.formatted_address || '',
+        address:     pd.formattedAddress || pd.formatted_address || '',
         rating,
         reviewCount,
         hasWebsite,
-        website:     pd.website || null,
+        website:     pd.websiteUri || pd.website || null,
         unanswered,
         score,
       });
