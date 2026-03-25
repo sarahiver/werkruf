@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { ArrowRight, CheckCircle } from 'lucide-react';
+import GooglePlacesAutocomplete from 'react-google-places-autocomplete';
+import { Search, CheckCircle } from 'lucide-react';
 
 const fadeUp = keyframes`
-  from { opacity: 0; transform: translateY(32px); }
+  from { opacity: 0; transform: translateY(28px); }
   to   { opacity: 1; transform: translateY(0); }
 `;
-
 const pulse = keyframes`
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.5; }
@@ -34,10 +34,8 @@ const GridOverlay = styled.div`
 
 const OrangeBar = styled.div`
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 5px;
-  height: 100%;
+  top: 0; right: 0;
+  width: 5px; height: 100%;
   background: #FF8C00;
 `;
 
@@ -49,14 +47,17 @@ const Inner = styled.div`
   grid-template-columns: 1fr 1fr;
   gap: 64px;
   align-items: center;
+
   @media (max-width: 900px) {
     grid-template-columns: 1fr;
-    gap: 40px;
+    gap: 32px;
   }
 `;
 
+/* LEFT */
 const Left = styled.div`
   animation: ${fadeUp} 0.7s ease both;
+  @media (max-width: 900px) { order: 1; }
 `;
 
 const EyebrowTag = styled.div`
@@ -72,15 +73,14 @@ const EyebrowTag = styled.div`
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 6px 14px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 `;
 
 const Dot = styled.span`
-  display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 6px; height: 6px;
   background: #FF8C00;
   border-radius: 50%;
+  display: inline-block;
   animation: ${pulse} 1.5s ease infinite;
 `;
 
@@ -94,67 +94,16 @@ const Headline = styled.h1`
   margin-bottom: 8px;
 `;
 
-const HeadlineAccent = styled.span`
-  color: #FF8C00;
-`;
+const Accent = styled.span`color: #FF8C00;`;
 
 const HeadlineSub = styled.p`
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 700;
-  font-size: clamp(1.2rem, 2vw, 1.7rem);
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
   text-transform: uppercase;
   color: rgba(255,255,255,0.38);
-  margin-bottom: 28px;
-  letter-spacing: 0.04em;
-`;
-
-const Subline = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 1.05rem;
-  color: rgba(255,255,255,0.7);
-  line-height: 1.75;
-  max-width: 480px;
-  margin-bottom: 40px;
-`;
-
-const CTARow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
   margin-bottom: 32px;
-`;
-
-const CTAButton = styled.a`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 32px;
-  background: #FF8C00;
-  color: white;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1.1rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  box-shadow: 0 4px 24px rgba(255,140,0,0.35);
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-  &:hover {
-    background: #E07A00;
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px rgba(255,140,0,0.5);
-  }
-`;
-
-const SecondaryLink = styled.a`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: rgba(255,255,255,0.5);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color 0.2s;
-  &:hover { color: white; }
+  letter-spacing: 0.04em;
 `;
 
 const CheckList = styled.ul`
@@ -170,114 +119,283 @@ const CheckItem = styled.li`
   gap: 10px;
   font-family: 'Barlow', sans-serif;
   font-size: 0.88rem;
-  color: rgba(255,255,255,0.65);
+  color: rgba(255,255,255,0.62);
   svg { color: #FF8C00; flex-shrink: 0; }
 `;
 
+/* RIGHT — Search card */
 const Right = styled.div`
-  animation: ${fadeUp} 0.7s ease 0.2s both;
-  @media (max-width: 900px) { order: -1; }
+  animation: ${fadeUp} 0.7s ease 0.15s both;
+  @media (max-width: 900px) { order: 2; }
 `;
 
-const StatsPanel = styled.div`
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-left: 4px solid #FF8C00;
-  padding: 36px 32px;
+const SearchCard = styled.div`
+  background: white;
+  border-top: 5px solid #FF8C00;
+  padding: 32px 28px 28px;
+
+  @media (max-width: 560px) {
+    padding: 24px 20px 22px;
+  }
 `;
 
-const StatsPanelTitle = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.75rem;
-  letter-spacing: 0.16em;
+const CardTitle = styled.p`
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 1.15rem;
   text-transform: uppercase;
+  color: #002C51;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+`;
+
+const CardSub = styled.p`
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.82rem;
+  color: #5A6A7A;
+  margin-bottom: 20px;
+  line-height: 1.5;
+`;
+
+/* Autocomplete — large, prominent */
+const AcWrap = styled.div`
+  position: relative;
+  margin-bottom: 8px;
+
+  & > div > div {
+    border-radius: 0 !important;
+    border: 2px solid #002C51 !important;
+    box-shadow: none !important;
+    font-family: 'Barlow', sans-serif !important;
+    font-size: 1.05rem !important;
+    min-height: 58px !important;
+    background: white !important;
+    cursor: text !important;
+    padding-left: 44px !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+  }
+
+  & > div > div:focus-within {
+    border-color: #FF8C00 !important;
+    box-shadow: 0 0 0 3px rgba(255,140,0,0.18) !important;
+  }
+
+  & input {
+    font-family: 'Barlow', sans-serif !important;
+    font-size: 1.05rem !important;
+    color: #1A1A1A !important;
+  }
+
+  & [class*="placeholder"] {
+    color: #A0ADB8 !important;
+    font-family: 'Barlow', sans-serif !important;
+    font-size: 0.98rem !important;
+  }
+
+  & [class*="menu"] {
+    border-radius: 0 !important;
+    border: 2px solid #002C51 !important;
+    border-top: none !important;
+    box-shadow: 0 8px 24px rgba(0,44,81,0.14) !important;
+    margin-top: -2px !important;
+    z-index: 200 !important;
+  }
+
+  & [class*="option"] {
+    font-family: 'Barlow', sans-serif !important;
+    font-size: 0.92rem !important;
+    cursor: pointer !important;
+    color: #002C51 !important;
+    padding: 12px 16px !important;
+    border-bottom: 1px solid #F2F2F2 !important;
+  }
+
+  & [class*="option"]:hover,
+  & [class*="option--is-focused"] {
+    background: #F0F5FA !important;
+  }
+
+  & [class*="singleValue"] {
+    font-family: 'Barlow', sans-serif !important;
+    color: #1A1A1A !important;
+    font-size: 1.05rem !important;
+  }
+
+  & [class*="indicatorSeparator"] { display: none !important; }
+  & [class*="indicatorContainer"]  { color: #A0ADB8 !important; }
+  & [class*="loadingIndicator"]    { color: #FF8C00 !important; }
+`;
+
+const SearchIconOverlay = styled.div`
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   color: #FF8C00;
-  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+`;
+
+const Hint = styled.p`
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.73rem;
+  color: #A0ADB8;
+  margin-bottom: 22px;
+`;
+
+const ErrTxt = styled.p`
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.78rem;
+  color: #D93025;
+  margin-top: 5px;
+  margin-bottom: 10px;
+`;
+
+const NoBanner = styled.div`
+  padding: 14px 16px;
+  border: 2px dashed #D93025;
+  background: #FDECEA;
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.85rem;
+  color: #D93025;
+`;
+
+/* Stats strip */
+const StatsStrip = styled.div`
+  border-top: 1px solid #E8EDF2;
+  padding-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
 `;
 
 const StatItem = styled.div`
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 24px;
-  &:last-of-type { margin-bottom: 0; }
+  text-align: center;
+  padding: 0 8px;
+  border-right: 1px solid #E8EDF2;
+  &:last-child { border-right: none; }
 `;
 
-const StatNum = styled.span`
+const StatNum = styled.div`
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 900;
-  font-size: 3rem;
+  font-size: 1.6rem;
   line-height: 1;
-  color: white;
+  color: #002C51;
 `;
 
-const StatAccent = styled.span`
-  color: #FF8C00;
-`;
+const StatOrange = styled.span`color: #FF8C00;`;
 
-const StatLabel = styled.span`
+const StatLabel = styled.div`
   font-family: 'Barlow', sans-serif;
-  font-size: 0.88rem;
-  color: rgba(255,255,255,0.5);
-  margin-top: 4px;
+  font-size: 0.68rem;
+  color: #5A6A7A;
+  margin-top: 3px;
+  line-height: 1.3;
 `;
 
-const StatDivider = styled.div`
-  height: 1px;
-  background: rgba(255,255,255,0.08);
-  margin: 20px 0;
-`;
+/* ─────────────────────────────────────────────
+   COMPONENT
+───────────────────────────────────────────── */
+const Hero = ({ onPlaceSelect, fetchErr }) => {
+  const [localPlace, setLocalPlace] = useState(null);
+  const apiKey = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
 
-const Hero = () => (
-  <HeroSection id="hero">
-    <GridOverlay />
-    <OrangeBar />
-    <Inner>
-      <Left>
-        <EyebrowTag><Dot /> Für Handwerk &amp; Gewerbe</EyebrowTag>
-        <Headline>
-          Volle Auftragsbücher?<br />
-          <HeadlineAccent>Pick dir die Rosinen.</HeadlineAccent>
-        </Headline>
-        <HeadlineSub>Schluss damit, jeden Auftrag annehmen zu müssen.</HeadlineSub>
-        <Subline>
-          Werkruf macht dein Handwerksunternehmen online sichtbar — damit A-Kunden dich finden,
-          nicht umgekehrt. Kein Bullshit, keine Knebelverträge. Nur mehr von den richtigen Aufträgen.
-        </Subline>
-        <CTARow>
-          <CTAButton href="#form">
-            Sichtbarkeits-Check starten <ArrowRight size={18} />
-          </CTAButton>
-          <SecondaryLink href="#features">Erstmal schauen →</SecondaryLink>
-        </CTARow>
-        <CheckList>
-          <CheckItem><CheckCircle size={15} /> Kostenloser Check — kein Risiko</CheckItem>
-          <CheckItem><CheckCircle size={15} /> Ergebnis in 48 Stunden</CheckItem>
-          <CheckItem><CheckCircle size={15} /> Kein Vertrag, kein Kleingedrucktes</CheckItem>
-        </CheckList>
-      </Left>
+  const handleSelect = (value) => {
+    if (!value) return;
+    setLocalPlace(value);
 
-      <Right>
-        <StatsPanel>
-          <StatsPanelTitle>Werkruf in Zahlen</StatsPanelTitle>
-          <StatItem>
-            <StatNum>3<StatAccent>x</StatAccent></StatNum>
-            <StatLabel>mehr qualifizierte Anfragen im Schnitt</StatLabel>
-          </StatItem>
-          <StatDivider />
-          <StatItem>
-            <StatNum>48<StatAccent>h</StatAccent></StatNum>
-            <StatLabel>bis du online sichtbar bist</StatLabel>
-          </StatItem>
-          <StatDivider />
-          <StatItem>
-            <StatNum>0<StatAccent>€</StatAccent></StatNum>
-            <StatLabel>für den ersten Sichtbarkeits-Check</StatLabel>
-          </StatItem>
-        </StatsPanel>
-      </Right>
-    </Inner>
-  </HeroSection>
-);
+    // 1. Smooth-scroll to analysis section
+    const el = document.getElementById('analysis');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // 2. Short delay so scroll begins before fetch fires
+    setTimeout(() => onPlaceSelect(value), 350);
+  };
+
+  return (
+    <HeroSection id="hero">
+      <GridOverlay />
+      <OrangeBar />
+
+      <Inner>
+        {/* ── LEFT: Copy ── */}
+        <Left>
+          <EyebrowTag><Dot /> Für Handwerk &amp; Gewerbe</EyebrowTag>
+
+          <Headline>
+            Volle Auftragsbücher?<br />
+            <Accent>Pick dir die Rosinen.</Accent>
+          </Headline>
+          <HeadlineSub>Schluss damit, jeden Auftrag annehmen zu müssen.</HeadlineSub>
+
+          <CheckList>
+            <CheckItem><CheckCircle size={15} /> Echte Google-Daten — kein Schätzwert</CheckItem>
+            <CheckItem><CheckCircle size={15} /> Sichtbarkeits-Score in Sekunden</CheckItem>
+            <CheckItem><CheckCircle size={15} /> Kostenloser 4-seitiger PDF-Report</CheckItem>
+          </CheckList>
+        </Left>
+
+        {/* ── RIGHT: Search Card ── */}
+        <Right>
+          <SearchCard>
+            <CardTitle>Kostenloser Sichtbarkeits-Check</CardTitle>
+            <CardSub>
+              Betrieb eingeben — wir zeigen dir in Sekunden, was dir gerade entgeht.
+            </CardSub>
+
+            <AcWrap>
+              <SearchIconOverlay>
+                <Search size={20} />
+              </SearchIconOverlay>
+
+              {apiKey ? (
+                <GooglePlacesAutocomplete
+                  apiKey={apiKey}
+                  apiOptions={{ language: 'de', region: 'de' }}
+                  selectProps={{
+                    value: localPlace,
+                    onChange: handleSelect,
+                    placeholder: 'z.B. Sanitär Müller Hamburg…',
+                    noOptionsMessage: () => 'Kein Treffer — versuch es genauer.',
+                    loadingMessage: () => 'Suche…',
+                    isClearable: true,
+                  }}
+                  autocompletionRequest={{
+                    componentRestrictions: { country: 'de' },
+                    types: ['establishment'],
+                  }}
+                />
+              ) : (
+                <NoBanner>⚠ REACT_APP_GOOGLE_PLACES_API_KEY fehlt in .env</NoBanner>
+              )}
+            </AcWrap>
+
+            {fetchErr && <ErrTxt>{fetchErr}</ErrTxt>}
+            <Hint>Tipp: Firmenname + Stadt eingeben für beste Treffer.</Hint>
+
+            <StatsStrip>
+              <StatItem>
+                <StatNum>3<StatOrange>x</StatOrange></StatNum>
+                <StatLabel>mehr qualifizierte Anfragen</StatLabel>
+              </StatItem>
+              <StatItem>
+                <StatNum>48<StatOrange>h</StatOrange></StatNum>
+                <StatLabel>bis du sichtbarer bist</StatLabel>
+              </StatItem>
+              <StatItem>
+                <StatNum>0<StatOrange>€</StatOrange></StatNum>
+                <StatLabel>für den Check</StatLabel>
+              </StatItem>
+            </StatsStrip>
+          </SearchCard>
+        </Right>
+      </Inner>
+    </HeroSection>
+  );
+};
 
 export default Hero;
