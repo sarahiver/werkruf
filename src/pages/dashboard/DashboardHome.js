@@ -451,27 +451,25 @@ export default function DashboardHome() {
   /* ── Save from search ── */
   const handleSave = async (result) => {
     if (!result) return;
-    const placeId = result.placeId || result.value?.place_id;
-    if (!placeId) return;
     setSaving(true);
     try {
-      const pd   = await fetchPlaceDetails(placeId);
-      const city = extractCity(pd.address_components);
+      // PlacesSearch already returns normalised data with fetchFields
+      const city = extractCity(result.addressComponents || []);
       const calc = calcScore({
-        rating:      pd.rating || 0,
-        reviewCount: pd.user_ratings_total || 0,
-        hasWebsite:  !!pd.website,
+        rating:      result.rating      || 0,
+        reviewCount: result.reviewCount || 0,
+        hasWebsite:  result.hasWebsite  || false,
       });
       await supabase.from('user_profiles').update({
-        google_place_id:     pd.place_id,
-        company_name:        pd.name,
+        google_place_id:     result.placeId,
+        company_name:        result.name,
         city,
-        google_rating:       pd.rating            || null,
-        google_review_count: pd.user_ratings_total || null,
+        google_rating:       result.rating      || null,
+        google_review_count: result.reviewCount || null,
         visibility_score:    calc,
       }).eq('id', user.id);
       await refreshProfile();
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error('handleSave error:', err); }
     setSaving(false);
   };
 
@@ -726,6 +724,15 @@ export default function DashboardHome() {
                   onSelect={(result) => {
                     if (!result) { setSelectedPlace(null); return; }
                     setSelectedPlace(result);
+                    // Auto-save immediately on selection
+                    handleSave(result);
+                  }}
+                  onNoResults={() => {
+                    setShowManual(true);
+                    setTimeout(() => {
+                      const el = document.getElementById('manual-form');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
                   }}
                   placeholder={places.searchPlaceholder}
                   dark={false}
@@ -733,19 +740,26 @@ export default function DashboardHome() {
               )}
 
               <button
-                onClick={() => selectedPlace && handleSave(selectedPlace)}
-                disabled={!selectedPlace || saving}
+                onClick={() => selectedPlace && !saving && handleSave(selectedPlace)}
+                disabled={saving}
                 style={{
                   display:'inline-flex',alignItems:'center',gap:7,
                   padding:'10px 22px',marginTop:12,
-                  background: !selectedPlace || saving ? 'rgba(var(--color-primary-rgb),.5)' : 'var(--color-primary)',
+                  background: saving ? 'rgba(var(--color-primary-rgb),.6)' : 'var(--color-primary)',
                   color:'white',fontFamily:'var(--font-display)',
                   fontWeight:'var(--heading-weight)',fontSize:'.88rem',
                   letterSpacing:'.06em',textTransform:'var(--text-transform)',
-                  border:'none',borderRadius:'var(--radius-button)',cursor: !selectedPlace ? 'not-allowed' : 'pointer',
+                  border:'none',borderRadius:'var(--radius-button)',
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: !selectedPlace && !saving ? 0.5 : 1,
                 }}
               >
-                {saving ? 'Wird gespeichert…' : <>Betrieb speichern <ArrowRight size={14}/></>}
+                {saving
+                  ? <><Loader size={14} style={{animation:'spin .8s linear infinite'}}/> Wird gespeichert…</>
+                  : selectedPlace
+                    ? <>✓ {selectedPlace.name} speichern</>
+                    : <>Betrieb speichern <ArrowRight size={14}/></>
+                }
               </button>
 
               {/* Fallback */}
@@ -759,7 +773,7 @@ export default function DashboardHome() {
               </FallbackTrigger>
 
               {showManual && !manualDone && (
-                <ManualForm>
+                <ManualForm id="manual-form">
                   <ManualTitle>Manuelle Einrichtung</ManualTitle>
                   <FormGrid>
                     <Field>
