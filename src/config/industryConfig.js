@@ -69,6 +69,17 @@ export const INDUSTRIES = {
       componentRestrictions: { country: 'de' },
       searchPlaceholder: 'z.B. Sanitär Müller Hamburg…',
       searchHint: 'Tipp: Firmenname + Stadt eingeben für beste Treffer.',
+      tradeOptions: [
+        { value: 'sanitaer',   label: 'Sanitär / Heizung'      },
+        { value: 'elektro',    label: 'Elektro'                 },
+        { value: 'maler',      label: 'Maler / Lackierer'       },
+        { value: 'schreiner',  label: 'Schreiner / Tischler'    },
+        { value: 'dachdecker', label: 'Dachdecker'              },
+        { value: 'garten',     label: 'Garten / Landschaftsbau' },
+        { value: 'reinigung',  label: 'Reinigung'               },
+        { value: 'kfz',        label: 'KFZ'                     },
+        { value: 'sonstiges',  label: 'Sonstiges'               },
+      ],
     },
 
     /* Texts */
@@ -237,6 +248,15 @@ export const INDUSTRIES = {
       componentRestrictions: { country: 'de' },
       searchPlaceholder: 'z.B. Trattoria Milano Hamburg…',
       searchHint: 'Tipp: Restaurantname + Stadt für beste Treffer.',
+      tradeOptions: [
+        { value: 'restaurant', label: 'Restaurant'        },
+        { value: 'cafe',       label: 'Café / Bistro'     },
+        { value: 'bar',        label: 'Bar / Kneipe'      },
+        { value: 'baeckerei',  label: 'Bäckerei'          },
+        { value: 'lieferung',  label: 'Lieferservice'     },
+        { value: 'catering',   label: 'Catering'          },
+        { value: 'sonstiges',  label: 'Sonstiges'         },
+      ],
     },
 
     copy: {

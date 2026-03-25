@@ -160,6 +160,47 @@ export async function saveLeadToSupabase({ email, result, industryKey }) {
   CREATE INDEX IF NOT EXISTS leads_industry_key_idx ON leads(industry_key);
 */
 
+
+/* ─────────────────────────────────────────────
+   MANUAL LEAD SAVE
+   For businesses not found in Google Places.
+   Sets visibility_score = 0, needs_manual_setup = true.
+───────────────────────────────────────────── */
+export async function saveManualLead({ companyName, trade, email, industryKey, userId }) {
+  const { error } = await supabase.from('leads').insert([{
+    company_name:        companyName,
+    contact_person:      '-',
+    phone:               '-',
+    email:               email || null,
+    trade:               trade || null,
+    source:              'manual_onboarding',
+    status:              'new',
+    industry_key:        industryKey || 'handwerk',
+    visibility_score:    0,
+    needs_manual_setup:  true,
+  }]);
+  if (error) throw error;
+
+  // If user is logged in, also update their profile
+  if (userId) {
+    await supabase.from('user_profiles').update({
+      company_name:     companyName,
+      visibility_score: 0,
+      industry_key:     industryKey || 'handwerk',
+    }).eq('id', userId);
+  }
+}
+
+/*
+  SQL — run in Supabase SQL Editor:
+
+  ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS needs_manual_setup BOOLEAN DEFAULT false;
+
+  CREATE INDEX IF NOT EXISTS leads_manual_setup_idx
+    ON leads(needs_manual_setup) WHERE needs_manual_setup = true;
+*/
+
 /* ─────────────────────────────────────────────
    HOOK
    Takes industryPlacesConfig so Hero can pass
