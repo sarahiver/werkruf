@@ -1,23 +1,77 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
-   useAuth — Single source of truth for auth state
+   LEAD → PROFILE SYNC
+   Called once on first login.
+   Checks if user email exists in leads table
+   and merges the data into user_profiles.
+───────────────────────────────────────────── */
+async function syncLeadToProfile(userId, email) {
+  if (!userId || !email) return;
 
-   Returns:
-     user          Supabase user object | null
-     profile       user_profiles row | null
-     loading       true while session is being resolved
-     signInGoogle  () => void
-     signInEmail   (email, password) => { error }
-     signUpEmail   (email, password, meta) => { error }
-     signOut       () => void
-     refreshProfile () => void
+  try {
+    // Check if profile already has a place_id (already synced)
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('google_place_id, visibility_score')
+      .eq('id', userId)
+      .single();
+
+    // Already has data — skip sync
+    if (profile?.google_place_id) return;
+
+    // Find most recent lead with this email
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('company_name, google_place_id, google_rating, google_review_count, visibility_score, city, industry_key')
+      .eq('email', email)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!lead) return;
+
+    // Build update object — only set fields that have values
+    const updates = {};
+    if (lead.company_name)        updates.company_name        = lead.company_name;
+    if (lead.google_place_id)     updates.google_place_id     = lead.google_place_id;
+    if (lead.google_rating)       updates.google_rating       = lead.google_rating;
+    if (lead.google_review_count) updates.google_review_count = lead.google_review_count;
+    if (lead.visibility_score)    updates.visibility_score    = lead.visibility_score;
+    if (lead.city)                updates.city                = lead.city;
+    if (lead.industry_key)        updates.industry_key        = lead.industry_key;
+
+    if (Object.keys(updates).length === 0) return;
+
+    await supabase
+      .from('user_profiles')
+      .update(updates)
+      .eq('id', userId);
+
+    // Mark lead as converted
+    await supabase
+      .from('leads')
+      .update({ status: 'converted' })
+      .eq('email', email)
+      .eq('status', 'new');
+
+  } catch (err) {
+    // Non-blocking — silently fail
+    console.warn('Lead sync skipped:', err.message);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   useAuth
 ───────────────────────────────────────────── */
 export function useAuth() {
   const [user,    setUser]    = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Track if we've already synced this session to avoid duplicate calls
+  const syncedRef = useRef(false);
 
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) { setProfile(null); return; }
@@ -27,22 +81,40 @@ export function useAuth() {
       .eq('id', userId)
       .single();
     setProfile(data || null);
+    return data;
   }, []);
 
   useEffect(() => {
-    // Resolve initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       const u = session?.user ?? null;
       setUser(u);
-      fetchProfile(u?.id).finally(() => setLoading(false));
+      if (u) {
+        // Sync lead data on initial session load
+        if (!syncedRef.current) {
+          syncedRef.current = true;
+          await syncLeadToProfile(u.id, u.email);
+        }
+        await fetchProfile(u.id);
+      }
+      setLoading(false);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         const u = session?.user ?? null;
         setUser(u);
-        await fetchProfile(u?.id);
+
+        if (u) {
+          // SIGNED_IN event = fresh login → trigger sync
+          if (event === 'SIGNED_IN' && !syncedRef.current) {
+            syncedRef.current = true;
+            await syncLeadToProfile(u.id, u.email);
+          }
+          await fetchProfile(u.id);
+        } else {
+          setProfile(null);
+          syncedRef.current = false;
+        }
         setLoading(false);
       }
     );
@@ -50,7 +122,6 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
-  /* ── Google OAuth ── */
   const signInGoogle = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -61,33 +132,30 @@ export function useAuth() {
     });
   }, []);
 
-  /* ── Email/Password Sign In ── */
   const signInEmail = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   }, []);
 
-  /* ── Email/Password Sign Up ── */
   const signUpEmail = useCallback(async (email, password, meta = {}) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/dashboard`,
-        data: meta, // stored in raw_user_meta_data
+        data: meta,
       },
     });
     return { data, error };
   }, []);
 
-  /* ── Sign Out ── */
   const signOut = useCallback(async () => {
+    syncedRef.current = false;
     await supabase.auth.signOut();
   }, []);
 
-  /* ── Force-refresh profile (after onboarding update) ── */
-  const refreshProfile = useCallback(() => {
-    if (user?.id) fetchProfile(user.id);
+  const refreshProfile = useCallback(async () => {
+    if (user?.id) await fetchProfile(user.id);
   }, [user, fetchProfile]);
 
   return {

@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import styled, { keyframes } from 'styled-components';
+import styled, { css } from 'styled-components';
 import {
-  LayoutDashboard, Star, Image, FileText,
-  Settings, LogOut, Menu, X, Link2
+  LayoutDashboard, Star, Image,
+  FileText, Settings, LogOut, Menu, X, Link2
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 
-const slideIn = keyframes`from{transform:translateX(-100%)}to{transform:translateX(0)}`;
-
 /* ─────────────────────────────────────────────
-   LAYOUT SHELL
+   SHELL
 ───────────────────────────────────────────── */
 const Shell = styled.div`
   display: flex;
@@ -19,9 +17,11 @@ const Shell = styled.div`
   background: var(--color-bg);
 `;
 
-/* ── SIDEBAR ── */
+/* ─────────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────────── */
 const Sidebar = styled.aside`
-  width: 260px;
+  width: 240px;
   flex-shrink: 0;
   background: var(--color-primary);
   display: flex;
@@ -37,112 +37,151 @@ const Sidebar = styled.aside`
 `;
 
 const SidebarTop = styled.div`
-  padding: 24px 20px 16px;
+  padding: 22px 18px 14px;
   border-bottom: 1px solid rgba(255,255,255,.08);
 `;
 
-const BrandMark = styled.div`
+const Brand = styled.div`
   font-family: var(--font-display);
   font-weight: var(--heading-weight);
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   letter-spacing: .08em;
   text-transform: var(--text-transform);
   color: var(--color-white);
-  margin-bottom: 4px;
+  margin-bottom: 14px;
 `;
 
-const UserInfo = styled.div`
-  display: flex; align-items: center; gap: 10px; margin-top: 12px;
+const UserRow = styled.div`
+  display: flex; align-items: center; gap: 10px;
 `;
 
 const Avatar = styled.div`
-  width: 36px; height: 36px;
-  border-radius: 50%;
+  width: 34px; height: 34px; border-radius: 50%;
   background: var(--color-accent);
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-display); font-weight: 800;
-  font-size: .9rem; color: white; flex-shrink: 0;
+  font-size: .85rem; color: white; flex-shrink: 0;
+  text-transform: uppercase;
 `;
 
-const UserDetails = styled.div``;
+const UserInfo = styled.div`min-width: 0;`;
 
 const UserName = styled.p`
   font-family: var(--font-body); font-weight: 600;
-  font-size: .85rem; color: white;
+  font-size: .83rem; color: white;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 `;
 
 const UserEmail = styled.p`
-  font-family: var(--font-body); font-size: .72rem;
-  color: rgba(255,255,255,.45);
+  font-family: var(--font-body); font-size: .7rem;
+  color: rgba(255,255,255,.4);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 160px;
 `;
 
+/* ─────────────────────────────────────────────
+   NAV
+───────────────────────────────────────────── */
 const Nav = styled.nav`
-  flex: 1; padding: 16px 12px; display: flex; flex-direction: column; gap: 2px;
+  flex: 1;
+  padding: 14px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto;
 `;
 
 const NavItem = styled(NavLink)`
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
+  padding: 9px 10px;
   font-family: var(--font-body); font-weight: 600;
-  font-size: .88rem; color: rgba(255,255,255,.6);
-  text-decoration: none; border-radius: var(--radius-button);
+  font-size: .86rem; color: rgba(255,255,255,.55);
+  text-decoration: none;
+  border-radius: var(--radius-button);
   transition: background .15s, color .15s;
 
-  &:hover { background: rgba(255,255,255,.07); color: white; }
-  &.active { background: rgba(var(--color-accent-rgb),.15); color: var(--color-accent); }
-  svg { flex-shrink: 0; }
+  svg {
+    flex-shrink: 0;
+    color: rgba(255,255,255,.35);
+    transition: color .15s;
+  }
+
+  &:hover {
+    background: rgba(255,255,255,.07);
+    color: rgba(255,255,255,.85);
+    svg { color: var(--color-accent); }
+  }
+
+  &.active {
+    background: rgba(var(--color-accent-rgb), .12);
+    color: var(--color-accent);
+    svg { color: var(--color-accent); }
+  }
 `;
 
+const NavDivider = styled.div`
+  height: 1px;
+  background: rgba(255,255,255,.07);
+  margin: 6px 0;
+`;
+
+/* ─────────────────────────────────────────────
+   SIDEBAR BOTTOM
+───────────────────────────────────────────── */
 const SidebarBottom = styled.div`
-  padding: 12px;
+  padding: 10px;
   border-top: 1px solid rgba(255,255,255,.08);
 `;
 
 const SignOutBtn = styled.button`
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 10px 12px; background: none; border: none; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 10px;
+  background: none; border: none; cursor: pointer;
   font-family: var(--font-body); font-weight: 600;
-  font-size: .88rem; color: rgba(255,255,255,.45);
+  font-size: .86rem; color: rgba(255,255,255,.4);
   border-radius: var(--radius-button);
   transition: background .15s, color .15s;
-  &:hover { background: rgba(255,255,255,.07); color: #ff8080; }
+  text-align: left;
+
+  svg { flex-shrink: 0; color: rgba(255,255,255,.25); transition: color .15s; }
+
+  &:hover {
+    background: rgba(255,0,0,.08);
+    color: #ff8080;
+    svg { color: #ff8080; }
+  }
 `;
 
-/* ── MAIN AREA ── */
+/* ─────────────────────────────────────────────
+   MAIN
+───────────────────────────────────────────── */
 const Main = styled.main`
   flex: 1;
-  margin-left: 260px;
+  margin-left: 240px;
   min-height: 100vh;
   display: flex; flex-direction: column;
-
   @media(max-width:900px) { margin-left: 0; }
 `;
 
 const TopBar = styled.div`
-  height: 60px;
+  height: 56px;
   background: var(--color-white);
   border-bottom: 1px solid var(--color-border);
   display: flex; align-items: center;
-  padding: 0 24px; gap: 16px;
+  padding: 0 24px; gap: 14px;
   position: sticky; top: 0; z-index: 40;
 `;
 
-const MobileMenuBtn = styled.button`
-  display: none; background: none; border: none; cursor: pointer;
-  color: var(--color-primary); padding: 4px;
+const MobileBtn = styled.button`
+  display: none; background: none; border: none;
+  cursor: pointer; color: var(--color-primary); padding: 4px;
   @media(max-width:900px) { display: flex; align-items: center; }
 `;
 
 const TopBarTitle = styled.p`
   font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1rem; text-transform: var(--text-transform);
+  font-size: .95rem; text-transform: var(--text-transform);
   color: var(--color-primary); letter-spacing: .04em;
 `;
 
 const Overlay = styled.div`
-  display: none;
   @media(max-width:900px) {
     display: ${({ $open }) => $open ? 'block' : 'none'};
     position: fixed; inset: 0;
@@ -151,19 +190,19 @@ const Overlay = styled.div`
 `;
 
 const Content = styled.div`
-  flex: 1; padding: 32px 28px;
-  @media(max-width:560px) { padding: 20px 16px; }
+  flex: 1; padding: 28px 24px;
+  @media(max-width:560px) { padding: 18px 14px; }
 `;
 
 /* ─────────────────────────────────────────────
-   NAV ITEMS
+   NAV CONFIG
 ───────────────────────────────────────────── */
 const NAV_ITEMS = [
-  { to: '/dashboard',            icon: <LayoutDashboard size={17} />, label: 'Übersicht'    },
-  { to: '/dashboard/bewertungen',icon: <Star size={17} />,            label: 'Bewertungen'  },
-  { to: '/dashboard/fotos',      icon: <Image size={17} />,           label: 'Fotos'        },
-  { to: '/dashboard/reporting',  icon: <FileText size={17} />,        label: 'Reporting'    },
-  { to: '/dashboard/einstellungen',icon: <Settings size={17} />,      label: 'Einstellungen'},
+  { to: '/dashboard',              icon: LayoutDashboard, label: 'Übersicht',    end: true },
+  { to: '/dashboard/bewertungen',  icon: Star,            label: 'Bewertungen'           },
+  { to: '/dashboard/fotos',        icon: Image,           label: 'Fotos'                 },
+  { to: '/dashboard/reporting',    icon: FileText,        label: 'Reporting'             },
+  { to: '/dashboard/einstellungen',icon: Settings,        label: 'Einstellungen'         },
 ];
 
 /* ─────────────────────────────────────────────
@@ -172,10 +211,10 @@ const NAV_ITEMS = [
 export default function DashboardLayout() {
   const { user, profile, signOut } = useAuthContext();
   const { brand } = useIndustry();
-  const navigate  = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const navigate   = useNavigate();
+  const [open, setOpen] = useState(false);
 
-  const initials = (user?.email || 'U')[0].toUpperCase();
+  const initials    = (profile?.full_name || user?.email || 'U')[0].toUpperCase();
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'Nutzer';
 
   const handleSignOut = async () => {
@@ -185,37 +224,38 @@ export default function DashboardLayout() {
 
   return (
     <Shell>
-      <Overlay $open={sidebarOpen} onClick={() => setSidebarOpen(false)} />
+      <Overlay $open={open} onClick={() => setOpen(false)} />
 
-      <Sidebar $open={sidebarOpen}>
+      <Sidebar $open={open}>
         <SidebarTop>
-          <BrandMark>{brand.logo}</BrandMark>
-          <UserInfo>
+          <Brand>{brand.logo}</Brand>
+          <UserRow>
             <Avatar>{initials}</Avatar>
-            <UserDetails>
+            <UserInfo>
               <UserName>{displayName}</UserName>
               <UserEmail>{user?.email}</UserEmail>
-            </UserDetails>
-          </UserInfo>
+            </UserInfo>
+          </UserRow>
         </SidebarTop>
 
         <Nav>
-          {NAV_ITEMS.map(item => (
+          {NAV_ITEMS.map(({ to, icon: Icon, label, end }) => (
             <NavItem
-              key={item.to}
-              to={item.to}
-              end={item.to === '/dashboard'}
-              onClick={() => setSidebarOpen(false)}
+              key={to}
+              to={to}
+              end={end}
+              onClick={() => setOpen(false)}
             >
-              {item.icon}
-              {item.label}
+              <Icon size={16} />
+              {label}
             </NavItem>
           ))}
+          <NavDivider />
         </Nav>
 
         <SidebarBottom>
           <SignOutBtn onClick={handleSignOut}>
-            <LogOut size={17} />
+            <LogOut size={16} />
             Abmelden
           </SignOutBtn>
         </SidebarBottom>
@@ -223,9 +263,9 @@ export default function DashboardLayout() {
 
       <Main>
         <TopBar>
-          <MobileMenuBtn onClick={() => setSidebarOpen(!sidebarOpen)}>
-            {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
-          </MobileMenuBtn>
+          <MobileBtn onClick={() => setOpen(!open)}>
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </MobileBtn>
           <TopBarTitle>{brand.name} Dashboard</TopBarTitle>
         </TopBar>
         <Content>
