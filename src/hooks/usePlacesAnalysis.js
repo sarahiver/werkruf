@@ -2,12 +2,7 @@ import { useState, useCallback } from 'react';
 import supabase from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
-   SCORE ALGORITHM
-   Start: 100 Punkte
-   Rating:    < 4.0  → -20,  < 3.5 → -30,  < 3.0 → -40,  fehlt → -35
-   Reviews:   < 50   → -10,  < 20  → -15,  < 5   → -20,  0     → -25
-   Website:   fehlt  → -15
-   Max Abzug: -80 (Score min 0)
+   SCORE ALGORITHM — industry-agnostic
 ───────────────────────────────────────────── */
 export function calcScore({ rating, reviewCount, hasWebsite }) {
   let score = 100;
@@ -34,7 +29,6 @@ export const scoreLabel = (s) => s >= 70 ? 'GUT' : s >= 45 ? 'AUSBAUFÄHIG' : 'K
 
 /* ─────────────────────────────────────────────
    GOOGLE PLACES — getDetails
-   Fields billed per use — only fetch what we need
 ───────────────────────────────────────────── */
 export function fetchPlaceDetails(placeId) {
   return new Promise((resolve, reject) => {
@@ -49,13 +43,8 @@ export function fetchPlaceDetails(placeId) {
       {
         placeId,
         fields: [
-          'place_id',
-          'name',
-          'rating',
-          'user_ratings_total',
-          'website',
-          'formatted_address',
-          'address_components',
+          'place_id', 'name', 'rating', 'user_ratings_total',
+          'website', 'formatted_address', 'address_components',
         ],
       },
       (place, status) => {
@@ -78,14 +67,13 @@ export function extractCity(components) {
   )?.long_name || '';
 }
 
-/* Realistic estimate — Google doesn't expose response rate */
 export function estimateUnanswered(count) {
   if (!count) return 0;
   return Math.max(1, Math.round(count * (0.38 + (count % 9) * 0.02)));
 }
 
 /* ─────────────────────────────────────────────
-   ALERTS — built from real data
+   ALERTS — industry-agnostic
 ───────────────────────────────────────────── */
 export function buildAlerts(r) {
   const list = [];
@@ -128,7 +116,7 @@ export function buildAlerts(r) {
 }
 
 /* ─────────────────────────────────────────────
-   SCAN ANIMATION STEPS
+   SCAN STEPS — labels stay generic
 ───────────────────────────────────────────── */
 export const SCAN_STEPS = [
   { lbl: ()  => 'Google Business Profil abrufen…',               ms: 800 },
@@ -139,18 +127,18 @@ export const SCAN_STEPS = [
 
 /* ─────────────────────────────────────────────
    SUPABASE LEAD SAVE
-   Saves all real Google data + calculated score
+   Includes industry_key for attribution tracking
 ───────────────────────────────────────────── */
-export async function saveLeadToSupabase({ email, result }) {
+export async function saveLeadToSupabase({ email, result, industryKey }) {
   const { error } = await supabase.from('leads').insert([{
     company_name:        result.name,
     contact_person:      '-',
     phone:               '-',
     city:                result.city,
-    email:               email,
+    email,
     source:              'smart_check',
     status:              'new',
-    // Extended fields — add these columns via SQL below if not present
+    industry_key:        industryKey || 'handwerk',   // ← NEW
     google_place_id:     result.placeId     || null,
     google_rating:       result.rating      || null,
     google_review_count: result.reviewCount || null,
@@ -160,17 +148,22 @@ export async function saveLeadToSupabase({ email, result }) {
 }
 
 /*
-  SQL to add extended columns (run once in Supabase SQL Editor):
+  SQL — run once in Supabase SQL Editor:
 
   ALTER TABLE leads
+    ADD COLUMN IF NOT EXISTS industry_key        TEXT DEFAULT 'handwerk',
     ADD COLUMN IF NOT EXISTS google_place_id     TEXT,
     ADD COLUMN IF NOT EXISTS google_rating        NUMERIC(3,1),
     ADD COLUMN IF NOT EXISTS google_review_count  INTEGER,
     ADD COLUMN IF NOT EXISTS visibility_score     INTEGER;
+
+  CREATE INDEX IF NOT EXISTS leads_industry_key_idx ON leads(industry_key);
 */
 
 /* ─────────────────────────────────────────────
    HOOK
+   Takes industryPlacesConfig so Hero can pass
+   the correct Google Places types/filters
 ───────────────────────────────────────────── */
 export function usePlacesAnalysis() {
   const [phase,         setPhase]         = useState('idle');
@@ -185,19 +178,16 @@ export function usePlacesAnalysis() {
     setScanStep(0);
     setFetchErr('');
 
-    // Fire real API fetch immediately (parallel with animation)
     const fetchPromise = fetchPlaceDetails(
       placeOption.value.place_id
     ).catch(() => null);
 
-    // Animate scan steps
     let acc = 0;
     SCAN_STEPS.forEach((s, i) => {
       acc += s.ms;
       setTimeout(() => setScanStep(i + 1), acc);
     });
 
-    // Wait for both: animation finish + API response
     const [pd] = await Promise.all([
       fetchPromise,
       new Promise(r => setTimeout(r, acc + 200)),
@@ -221,14 +211,14 @@ export function usePlacesAnalysis() {
     const score       = calcScore({ rating, reviewCount, hasWebsite });
 
     setResult({
-      placeId:      pd.place_id,
-      name:         pd.name,
+      placeId: pd.place_id,
+      name:    pd.name,
       city,
-      address:      pd.formatted_address || '',
+      address: pd.formatted_address || '',
       rating,
       reviewCount,
       hasWebsite,
-      website:      pd.website || null,
+      website: pd.website || null,
       unanswered,
       score,
     });
@@ -247,13 +237,7 @@ export function usePlacesAnalysis() {
   const markSent = useCallback(() => setPhase('sent'), []);
 
   return {
-    phase,
-    scanStep,
-    result,
-    fetchErr,
-    selectedPlace,
-    runAnalysis,
-    reset,
-    markSent,
+    phase, scanStep, result, fetchErr, selectedPlace,
+    runAnalysis, reset, markSent,
   };
 }

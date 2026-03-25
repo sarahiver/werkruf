@@ -1,10 +1,11 @@
 import React from 'react';
 import styled from 'styled-components';
+import { useIndustry } from '../context/IndustryContext';
 
 const FooterWrap = styled.footer`
-  background: #001A30;
+  background: var(--color-bg-dark);
   padding: 36px 24px;
-  border-top: 4px solid #FF8C00;
+  border-top: 4px solid var(--color-accent);
 `;
 
 const Inner = styled.div`
@@ -18,45 +19,47 @@ const Inner = styled.div`
 `;
 
 const Logo = styled.span`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
+  font-family: var(--font-display);
+  font-weight: var(--heading-weight);
   font-size: 1.3rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: white;
+  text-transform: var(--text-transform);
+  color: var(--color-white);
 `;
 
-const Links = styled.div`
-  display: flex;
-  gap: 28px;
-`;
+const Links = styled.div`display: flex; gap: 28px;`;
 
 const FooterLink = styled.a`
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.83rem;
   color: rgba(255,255,255,0.4);
   transition: color 0.2s;
-  &:hover { color: #FF8C00; }
+  &:hover { color: var(--color-accent); }
 `;
 
 const Copy = styled.p`
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   color: rgba(255,255,255,0.28);
 `;
 
-const Footer = () => (
-  <FooterWrap>
-    <Inner>
-      <Logo>Werkruf</Logo>
-      <Links>
-        <FooterLink href="/impressum">Impressum</FooterLink>
-        <FooterLink href="/datenschutz">Datenschutz</FooterLink>
-        <FooterLink href="mailto:hallo@werkruf.de">Kontakt</FooterLink>
-      </Links>
-      <Copy>© {new Date().getFullYear()} Werkruf — Digitaler Rückenwind für echtes Handwerk.</Copy>
-    </Inner>
-  </FooterWrap>
-);
+const Footer = () => {
+  const { brand, copy } = useIndustry();
+  const { footer } = copy;
+
+  return (
+    <FooterWrap>
+      <Inner>
+        <Logo>{brand.logo}</Logo>
+        <Links>
+          {footer.links.map((link, i) => (
+            <FooterLink key={i} href={link.href}>{link.label}</FooterLink>
+          ))}
+        </Links>
+        <Copy>© {new Date().getFullYear()} {brand.name} — {footer.tagline}</Copy>
+      </Inner>
+    </FooterWrap>
+  );
+};
 
 export default Footer;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import GooglePlacesAutocomplete from 'react-google-places-autocomplete';
 import { Search, CheckCircle } from 'lucide-react';
+import { useIndustry } from '../context/IndustryContext';
 
 const fadeUp = keyframes`
   from { opacity: 0; transform: translateY(28px); }
@@ -12,9 +13,12 @@ const pulse = keyframes`
   50%       { opacity: 0.5; }
 `;
 
+/* ─────────────────────────────────────────────
+   STYLED — all colors from CSS vars
+───────────────────────────────────────────── */
 const HeroSection = styled.section`
   min-height: 100vh;
-  background: #002C51;
+  background: var(--color-primary);
   display: flex;
   align-items: center;
   position: relative;
@@ -26,17 +30,19 @@ const GridOverlay = styled.div`
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255,140,0,0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,140,0,0.05) 1px, transparent 1px);
+    linear-gradient(rgba(var(--color-accent-rgb), 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.05) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
+  /* Only show for heavy-duty industries */
+  display: ${({ $show }) => $show ? 'block' : 'none'};
 `;
 
-const OrangeBar = styled.div`
+const AccentBar = styled.div`
   position: absolute;
   top: 0; right: 0;
   width: 5px; height: 100%;
-  background: #FF8C00;
+  background: var(--color-accent);
 `;
 
 const Inner = styled.div`
@@ -54,7 +60,6 @@ const Inner = styled.div`
   }
 `;
 
-/* LEFT */
 const Left = styled.div`
   animation: ${fadeUp} 0.7s ease both;
   @media (max-width: 900px) { order: 1; }
@@ -64,10 +69,10 @@ const EyebrowTag = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,140,0,0.12);
-  border: 1px solid rgba(255,140,0,0.35);
-  color: #FF8C00;
-  font-family: 'Barlow', sans-serif;
+  background: rgba(var(--color-accent-rgb), 0.12);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+  color: var(--color-accent);
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.75rem;
   letter-spacing: 0.14em;
@@ -78,29 +83,28 @@ const EyebrowTag = styled.div`
 
 const Dot = styled.span`
   width: 6px; height: 6px;
-  background: #FF8C00;
+  background: var(--color-accent);
   border-radius: 50%;
   display: inline-block;
   animation: ${pulse} 1.5s ease infinite;
 `;
 
 const Headline = styled.h1`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
   font-size: clamp(2.6rem, 5vw, 4.2rem);
   line-height: 1.0;
-  text-transform: uppercase;
-  color: white;
+  color: var(--color-white);
   margin-bottom: 8px;
+  text-transform: var(--text-transform);
 `;
 
-const Accent = styled.span`color: #FF8C00;`;
+const HeadlineAccent = styled.span`
+  color: var(--color-accent);
+`;
 
 const HeadlineSub = styled.p`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
+  font-family: var(--font-display);
   font-size: clamp(1.1rem, 2vw, 1.5rem);
-  text-transform: uppercase;
+  text-transform: var(--text-transform);
   color: rgba(255,255,255,0.38);
   margin-bottom: 32px;
   letter-spacing: 0.04em;
@@ -117,235 +121,220 @@ const CheckItem = styled.li`
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   color: rgba(255,255,255,0.62);
-  svg { color: #FF8C00; flex-shrink: 0; }
+  svg { color: var(--color-accent); flex-shrink: 0; }
 `;
 
-/* RIGHT — Search card */
+/* Search Card */
 const Right = styled.div`
   animation: ${fadeUp} 0.7s ease 0.15s both;
   @media (max-width: 900px) { order: 2; }
 `;
 
 const SearchCard = styled.div`
-  background: white;
-  border-top: 5px solid #FF8C00;
+  background: var(--color-white);
+  border-top: 5px solid var(--color-accent);
+  border-radius: var(--radius-card);
   padding: 32px 28px 28px;
-
-  @media (max-width: 560px) {
-    padding: 24px 20px 22px;
-  }
+  @media (max-width: 560px) { padding: 24px 20px 22px; }
 `;
 
 const CardTitle = styled.p`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-weight: var(--heading-weight);
   font-size: 1.15rem;
-  text-transform: uppercase;
-  color: #002C51;
-  letter-spacing: 0.04em;
+  text-transform: var(--text-transform);
+  color: var(--color-primary);
+  letter-spacing: var(--letter-spacing);
   margin-bottom: 4px;
 `;
 
 const CardSub = styled.p`
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
-  color: #5A6A7A;
+  color: var(--color-text-muted);
   margin-bottom: 20px;
   line-height: 1.5;
 `;
 
-/* Autocomplete — large, prominent */
+/* Autocomplete overrides */
 const AcWrap = styled.div`
   position: relative;
   margin-bottom: 8px;
 
   & > div > div {
-    border-radius: 0 !important;
-    border: 2px solid #002C51 !important;
+    border-radius: var(--radius-card) !important;
+    border: 2px solid var(--color-primary) !important;
     box-shadow: none !important;
-    font-family: 'Barlow', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-size: 1.05rem !important;
     min-height: 58px !important;
-    background: white !important;
+    background: var(--color-white) !important;
     cursor: text !important;
     padding-left: 44px !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
   }
 
   & > div > div:focus-within {
-    border-color: #FF8C00 !important;
-    box-shadow: 0 0 0 3px rgba(255,140,0,0.18) !important;
+    border-color: var(--color-accent) !important;
+    box-shadow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.18) !important;
   }
 
   & input {
-    font-family: 'Barlow', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-size: 1.05rem !important;
-    color: #1A1A1A !important;
+    color: var(--color-text) !important;
   }
 
   & [class*="placeholder"] {
     color: #A0ADB8 !important;
-    font-family: 'Barlow', sans-serif !important;
     font-size: 0.98rem !important;
   }
 
   & [class*="menu"] {
-    border-radius: 0 !important;
-    border: 2px solid #002C51 !important;
+    border-radius: var(--radius-card) !important;
+    border: 2px solid var(--color-primary) !important;
     border-top: none !important;
-    box-shadow: 0 8px 24px rgba(0,44,81,0.14) !important;
+    box-shadow: 0 8px 24px rgba(var(--color-primary-rgb), 0.14) !important;
     margin-top: -2px !important;
     z-index: 200 !important;
   }
 
   & [class*="option"] {
-    font-family: 'Barlow', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-size: 0.92rem !important;
     cursor: pointer !important;
-    color: #002C51 !important;
+    color: var(--color-primary) !important;
     padding: 12px 16px !important;
-    border-bottom: 1px solid #F2F2F2 !important;
+    border-bottom: 1px solid var(--color-border) !important;
   }
 
   & [class*="option"]:hover,
   & [class*="option--is-focused"] {
-    background: #F0F5FA !important;
+    background: rgba(var(--color-primary-rgb), 0.04) !important;
   }
 
   & [class*="singleValue"] {
-    font-family: 'Barlow', sans-serif !important;
-    color: #1A1A1A !important;
+    font-family: var(--font-body) !important;
+    color: var(--color-text) !important;
     font-size: 1.05rem !important;
   }
 
   & [class*="indicatorSeparator"] { display: none !important; }
   & [class*="indicatorContainer"]  { color: #A0ADB8 !important; }
-  & [class*="loadingIndicator"]    { color: #FF8C00 !important; }
+  & [class*="loadingIndicator"]    { color: var(--color-accent) !important; }
 `;
 
 const SearchIconOverlay = styled.div`
   position: absolute;
-  left: 16px;
-  top: 50%;
+  left: 16px; top: 50%;
   transform: translateY(-50%);
-  color: #FF8C00;
-  display: flex;
-  align-items: center;
-  pointer-events: none;
-  z-index: 10;
+  color: var(--color-accent);
+  display: flex; align-items: center;
+  pointer-events: none; z-index: 10;
 `;
 
 const Hint = styled.p`
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.73rem;
   color: #A0ADB8;
   margin-bottom: 22px;
 `;
 
 const ErrTxt = styled.p`
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: #D93025;
-  margin-top: 5px;
-  margin-bottom: 10px;
+  margin-top: 5px; margin-bottom: 10px;
 `;
 
 const NoBanner = styled.div`
   padding: 14px 16px;
   border: 2px dashed #D93025;
   background: #FDECEA;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.85rem;
-  color: #D93025;
+  font-family: var(--font-body);
+  font-size: 0.85rem; color: #D93025;
 `;
 
-/* Stats strip */
+/* Stats */
 const StatsStrip = styled.div`
-  border-top: 1px solid #E8EDF2;
+  border-top: 1px solid var(--color-border);
   padding-top: 20px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
 `;
 
 const StatItem = styled.div`
-  text-align: center;
-  padding: 0 8px;
-  border-right: 1px solid #E8EDF2;
+  text-align: center; padding: 0 8px;
+  border-right: 1px solid var(--color-border);
   &:last-child { border-right: none; }
 `;
 
 const StatNum = styled.div`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 1.6rem;
-  line-height: 1;
-  color: #002C51;
+  font-family: var(--font-display);
+  font-weight: var(--heading-weight);
+  font-size: 1.6rem; line-height: 1;
+  color: var(--color-primary);
 `;
 
-const StatOrange = styled.span`color: #FF8C00;`;
+const StatAccent = styled.span`color: var(--color-accent);`;
 
 const StatLabel = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.68rem;
-  color: #5A6A7A;
-  margin-top: 3px;
-  line-height: 1.3;
+  font-family: var(--font-body);
+  font-size: 0.68rem; color: var(--color-text-muted);
+  margin-top: 3px; line-height: 1.3;
 `;
 
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
 const Hero = ({ onPlaceSelect, fetchErr }) => {
+  const { copy, places, design } = useIndustry();
+  const { hero: heroCopy, check: checkCopy } = copy;
+
   const [localPlace, setLocalPlace] = useState(null);
   const apiKey = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
 
   const handleSelect = (value) => {
     if (!value) return;
     setLocalPlace(value);
-
-    // 1. Smooth-scroll to analysis section
     const el = document.getElementById('analysis');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // 2. Short delay so scroll begins before fetch fires
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => onPlaceSelect(value), 350);
   };
 
   return (
     <HeroSection id="hero">
-      <GridOverlay />
-      <OrangeBar />
+      <GridOverlay $show={design.accentStripePattern} />
+      <AccentBar />
 
       <Inner>
-        {/* ── LEFT: Copy ── */}
         <Left>
-          <EyebrowTag><Dot /> Für Handwerk &amp; Gewerbe</EyebrowTag>
+          <EyebrowTag><Dot /> {heroCopy.eyebrow}</EyebrowTag>
 
           <Headline>
-            Volle Auftragsbücher?<br />
-            <Accent>Pick dir die Rosinen.</Accent>
+            {heroCopy.headline}<br />
+            <HeadlineAccent>{heroCopy.headlineAccent}</HeadlineAccent>
           </Headline>
-          <HeadlineSub>Schluss damit, jeden Auftrag annehmen zu müssen.</HeadlineSub>
+
+          <HeadlineSub>{heroCopy.subline}</HeadlineSub>
 
           <CheckList>
-            <CheckItem><CheckCircle size={15} /> Echte Google-Daten — kein Schätzwert</CheckItem>
-            <CheckItem><CheckCircle size={15} /> Sichtbarkeits-Score in Sekunden</CheckItem>
-            <CheckItem><CheckCircle size={15} /> Kostenloser 4-seitiger PDF-Report</CheckItem>
+            {heroCopy.checks.map((check, i) => (
+              <CheckItem key={i}>
+                <CheckCircle size={15} />
+                {check}
+              </CheckItem>
+            ))}
           </CheckList>
         </Left>
 
-        {/* ── RIGHT: Search Card ── */}
         <Right>
           <SearchCard>
-            <CardTitle>Kostenloser Sichtbarkeits-Check</CardTitle>
-            <CardSub>
-              Betrieb eingeben — wir zeigen dir in Sekunden, was dir gerade entgeht.
-            </CardSub>
+            <CardTitle>{checkCopy.cardTitle}</CardTitle>
+            <CardSub>{checkCopy.cardSub}</CardSub>
 
             <AcWrap>
               <SearchIconOverlay>
@@ -359,14 +348,15 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
                   selectProps={{
                     value: localPlace,
                     onChange: handleSelect,
-                    placeholder: 'z.B. Sanitär Müller Hamburg…',
+                    placeholder: places.searchPlaceholder,
                     noOptionsMessage: () => 'Kein Treffer — versuch es genauer.',
                     loadingMessage: () => 'Suche…',
                     isClearable: true,
                   }}
                   autocompletionRequest={{
-                    componentRestrictions: { country: 'de' },
-                    types: ['establishment'],
+                    componentRestrictions: places.componentRestrictions,
+                    types: [places.primaryType],
+                    // Industry-specific types passed as keyword hint
                   }}
                 />
               ) : (
@@ -375,19 +365,19 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
             </AcWrap>
 
             {fetchErr && <ErrTxt>{fetchErr}</ErrTxt>}
-            <Hint>Tipp: Firmenname + Stadt eingeben für beste Treffer.</Hint>
+            <Hint>{places.searchHint}</Hint>
 
             <StatsStrip>
               <StatItem>
-                <StatNum>3<StatOrange>x</StatOrange></StatNum>
-                <StatLabel>mehr qualifizierte Anfragen</StatLabel>
+                <StatNum>3<StatAccent>×</StatAccent></StatNum>
+                <StatLabel>mehr Anfragen</StatLabel>
               </StatItem>
               <StatItem>
-                <StatNum>48<StatOrange>h</StatOrange></StatNum>
+                <StatNum>48<StatAccent>h</StatAccent></StatNum>
                 <StatLabel>bis du sichtbarer bist</StatLabel>
               </StatItem>
               <StatItem>
-                <StatNum>0<StatOrange>€</StatOrange></StatNum>
+                <StatNum>0<StatAccent>€</StatAccent></StatNum>
                 <StatLabel>für den Check</StatLabel>
               </StatItem>
             </StatsStrip>
