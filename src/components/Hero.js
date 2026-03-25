@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import GooglePlacesAutocomplete from 'react-google-places-autocomplete';
-import { Search, CheckCircle } from 'lucide-react';
+import PlacesSearch from './PlacesSearch';
+import { CheckCircle } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
 
 const fadeUp = keyframes`
@@ -294,15 +294,17 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
   const { copy, places, design } = useIndustry();
   const { hero: heroCopy, check: checkCopy } = copy;
 
-  const [localPlace, setLocalPlace] = useState(null);
   const apiKey = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
 
-  const handleSelect = (value) => {
-    if (!value) return;
-    setLocalPlace(value);
+  const handleSelect = (result) => {
+    if (!result) return;
     const el = document.getElementById('analysis');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setTimeout(() => onPlaceSelect(value), 350);
+    // Pass in format compatible with usePlacesAnalysis (needs value.value.place_id)
+    setTimeout(() => onPlaceSelect({
+      label: result.label || result.name,
+      value: { place_id: result.placeId },
+    }), 350);
   };
 
   return (
@@ -336,33 +338,15 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
             <CardTitle>{checkCopy.cardTitle}</CardTitle>
             <CardSub>{checkCopy.cardSub}</CardSub>
 
-            <AcWrap>
-              <SearchIconOverlay>
-                <Search size={20} />
-              </SearchIconOverlay>
-
-              {apiKey ? (
-                <GooglePlacesAutocomplete
-                  apiKey={apiKey}
-                  apiOptions={{ language: 'de', region: 'de' }}
-                  selectProps={{
-                    value: localPlace,
-                    onChange: handleSelect,
-                    placeholder: places.searchPlaceholder,
-                    noOptionsMessage: () => 'Kein Treffer — versuch es genauer.',
-                    loadingMessage: () => 'Suche…',
-                    isClearable: true,
-                  }}
-                  autocompletionRequest={{
-                    componentRestrictions: places.componentRestrictions,
-                    types: [places.primaryType],
-                    // Industry-specific types passed as keyword hint
-                  }}
-                />
-              ) : (
-                <NoBanner>⚠ REACT_APP_GOOGLE_PLACES_API_KEY fehlt in .env</NoBanner>
-              )}
-            </AcWrap>
+            {apiKey ? (
+              <PlacesSearch
+                onSelect={handleSelect}
+                placeholder={places.searchPlaceholder}
+                dark={false}
+              />
+            ) : (
+              <NoBanner>⚠ REACT_APP_GOOGLE_PLACES_API_KEY fehlt in .env</NoBanner>
+            )}
 
             {fetchErr && <ErrTxt>{fetchErr}</ErrTxt>}
             <Hint>{places.searchHint}</Hint>

@@ -14,107 +14,8 @@ import {
 } from '../../hooks/usePlacesAnalysis';
 import supabase from '../../supabaseClient';
 import GhostSetupModal   from '../../components/dashboard/GhostSetupModal';
+import PlacesSearch      from '../../components/PlacesSearch';
 import PathAPricingModal from '../../components/dashboard/PathAPricingModal';
-
-/* ─────────────────────────────────────────────
-   GOOGLE PLACES — New Autocomplete API
-   Avoids deprecated AutocompleteService warning
-───────────────────────────────────────────── */
-function PlacesSearch({ onSelect, placeholder }) {
-  const [query,       setQuery]       = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [loading,     setLoading]     = useState(false);
-  const [open,        setOpen]        = useState(false);
-  const debounceRef = React.useRef(null);
-
-  const search = (val) => {
-    setQuery(val);
-    if (!val.trim() || val.length < 2) { setSuggestions([]); setOpen(false); return; }
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        // Try new v1 API first, fall back to legacy if 403/unavailable
-        let usedNewAPI = false;
-        if (window.google?.maps?.places?.AutocompleteSuggestion) {
-          try {
-            const { suggestions: suggs } = await window.google.maps.places
-              .AutocompleteSuggestion.fetchAutocompleteSuggestions({
-                input: val,
-                includedPrimaryTypes: ['establishment'],
-                includedRegionCodes:  ['de'],
-              });
-            setSuggestions(suggs || []);
-            usedNewAPI = true;
-          } catch (e) {
-            // 403 = Places API (New) not enabled — fall through to legacy
-            usedNewAPI = false;
-          }
-        }
-        if (!usedNewAPI && window.google?.maps?.places?.AutocompleteService) {
-          const svc = new window.google.maps.places.AutocompleteService();
-          svc.getPlacePredictions(
-            { input: val, componentRestrictions: { country: 'de' }, types: ['establishment'] },
-            (predictions, status) => {
-              if (status === 'OK') {
-                setSuggestions(predictions.map(p => ({
-                  placePrediction: {
-                    placeId:       p.place_id,
-                    text:          { text: p.description },
-                    mainText:      { text: p.structured_formatting.main_text },
-                    secondaryText: { text: p.structured_formatting.secondary_text },
-                  }
-                })));
-              }
-            }
-          );
-        }
-        setOpen(true);
-      } catch (err) {
-        console.warn('Places search:', err);
-      }
-      setLoading(false);
-    }, 350);
-  };
-
-  const handleSelect = async (sugg) => {
-    const pred = sugg.placePrediction;
-    const name = pred.mainText?.text || pred.text?.text || '';
-    setQuery(name);
-    setOpen(false);
-    setSuggestions([]);
-    onSelect({ placeId: pred.placeId, name });
-  };
-
-  return (
-    <SearchWrap>
-      <SearchIconAbs><Search size={15} /></SearchIconAbs>
-      <SearchInput
-        value={query}
-        onChange={e => search(e.target.value)}
-        placeholder={placeholder}
-        onFocus={() => suggestions.length && setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 200)}
-      />
-      {loading && <SearchSpinner />}
-      {open && suggestions.length > 0 && (
-        <SuggestionList>
-          {suggestions.map((s, i) => {
-            const pred = s.placePrediction;
-            const main = pred.mainText?.text || pred.text?.text || '';
-            const sec  = pred.secondaryText?.text || '';
-            return (
-              <SuggestionItem key={i} onMouseDown={() => handleSelect(s)}>
-                <SuggMain>{main}</SuggMain>
-                {sec && <SuggSec>{sec}</SuggSec>}
-              </SuggestionItem>
-            );
-          })}
-        </SuggestionList>
-      )}
-    </SearchWrap>
-  );
-}
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
@@ -548,7 +449,10 @@ export default function DashboardHome() {
   const score       = profile?.visibility_score ?? null;
 
   /* ── Save from search ── */
-  const handleSave = async ({ placeId, name }) => {
+  const handleSave = async (result) => {
+    if (!result) return;
+    const placeId = result.placeId || result.value?.place_id;
+    if (!placeId) return;
     setSaving(true);
     try {
       const pd   = await fetchPlaceDetails(placeId);
@@ -819,8 +723,12 @@ export default function DashboardHome() {
 
               {apiKey && (
                 <PlacesSearch
-                  onSelect={(val) => { setSelectedPlace(val); }}
+                  onSelect={(result) => {
+                    if (!result) { setSelectedPlace(null); return; }
+                    setSelectedPlace(result);
+                  }}
                   placeholder={places.searchPlaceholder}
+                  dark={false}
                 />
               )}
 
