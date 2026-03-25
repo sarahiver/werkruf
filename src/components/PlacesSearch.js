@@ -233,22 +233,15 @@ export default function PlacesSearch({
           const ac = new window.google.maps.places.Autocomplete(
             inputRef.current,
             {
-              // Request both naming conventions — Google uses what's available
+              // Legacy field names only — Autocomplete widget does NOT
+              // support v1 camelCase fields (displayName, formattedAddress etc.)
+              // Those are only for the new PlaceAutocompleteElement / Place class
               fields: [
-                // v1 / New Places API (camelCase)
-                'id',
-                'displayName',
-                'formattedAddress',
-                'addressComponents',
-                'location',
-                'rating',
-                'userRatingCount',
-                'websiteURI',
-                // Legacy Places API (snake_case)
                 'place_id',
                 'name',
                 'formatted_address',
                 'address_components',
+                'rating',
                 'user_ratings_total',
                 'website',
                 'geometry',
