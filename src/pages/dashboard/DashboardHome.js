@@ -547,17 +547,29 @@ export default function DashboardHome() {
     setManualSaving(true);
 
     try {
-      const { data: { user: cu } } = await supabase.auth.getUser();
+      // Insert lead only — profile update happens via refreshProfile()
       await saveManualLead({
         companyName: manualName.trim(),
         trade:       manualTrade,
         email:       manualEmail || user?.email,
         industryKey,
-        userId:      cu?.id,
+        userId:      null, // skip profile update here, avoid RLS issues
       });
+
+      // Manually update profile directly using authenticated client
+      if (user?.id) {
+        await supabase.from('user_profiles').update({
+          company_name:     manualName.trim(),
+          visibility_score: 0,
+          industry_key:     industryKey || 'handwerk',
+        }).eq('id', user.id);
+      }
+
       await refreshProfile();
       setManualDone(true);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('Manual submit error:', err);
+    }
     setManualSaving(false);
   };
 
