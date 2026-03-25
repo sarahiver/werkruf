@@ -1,1102 +1,653 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import styled, { keyframes, css } from 'styled-components';
+import GooglePlacesAutocomplete from 'react-google-places-autocomplete';
 import {
-  Search, MapPin, Star, AlertTriangle, MessageSquare,
-  Clock, CheckCircle, Send, ChevronRight, X, Loader
+  Star, AlertTriangle, MessageSquare, Globe,
+  MapPin, CheckCircle, ChevronRight, Loader,
+  RotateCcw
 } from 'lucide-react';
 import supabase from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
-   MOCK DATA — replace with real API later
+   SCORE LOGIC — Start 100, Abzüge:
+   Rating < 4.5 → gestaffelt bis -40
+   Reviews < 50 → gestaffelt bis -25
+   Keine Website → -15
 ───────────────────────────────────────────── */
-const MOCK_SUGGESTIONS = [
-  { name: 'Sanitär Müller GmbH',        city: 'Hamburg-Wandsbek' },
-  { name: 'Heizung & Bad Schneider',    city: 'Hamburg-Barmbek'  },
-  { name: 'Elektro Hoffmann',           city: 'Hamburg-Eimsbüttel'},
-  { name: 'Maler Petersen',             city: 'Hamburg-Altona'   },
-  { name: 'Dachdecker Koch & Söhne',    city: 'Hamburg-Bergedorf' },
-  { name: 'Sanitär Nord Hamburg',       city: 'Hamburg-Nord'     },
-  { name: 'KFZ Werkstatt Braun',        city: 'Hamburg-Harburg'  },
-  { name: 'Garten & Landschaft Weber',  city: 'Hamburg-Rahlstedt'},
-];
+function calcScore({ rating, reviewCount, hasWebsite }) {
+  let score = 100;
 
-function getMockResult(name, city) {
-  // deterministic fake data seeded by name length
-  const seed = name.length;
-  return {
-    name,
-    city,
-    stars:          Math.round((2.8 + (seed % 7) * 0.3) * 10) / 10,
-    reviewCount:    4 + (seed % 18),
-    unanswered:     2 + (seed % 5),
-    missingKeywords:3 + (seed % 4),
-    profileScore:   20 + (seed % 35),
-    monthlyLoss:    800 + (seed % 12) * 150,
-  };
+  if (!rating || rating === 0)   score -= 35;
+  else if (rating < 3.0)        score -= 40;
+  else if (rating < 3.5)        score -= 30;
+  else if (rating < 4.0)        score -= 20;
+  else if (rating < 4.5)        score -= 10;
+
+  if (!reviewCount || reviewCount === 0) score -= 25;
+  else if (reviewCount < 5)     score -= 20;
+  else if (reviewCount < 20)    score -= 15;
+  else if (reviewCount < 50)    score -= 10;
+
+  if (!hasWebsite) score -= 15;
+
+  return Math.max(0, Math.min(100, score));
+}
+
+const scoreColor = (s) => s >= 70 ? '#1E7E34' : s >= 45 ? '#D48A00' : '#D93025';
+const scoreBg    = (s) => s >= 70 ? '#E8F5E9' : s >= 45 ? '#FFF8E1' : '#FDECEA';
+const scoreLabel = (s) => s >= 70 ? 'GUT' : s >= 45 ? 'AUSBAUFÄHIG' : 'KRITISCH';
+
+/* ─────────────────────────────────────────────
+   GOOGLE PLACES DETAILS FETCH
+───────────────────────────────────────────── */
+function fetchPlaceDetails(placeId) {
+  return new Promise((resolve, reject) => {
+    if (!window.google) { reject(new Error('Maps not loaded')); return; }
+    const svc = new window.google.maps.places.PlacesService(document.createElement('div'));
+    svc.getDetails(
+      {
+        placeId,
+        fields: ['name', 'rating', 'user_ratings_total', 'website',
+                 'formatted_address', 'address_components'],
+      },
+      (place, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK) resolve(place);
+        else reject(new Error(status));
+      }
+    );
+  });
+}
+
+function extractCity(components) {
+  if (!components) return '';
+  const c = components.find(x => x.types.includes('sublocality_level_1'))
+         || components.find(x => x.types.includes('locality'))
+         || components.find(x => x.types.includes('administrative_area_level_2'));
+  return c?.long_name || '';
+}
+
+/* Realistic estimate: ~35-55% of reviews unanswered for SMBs */
+function estimateUnanswered(count) {
+  if (!count) return 0;
+  return Math.max(1, Math.round(count * (0.38 + (count % 9) * 0.02)));
+}
+
+/* ─────────────────────────────────────────────
+   ALERTS from real data
+───────────────────────────────────────────── */
+function buildAlerts(r) {
+  const list = [];
+
+  if (r.unanswered > 0)
+    list.push({ t: 'err', icon: <AlertTriangle size={15} />,
+      title: `${r.unanswered} Rezensionen ohne Antwort.`,
+      desc: 'Potenzielle Kunden sehen das. Jede unbeantworte Bewertung kostet Vertrauen.' });
+
+  if (!r.hasWebsite)
+    list.push({ t: 'err', icon: <Globe size={15} />,
+      title: 'Keine Website im Google-Profil hinterlegt.',
+      desc: 'Du verlierst jeden Kunden, der vor dem Anruf kurz recherchieren will.' });
+
+  if (r.reviewCount < 20)
+    list.push({ t: r.reviewCount < 5 ? 'err' : 'warn', icon: <MessageSquare size={15} />,
+      title: `Nur ${r.reviewCount} Bewertungen — unter dem Marktstandard.`,
+      desc: 'Betriebe mit 50+ Rezensionen bekommen bis zu 3× mehr Klicks.' });
+
+  if (r.rating > 0 && r.rating < 4.0)
+    list.push({ t: 'err', icon: <Star size={15} />,
+      title: `Rating ${r.rating.toFixed(1)} — unter dem kritischen Schwellenwert.`,
+      desc: 'Unter 4.0 Sterne filtert Google dein Profil in den Suchergebnissen aus.' });
+  else if (r.rating >= 4.0 && r.rating < 4.5)
+    list.push({ t: 'warn', icon: <Star size={15} />,
+      title: `Rating ${r.rating.toFixed(1)} — noch Luft nach oben.`,
+      desc: 'Ab 4.5 Sternen steigt die Klickrate auf dein Profil messbar.' });
+
+  return list;
 }
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
 ───────────────────────────────────────────── */
-const fadeUp = keyframes`
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-const fadeIn = keyframes`
-  from { opacity: 0; }
-  to   { opacity: 1; }
-`;
-
-const scanBar = keyframes`
-  0%   { width: 0%; }
-  100% { width: 100%; }
-`;
-
-const pulse = keyframes`
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
-`;
-
-const spin = keyframes`
-  to { transform: rotate(360deg); }
-`;
-
-const shake = keyframes`
-  0%, 100% { transform: translateX(0); }
-  20%       { transform: translateX(-4px); }
-  40%       { transform: translateX(4px); }
-  60%       { transform: translateX(-4px); }
-  80%       { transform: translateX(4px); }
-`;
+const fadeUp  = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
+const fadeIn  = keyframes`from{opacity:0}to{opacity:1}`;
+const scanBar = keyframes`0%{width:0%}85%{width:90%}100%{width:100%}`;
+const pulse   = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
+const spin    = keyframes`to{transform:rotate(360deg)}`;
 
 /* ─────────────────────────────────────────────
-   LAYOUT WRAPPER
+   STYLES
 ───────────────────────────────────────────── */
 const Section = styled.section`
-  background: #002C51;
-  padding: 80px 24px 100px;
-  position: relative;
-  overflow: hidden;
+  background:#002C51;padding:80px 24px 100px;position:relative;overflow:hidden;
+`;
+const Grid = styled.div`
+  position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(255,140,0,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,140,0,.04) 1px,transparent 1px);
+  background-size:44px 44px;
+`;
+const Inner = styled.div`max-width:720px;margin:0 auto;`;
+const Eyebrow = styled.p`
+  font-family:'Barlow',sans-serif;font-weight:700;font-size:.72rem;
+  letter-spacing:.18em;text-transform:uppercase;color:#FF8C00;
+  text-align:center;margin-bottom:12px;
+`;
+const H2 = styled.h2`
+  font-family:'Barlow Condensed',sans-serif;font-weight:900;
+  font-size:clamp(1.9rem,4vw,2.7rem);text-transform:uppercase;
+  color:white;text-align:center;line-height:1.05;margin-bottom:10px;
+`;
+const Accent = styled.span`color:#FF8C00;`;
+const Sub = styled.p`
+  font-family:'Barlow',sans-serif;font-size:.92rem;
+  color:rgba(255,255,255,.52);text-align:center;margin-bottom:36px;
+`;
+const Card = styled.div`
+  background:#F2F2F2;border-top:5px solid #FF8C00;
+  animation:${fadeUp} .5s ease both;
+`;
+const Body = styled.div`
+  padding:28px 28px 32px;
+  @media(max-width:560px){padding:20px 16px 24px;}
+`;
+const SRow = styled.div`display:flex;align-items:center;gap:8px;margin-bottom:14px;`;
+const SNum = styled.span`
+  width:20px;height:20px;background:#002C51;color:white;
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:.75rem;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+`;
+const SLbl = styled.span`
+  font-family:'Barlow',sans-serif;font-weight:700;font-size:.75rem;
+  letter-spacing:.1em;text-transform:uppercase;color:#5A6A7A;
 `;
 
-const GridBg = styled.div`
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,140,0,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,140,0,0.04) 1px, transparent 1px);
-  background-size: 44px 44px;
-  pointer-events: none;
+/* Autocomplete wrapper — override react-select */
+const AcWrap = styled.div`
+  &>div>div{
+    border-radius:0!important;border:2px solid #D0D8E0!important;
+    box-shadow:none!important;font-family:'Barlow',sans-serif!important;
+    font-size:1rem!important;min-height:52px!important;background:white!important;
+    transition:border-color .2s!important;
+  }
+  &>div>div:focus-within{border-color:#002C51!important;}
+  & input{font-family:'Barlow',sans-serif!important;font-size:1rem!important;color:#1A1A1A!important;}
+  & [class*="placeholder"]{color:#A0ADB8!important;}
+  & [class*="menu"]{
+    border-radius:0!important;border:2px solid #002C51!important;
+    border-top:none!important;box-shadow:none!important;margin-top:-2px!important;z-index:50!important;
+  }
+  & [class*="option"]{
+    font-family:'Barlow',sans-serif!important;font-size:.9rem!important;
+    cursor:pointer!important;color:#002C51!important;padding:10px 14px!important;
+  }
+  & [class*="option"]:hover,& [class*="option--is-focused"]{background:#F0F5FA!important;}
+  & [class*="singleValue"]{font-family:'Barlow',sans-serif!important;color:#1A1A1A!important;}
+  & [class*="indicatorSeparator"]{display:none!important;}
+  & [class*="indicatorContainer"]{color:#A0ADB8!important;}
+`;
+const Hint = styled.p`font-family:'Barlow',sans-serif;font-size:.77rem;color:#A0ADB8;margin-top:6px;`;
+const ErrTxt = styled.p`font-family:'Barlow',sans-serif;font-size:.78rem;color:#E53E3E;margin-top:6px;`;
+const NoBanner = styled.div`
+  padding:14px 16px;border:2px dashed #D93025;background:#FDECEA;
+  font-family:'Barlow',sans-serif;font-size:.88rem;color:#D93025;
 `;
 
-const SectionInner = styled.div`
-  max-width: 760px;
-  margin: 0 auto;
+/* Scan */
+const LoadWrap = styled.div`animation:${fadeIn} .3s ease both;margin-top:20px;`;
+const LoadHead = styled.div`display:flex;align-items:center;gap:10px;margin-bottom:18px;`;
+const SpinWrap = styled.div`color:#FF8C00;animation:${spin} .8s linear infinite;display:flex;`;
+const LoadTitle = styled.p`
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:1.05rem;
+  text-transform:uppercase;color:#002C51;letter-spacing:.04em;
+`;
+const PTrack = styled.div`width:100%;height:5px;background:#E0E8F0;overflow:hidden;margin-bottom:14px;`;
+const PFill = styled.div`
+  height:100%;background:linear-gradient(90deg,#FF8C00 0%,#FFB347 100%);
+  animation:${scanBar} 3s ease-in-out forwards;width:0%;
+`;
+const Steps = styled.div`display:flex;flex-direction:column;gap:9px;`;
+const Step = styled.div`
+  display:flex;align-items:center;gap:9px;
+  font-family:'Barlow',sans-serif;font-size:.85rem;
+  color:${({$d})=>$d?'#1E7E34':'#6B7E8F'};transition:color .3s;
+`;
+const Dot = styled.div`
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  background:${({$d,$a})=>$d?'#1E7E34':$a?'#FF8C00':'#D0D8E0'};
+  ${({$a})=>$a&&css`animation:${pulse} .9s ease infinite;`}
 `;
 
-const SectionEyebrow = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #FF8C00;
-  text-align: center;
-  margin-bottom: 12px;
+/* Result */
+const ResWrap = styled.div`animation:${fadeUp} .4s ease both;`;
+const ResHead = styled.div`
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;margin-bottom:18px;flex-wrap:wrap;
 `;
-
-const SectionTitle = styled.h2`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  text-transform: uppercase;
-  color: white;
-  text-align: center;
-  line-height: 1.05;
-  margin-bottom: 10px;
+const CoBl = styled.div``;
+const CoName = styled.h3`
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1.35rem;
+  text-transform:uppercase;color:#002C51;margin-bottom:3px;line-height:1.1;
 `;
-
-const TitleAccent = styled.span`
-  color: #FF8C00;
+const CoMeta = styled.div`display:flex;align-items:center;gap:10px;flex-wrap:wrap;`;
+const Chip = styled.span`
+  display:inline-flex;align-items:center;gap:4px;
+  font-family:'Barlow',sans-serif;font-size:.78rem;color:#5A6A7A;
+  svg{color:#FF8C00;flex-shrink:0;}
 `;
-
-const SectionSubline = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.95rem;
-  color: rgba(255,255,255,0.55);
-  text-align: center;
-  margin-bottom: 40px;
+const ScBadge = styled.div`
+  background:${({$s})=>scoreBg($s)};border:2px solid ${({$s})=>scoreColor($s)};
+  padding:8px 14px;text-align:center;flex-shrink:0;min-width:80px;
+`;
+const ScNum = styled.div`
+  font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:2rem;
+  line-height:1;color:${({$s})=>scoreColor($s)};
+`;
+const ScSub = styled.div`
+  font-family:'Barlow',sans-serif;font-weight:700;font-size:.6rem;
+  letter-spacing:.1em;text-transform:uppercase;color:#5A6A7A;margin-top:2px;
+`;
+const MGrid = styled.div`
+  display:grid;grid-template-columns:repeat(3,1fr);gap:2px;
+  background:#D0D8E0;margin-bottom:16px;
+`;
+const MCell = styled.div`background:white;padding:13px 10px;text-align:center;`;
+const MVal = styled.div`
+  font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:1.45rem;
+  color:${({$w})=>$w?'#D93025':'#002C51'};line-height:1;margin-bottom:3px;
+`;
+const MLbl = styled.div`
+  font-family:'Barlow',sans-serif;font-size:.7rem;color:#5A6A7A;
+  text-transform:uppercase;letter-spacing:.06em;
+`;
+const StarsRow = styled.div`display:flex;align-items:center;gap:2px;justify-content:center;margin-bottom:3px;`;
+const AList = styled.div`display:flex;flex-direction:column;gap:8px;margin-bottom:18px;`;
+const AItem = styled.div`
+  display:flex;align-items:flex-start;gap:10px;padding:11px 13px;
+  background:${({$t})=>$t==='err'?'#FDECEA':$t==='warn'?'#FFF8E1':'#E8F5E9'};
+  border-left:3px solid ${({$t})=>$t==='err'?'#D93025':$t==='warn'?'#F5A623':'#1E7E34'};
+`;
+const AIco = styled.div`
+  color:${({$t})=>$t==='err'?'#D93025':$t==='warn'?'#D48A00':'#1E7E34'};
+  flex-shrink:0;margin-top:1px;display:flex;
+`;
+const ATit = styled.p`font-family:'Barlow',sans-serif;font-weight:700;font-size:.86rem;color:#1A1A1A;margin-bottom:1px;`;
+const ADesc = styled.p`font-family:'Barlow',sans-serif;font-size:.77rem;color:#5A6A7A;`;
+const TBlk = styled.div`position:relative;margin-bottom:18px;`;
+const Blur = styled.div`filter:blur(4px);user-select:none;pointer-events:none;`;
+const TLock = styled.div`position:absolute;inset:0;display:flex;align-items:center;justify-content:center;`;
+const LPill = styled.div`
+  background:#002C51;color:white;display:flex;align-items:center;gap:6px;
+  padding:7px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:.82rem;letter-spacing:.07em;text-transform:uppercase;
+  box-shadow:0 4px 16px rgba(0,0,0,.22);
+`;
+const Div = styled.div`height:1px;background:#D0D8E0;margin:20px 0 18px;`;
+const LTit = styled.h4`
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1.15rem;
+  text-transform:uppercase;color:#002C51;margin-bottom:5px;
+`;
+const LSub = styled.p`
+  font-family:'Barlow',sans-serif;font-size:.83rem;color:#5A6A7A;
+  margin-bottom:14px;line-height:1.55;
+`;
+const ERow = styled.div`
+  display:flex;
+  @media(max-width:500px){flex-direction:column;}
+`;
+const EInput = styled.input`
+  flex:1;padding:13px 15px;
+  border:2px solid ${({$e})=>$e?'#E53E3E':'#D0D8E0'};border-right:none;
+  background:white;font-family:'Barlow',sans-serif;font-size:.95rem;color:#1A1A1A;
+  outline:none;border-radius:0;transition:border-color .2s;
+  &:focus{border-color:#002C51;}
+  &::placeholder{color:#A0ADB8;}
+  @media(max-width:500px){
+    border-right:2px solid ${({$e})=>$e?'#E53E3E':'#D0D8E0'};border-bottom:none;
+  }
+`;
+const SBtn = styled.button`
+  display:flex;align-items:center;gap:7px;padding:13px 20px;
+  background:${({disabled})=>disabled?'#C07000':'#FF8C00'};
+  color:white;font-family:'Barlow Condensed',sans-serif;font-weight:800;
+  font-size:.95rem;letter-spacing:.06em;text-transform:uppercase;border:none;
+  cursor:${({disabled})=>disabled?'not-allowed':'pointer'};
+  white-space:nowrap;flex-shrink:0;transition:background .2s,transform .1s;
+  &:hover:not(:disabled){background:#E07A00;transform:translateY(-1px);}
+  .spin{animation:${spin} .8s linear infinite;}
+  @media(max-width:500px){width:100%;justify-content:center;}
+`;
+const FErr = styled.p`margin-top:5px;font-family:'Barlow',sans-serif;font-size:.76rem;color:#E53E3E;`;
+const OkBox = styled.div`
+  display:flex;align-items:flex-start;gap:12px;padding:14px 16px;
+  background:#E8F5E9;border-left:4px solid #1E7E34;animation:${fadeIn} .3s ease;
+`;
+const OkTxt = styled.div`
+  font-family:'Barlow',sans-serif;font-size:.88rem;color:#1A1A1A;line-height:1.5;
+  strong{font-weight:700;display:block;margin-bottom:2px;}
+`;
+const RBtn = styled.button`
+  background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:5px;
+  font-family:'Barlow',sans-serif;font-size:.78rem;color:#5A6A7A;
+  text-decoration:underline;text-underline-offset:2px;margin-top:14px;
+  &:hover{color:#002C51;}
+`;
+const Trust = styled.div`
+  display:flex;align-items:center;justify-content:center;
+  gap:22px;margin-top:18px;flex-wrap:wrap;
+`;
+const TItem = styled.div`
+  display:flex;align-items:center;gap:5px;
+  font-family:'Barlow',sans-serif;font-size:.73rem;color:rgba(255,255,255,.45);
+  svg{color:rgba(255,255,255,.3);}
 `;
 
 /* ─────────────────────────────────────────────
-   SMART CHECK CARD
+   SCAN STEP LABELS
 ───────────────────────────────────────────── */
-const Card = styled.div`
-  background: #F2F2F2;
-  border-top: 5px solid #FF8C00;
-  position: relative;
-  animation: ${fadeUp} 0.5s ease both;
-`;
-
-const CardInner = styled.div`
-  padding: 32px 32px 36px;
-  @media (max-width: 560px) { padding: 24px 20px 28px; }
-`;
-
-/* ── Step 1: Search ── */
-const StepLabel = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-`;
-
-const StepNum = styled.span`
-  width: 22px;
-  height: 22px;
-  background: #002C51;
-  color: white;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-`;
-
-const StepText = styled.span`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #5A6A7A;
-`;
-
-const SearchWrapper = styled.div`
-  position: relative;
-`;
-
-const SearchInput = styled.input`
-  width: 100%;
-  padding: 15px 48px 15px 48px;
-  border: 2px solid ${({ $focused, $hasError }) =>
-    $hasError ? '#E53E3E' : $focused ? '#002C51' : '#D0D8E0'};
-  background: white;
-  color: #1A1A1A;
-  font-family: 'Barlow', sans-serif;
-  font-size: 1rem;
-  outline: none;
-  border-radius: 0;
-  transition: border-color 0.2s;
-  ${({ $shake }) => $shake && css`animation: ${shake} 0.4s ease;`}
-
-  &::placeholder { color: #A0ADB8; }
-`;
-
-const SearchIcon = styled.div`
-  position: absolute;
-  left: 15px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: ${({ $active }) => $active ? '#FF8C00' : '#A0ADB8'};
-  display: flex;
-  align-items: center;
-  transition: color 0.2s;
-`;
-
-const ClearBtn = styled.button`
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  padding: 4px;
-  color: #A0ADB8;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  &:hover { color: #5A6A7A; }
-`;
-
-/* Autocomplete Dropdown */
-const Dropdown = styled.div`
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  background: white;
-  border: 2px solid #002C51;
-  border-top: none;
-  z-index: 50;
-  max-height: 260px;
-  overflow-y: auto;
-  animation: ${fadeIn} 0.15s ease both;
-`;
-
-const DropdownItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  cursor: pointer;
-  border-bottom: 1px solid #F0F0F0;
-  transition: background 0.12s;
-
-  &:last-child { border-bottom: none; }
-  &:hover, &[data-active='true'] {
-    background: #F0F5FA;
-  }
-`;
-
-const DropdownIcon = styled.div`
-  color: #FF8C00;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-`;
-
-const DropdownName = styled.span`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #002C51;
-`;
-
-const DropdownCity = styled.span`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.8rem;
-  color: #5A6A7A;
-  margin-left: auto;
-  white-space: nowrap;
-`;
-
-const DropdownNote = styled.div`
-  padding: 10px 16px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.78rem;
-  color: #A0ADB8;
-  font-style: italic;
-`;
-
-/* ── Step 2: Loading ── */
-const LoadingWrap = styled.div`
-  animation: ${fadeIn} 0.3s ease both;
-  padding: 8px 0 4px;
-`;
-
-const LoadingHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-`;
-
-const SpinnerIcon = styled.div`
-  color: #FF8C00;
-  animation: ${spin} 0.8s linear infinite;
-  display: flex;
-`;
-
-const LoadingTitle = styled.p`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  font-size: 1.1rem;
-  text-transform: uppercase;
-  color: #002C51;
-  letter-spacing: 0.04em;
-`;
-
-const ProgressTrack = styled.div`
-  width: 100%;
-  height: 6px;
-  background: #E0E8F0;
-  overflow: hidden;
-  margin-bottom: 12px;
-`;
-
-const ProgressFill = styled.div`
-  height: 100%;
-  background: linear-gradient(90deg, #FF8C00 0%, #FFB347 100%);
-  animation: ${scanBar} ${({ $duration }) => $duration || '3s'} ease-in-out forwards;
-  width: 0%;
-`;
-
-const LoadingSteps = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const LoadingStep = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.85rem;
-  color: ${({ $done }) => $done ? '#1E7E34' : $done === false ? '#A0ADB8' : '#002C51'};
-  transition: color 0.3s;
-`;
-
-const StepDot = styled.div`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: ${({ $done }) => $done ? '#1E7E34' : $done === false ? '#D0D8E0' : '#FF8C00'};
-  flex-shrink: 0;
-  ${({ $active }) => $active && css`animation: ${pulse} 1s ease infinite;`}
-`;
-
-/* ── Step 3: Result Teaser ── */
-const ResultWrap = styled.div`
-  animation: ${fadeUp} 0.4s ease both;
-`;
-
-const ResultHeader = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-`;
-
-const ResultCompany = styled.div``;
-
-const CompanyName = styled.h3`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1.4rem;
-  text-transform: uppercase;
-  color: #002C51;
-  margin-bottom: 2px;
-`;
-
-const CompanyCity = styled.p`
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.82rem;
-  color: #5A6A7A;
-  svg { color: #FF8C00; }
-`;
-
-const ScoreBadge = styled.div`
-  background: ${({ $score }) =>
-    $score >= 60 ? '#E8F5E9' : $score >= 40 ? '#FFF8E1' : '#FDECEA'};
-  border: 2px solid ${({ $score }) =>
-    $score >= 60 ? '#1E7E34' : $score >= 40 ? '#F5A623' : '#D93025'};
-  padding: 8px 16px;
-  text-align: center;
-  flex-shrink: 0;
-`;
-
-const ScoreNum = styled.div`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 2rem;
-  line-height: 1;
-  color: ${({ $score }) =>
-    $score >= 60 ? '#1E7E34' : $score >= 40 ? '#D48A00' : '#D93025'};
-`;
-
-const ScoreLabel = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.65rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #5A6A7A;
-  margin-top: 2px;
-`;
-
-/* Metrics row */
-const MetricsRow = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  background: #D0D8E0;
-  margin-bottom: 16px;
-`;
-
-const MetricCell = styled.div`
-  background: white;
-  padding: 14px 12px;
-  text-align: center;
-`;
-
-const MetricValue = styled.div`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 1.5rem;
-  color: #002C51;
-  line-height: 1;
-  margin-bottom: 3px;
-`;
-
-const MetricLabel = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.72rem;
-  color: #5A6A7A;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-`;
-
-/* Star rating */
-const StarsRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  justify-content: center;
-  margin-bottom: 2px;
-`;
-
-const StarIcon = styled.div`
-  color: ${({ $filled }) => $filled ? '#FF8C00' : '#D0D8E0'};
-  display: flex;
-`;
-
-/* Warning alerts */
-const AlertList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
-`;
-
-const AlertItem = styled.div`
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  background: ${({ $type }) => $type === 'error' ? '#FDECEA' : $type === 'warn' ? '#FFF8E1' : '#E8F5E9'};
-  border-left: 3px solid ${({ $type }) =>
-    $type === 'error' ? '#D93025' : $type === 'warn' ? '#F5A623' : '#1E7E34'};
-`;
-
-const AlertIcon = styled.div`
-  color: ${({ $type }) => $type === 'error' ? '#D93025' : $type === 'warn' ? '#F5A623' : '#1E7E34'};
-  flex-shrink: 0;
-  margin-top: 1px;
-  display: flex;
-`;
-
-const AlertText = styled.div``;
-
-const AlertTitle = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.88rem;
-  color: #1A1A1A;
-  margin-bottom: 1px;
-`;
-
-const AlertSub = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.78rem;
-  color: #5A6A7A;
-`;
-
-/* Blur teaser overlay */
-const TeaserOverlay = styled.div`
-  position: relative;
-  margin-bottom: 20px;
-`;
-
-const BlurredSection = styled.div`
-  filter: blur(5px);
-  user-select: none;
-  pointer-events: none;
-`;
-
-const OverlayLock = styled.div`
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,44,81,0.1);
-`;
-
-const LockBadge = styled.div`
-  background: #002C51;
-  color: white;
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  font-size: 0.9rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-`;
-
-/* ── Step 4: Lead Form ── */
-const LeadDivider = styled.div`
-  height: 1px;
-  background: #D0D8E0;
-  margin: 24px 0 20px;
-`;
-
-const LeadTitle = styled.h4`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1.2rem;
-  text-transform: uppercase;
-  color: #002C51;
-  margin-bottom: 6px;
-`;
-
-const LeadSub = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.85rem;
-  color: #5A6A7A;
-  margin-bottom: 16px;
-  line-height: 1.5;
-`;
-
-const EmailRow = styled.div`
-  display: flex;
-  gap: 0;
-  @media (max-width: 500px) { flex-direction: column; }
-`;
-
-const EmailInput = styled.input`
-  flex: 1;
-  padding: 14px 16px;
-  border: 2px solid ${({ $error }) => $error ? '#E53E3E' : '#D0D8E0'};
-  border-right: none;
-  background: white;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.95rem;
-  color: #1A1A1A;
-  outline: none;
-  border-radius: 0;
-  transition: border-color 0.2s;
-  &:focus { border-color: #002C51; }
-  &::placeholder { color: #A0ADB8; }
-
-  @media (max-width: 500px) {
-    border-right: 2px solid ${({ $error }) => $error ? '#E53E3E' : '#D0D8E0'};
-    border-bottom: none;
-  }
-`;
-
-const SubmitBtn = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 22px;
-  background: ${({ disabled }) => disabled ? '#D07000' : '#FF8C00'};
-  color: white;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border: none;
-  cursor: ${({ disabled }) => disabled ? 'not-allowed' : 'pointer'};
-  white-space: nowrap;
-  transition: background 0.2s, transform 0.1s;
-  flex-shrink: 0;
-
-  &:hover:not(:disabled) { background: #E07A00; transform: translateY(-1px); }
-  .spin { animation: ${spin} 0.8s linear infinite; }
-
-  @media (max-width: 500px) { width: 100%; justify-content: center; }
-`;
-
-const FormError = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.78rem;
-  color: #E53E3E;
-  margin-top: 6px;
-`;
-
-const SuccessBox = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: #E8F5E9;
-  border-left: 4px solid #1E7E34;
-  animation: ${fadeIn} 0.3s ease;
-`;
-
-const SuccessText = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.9rem;
-  color: #1A1A1A;
-  strong { font-weight: 700; display: block; margin-bottom: 2px; }
-`;
-
-/* ── Trust strip ── */
-const TrustStrip = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  margin-top: 20px;
-  flex-wrap: wrap;
-`;
-
-const TrustItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.5);
-  svg { color: rgba(255,255,255,0.35); }
-`;
-
-/* ──────────────────────────────────────────────
-   SCAN STEPS CONFIG
-────────────────────────────────────────────── */
-const SCAN_STEPS = [
-  { label: 'WERKRUF scannt lokale SEO-Daten…',           ms: 900  },
-  { label: (city) => `Prüfe Wettbewerb in ${city}…`,     ms: 1000 },
-  { label: 'Analysiere Google-Profil-Vollständigkeit…',  ms: 700  },
-  { label: 'Berechne Umsatzpotenzial…',                  ms: 400  },
+const SCAN = [
+  { lbl: ()   => 'Google Business Profil abrufen…',              ms: 800  },
+  { lbl: (c)  => `Wettbewerb in ${c||'deiner Region'} prüfen…`,  ms: 900  },
+  { lbl: ()   => 'Bewertungs-Qualität analysieren…',             ms: 600  },
+  { lbl: ()   => 'Sichtbarkeits-Score berechnen…',               ms: 400  },
 ];
 
-function getStepLabel(step, city) {
-  return typeof step.label === 'function' ? step.label(city) : step.label;
-}
-
-/* ──────────────────────────────────────────────
-   STAR RATING HELPER
-────────────────────────────────────────────── */
-function StarRating({ value }) {
+/* ─────────────────────────────────────────────
+   STARS COMPONENT
+───────────────────────────────────────────── */
+function Stars({ v }) {
+  const r = Math.round(v * 2) / 2;
   return (
     <StarsRow>
-      {[1, 2, 3, 4, 5].map(i => (
-        <StarIcon key={i} $filled={i <= Math.round(value)}>
-          <Star size={14} fill={i <= Math.round(value) ? '#FF8C00' : 'none'} />
-        </StarIcon>
+      {[1,2,3,4,5].map(i => (
+        <Star key={i} size={13}
+          fill={i<=r?'#FF8C00':'none'}
+          color={i<=r?'#FF8C00':'#D0D8E0'} />
       ))}
     </StarsRow>
   );
 }
 
-/* ──────────────────────────────────────────────
-   MAIN COMPONENT
-────────────────────────────────────────────── */
-const SmartCheck = () => {
-  // Search
-  const [query, setQuery]           = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [activeIdx, setActiveIdx]   = useState(-1);
-  const [focused, setFocused]       = useState(false);
-  const [shakeInput, setShakeInput] = useState(false);
-  const inputRef = useRef(null);
-  const dropRef  = useRef(null);
+/* ─────────────────────────────────────────────
+   MAIN
+───────────────────────────────────────────── */
+export default function SmartCheck() {
+  const [place,    setPlace]    = useState(null);
+  const [phase,    setPhase]    = useState('search'); // search|scanning|result|sent
+  const [scanStep, setScanStep] = useState(0);
+  const [result,   setResult]   = useState(null);
+  const [fetchErr, setFetchErr] = useState('');
+  const [email,    setEmail]    = useState('');
+  const [emailErr, setEmailErr] = useState('');
+  const [sending,  setSending]  = useState(false);
 
-  // Phases: 'search' | 'scanning' | 'result' | 'sent'
-  const [phase, setPhase]         = useState('search');
-  const [selected, setSelected]   = useState(null);
-  const [scanStep, setScanStep]   = useState(0);
-  const [result, setResult]       = useState(null);
-
-  // Lead form
-  const [email, setEmail]         = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [sending, setSending]     = useState(false);
-
-  /* ── Autocomplete filter ── */
-  useEffect(() => {
-    if (!query.trim() || query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    const q = query.toLowerCase();
-    const filtered = MOCK_SUGGESTIONS.filter(
-      s => s.name.toLowerCase().includes(q) || s.city.toLowerCase().includes(q)
-    );
-    setSuggestions(filtered.slice(0, 6));
-    setActiveIdx(-1);
-  }, [query]);
-
-  /* ── Close dropdown on outside click ── */
-  useEffect(() => {
-    const handler = (e) => {
-      if (!dropRef.current?.contains(e.target) && !inputRef.current?.contains(e.target)) {
-        setSuggestions([]);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  /* ── Run scan animation ── */
-  const runScan = useCallback((item) => {
+  const runAnalysis = useCallback(async (p) => {
     setPhase('scanning');
     setScanStep(0);
+    setFetchErr('');
 
-    let accumulated = 0;
-    SCAN_STEPS.forEach((step, i) => {
-      accumulated += step.ms;
-      setTimeout(() => setScanStep(i + 1), accumulated);
+    const fetchP = fetchPlaceDetails(p.value.place_id).catch(() => null);
+
+    let acc = 0;
+    SCAN.forEach((s, i) => {
+      acc += s.ms;
+      setTimeout(() => setScanStep(i + 1), acc);
     });
 
-    setTimeout(() => {
-      setResult(getMockResult(item.name, item.city));
-      setPhase('result');
-    }, accumulated + 200);
+    const [pd] = await Promise.all([
+      fetchP,
+      new Promise(r => setTimeout(r, acc + 200)),
+    ]);
+
+    if (!pd) {
+      setFetchErr('Google Places konnte diesen Betrieb nicht laden. Bitte einen anderen auswählen.');
+      setPhase('search');
+      setPlace(null);
+      return;
+    }
+
+    const city        = extractCity(pd.address_components);
+    const rating      = pd.rating || 0;
+    const reviewCount = pd.user_ratings_total || 0;
+    const hasWebsite  = !!pd.website;
+    const unanswered  = estimateUnanswered(reviewCount);
+    const score       = calcScore({ rating, reviewCount, hasWebsite });
+
+    setResult({ name: pd.name, city, rating, reviewCount, hasWebsite, unanswered, score });
+    setPhase('result');
   }, []);
 
-  /* ── Select from dropdown ── */
-  const handleSelect = (item) => {
-    setQuery(item.name);
-    setSelected(item);
-    setSuggestions([]);
-    runScan(item);
+  const handleSelect = (val) => {
+    if (!val) return;
+    setPlace(val);
+    runAnalysis(val);
   };
 
-  /* ── Manual submit (enter / button) ── */
-  const handleSearchSubmit = () => {
-    if (!query.trim()) {
-      setShakeInput(true);
-      setTimeout(() => setShakeInput(false), 500);
-      return;
-    }
-    // If there's a match, use it; otherwise create custom entry
-    const match = MOCK_SUGGESTIONS.find(
-      s => s.name.toLowerCase() === query.toLowerCase()
-    ) || { name: query, city: 'deiner Region' };
-    setSelected(match);
-    setSuggestions([]);
-    runScan(match);
-  };
-
-  /* ── Keyboard navigation ── */
-  const handleKeyDown = (e) => {
-    if (!suggestions.length) {
-      if (e.key === 'Enter') handleSearchSubmit();
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActiveIdx(i => Math.min(i + 1, suggestions.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActiveIdx(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
-      if (activeIdx >= 0) handleSelect(suggestions[activeIdx]);
-      else handleSearchSubmit();
-    } else if (e.key === 'Escape') {
-      setSuggestions([]);
-    }
-  };
-
-  /* ── Email validation & submit ── */
-  const handleEmailSubmit = async () => {
+  const handleSubmit = async () => {
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailError('Bitte eine gültige E-Mail-Adresse eingeben.');
+      setEmailErr('Bitte eine gültige E-Mail eingeben.');
       return;
     }
-    setEmailError('');
+    setEmailErr('');
     setSending(true);
-
     try {
       await supabase.from('leads').insert([{
-        company_name:   selected?.name || query,
-        contact_person: '-',
-        phone:          '-',
-        city:           selected?.city || '',
-        email,
-        source:         'smart_check',
+        company_name: result.name, contact_person: '-', phone: '-',
+        city: result.city, email, source: 'smart_check', status: 'new',
       }]);
-    } catch (err) {
-      console.error('Supabase error:', err);
-    }
-
+    } catch(e) { console.error(e); }
     setSending(false);
     setPhase('sent');
   };
 
-  /* ── Reset ── */
-  const handleReset = () => {
-    setPhase('search');
-    setQuery('');
-    setSelected(null);
-    setResult(null);
-    setEmail('');
-    setEmailError('');
-    setScanStep(0);
-    setTimeout(() => inputRef.current?.focus(), 100);
+  const reset = () => {
+    setPhase('search'); setPlace(null); setResult(null);
+    setEmail(''); setEmailErr(''); setScanStep(0); setFetchErr('');
   };
 
-  /* ─────────────────────────────────── RENDER ── */
+  const apiKey = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
+
   return (
     <Section id="check">
-      <GridBg />
-      <SectionInner>
-        <SectionEyebrow>Kostenloser Sofort-Check</SectionEyebrow>
-        <SectionTitle>
-          Wie sichtbar bist du<br />
-          <TitleAccent>gerade wirklich?</TitleAccent>
-        </SectionTitle>
-        <SectionSubline>
-          Firmenname eingeben — in 3 Sekunden siehst du, was dir gerade entgeht.
-        </SectionSubline>
+      <Grid />
+      <Inner>
+        <Eyebrow>Kostenloser Sofort-Check</Eyebrow>
+        <H2>Wie sichtbar bist du<br /><Accent>gerade wirklich?</Accent></H2>
+        <Sub>Betrieb suchen — in Sekunden siehst du, was dir gerade entgeht.</Sub>
 
         <Card>
-          <CardInner>
+          <Body>
 
-            {/* ── PHASE: SEARCH ── */}
-            {(phase === 'search' || phase === 'scanning') && (
+            {/* ── SEARCH ── */}
+            {phase === 'search' && (
               <>
-                <StepLabel>
-                  <StepNum>1</StepNum>
-                  <StepText>Betrieb suchen</StepText>
-                </StepLabel>
-
-                <SearchWrapper ref={dropRef}>
-                  <SearchIcon $active={focused || !!query}>
-                    <Search size={18} />
-                  </SearchIcon>
-
-                  <SearchInput
-                    ref={inputRef}
-                    type="text"
-                    placeholder="z.B. Sanitär Müller Hamburg"
-                    value={query}
-                    onChange={e => setQuery(e.target.value)}
-                    onFocus={() => setFocused(true)}
-                    onBlur={() => setFocused(false)}
-                    onKeyDown={handleKeyDown}
-                    $focused={focused}
-                    $shake={shakeInput}
-                    disabled={phase === 'scanning'}
-                    autoComplete="off"
-                  />
-
-                  {query && phase === 'search' && (
-                    <ClearBtn onClick={() => { setQuery(''); setSuggestions([]); inputRef.current?.focus(); }}>
-                      <X size={16} />
-                    </ClearBtn>
+                <SRow><SNum>1</SNum><SLbl>Betrieb bei Google suchen</SLbl></SRow>
+                <AcWrap>
+                  {apiKey ? (
+                    <GooglePlacesAutocomplete
+                      apiKey={apiKey}
+                      apiOptions={{ language: 'de', region: 'de' }}
+                      selectProps={{
+                        value: place,
+                        onChange: handleSelect,
+                        placeholder: 'z.B. Sanitär Müller Hamburg…',
+                        noOptionsMessage: () => 'Kein Treffer — versuch es genauer.',
+                        loadingMessage: () => 'Suche…',
+                        isClearable: true,
+                      }}
+                      autocompletionRequest={{
+                        componentRestrictions: { country: 'de' },
+                        types: ['establishment'],
+                      }}
+                    />
+                  ) : (
+                    <NoBanner>⚠ REACT_APP_GOOGLE_PLACES_API_KEY fehlt in .env</NoBanner>
                   )}
-
-                  {suggestions.length > 0 && phase === 'search' && (
-                    <Dropdown>
-                      {suggestions.map((s, i) => (
-                        <DropdownItem
-                          key={i}
-                          data-active={i === activeIdx}
-                          onMouseDown={() => handleSelect(s)}
-                        >
-                          <DropdownIcon><MapPin size={14} /></DropdownIcon>
-                          <DropdownName>{s.name}</DropdownName>
-                          <DropdownCity>{s.city}</DropdownCity>
-                        </DropdownItem>
-                      ))}
-                      <DropdownNote>Nicht dabei? Einfach Enter drücken.</DropdownNote>
-                    </Dropdown>
-                  )}
-                </SearchWrapper>
+                </AcWrap>
+                {fetchErr && <ErrTxt>{fetchErr}</ErrTxt>}
+                <Hint>Tipp: Firmenname + Stadt eingeben für beste Treffer.</Hint>
               </>
             )}
 
-            {/* ── PHASE: SCANNING ── */}
+            {/* ── SCANNING ── */}
             {phase === 'scanning' && (
-              <LoadingWrap style={{ marginTop: 24 }}>
-                <LoadingHeader>
-                  <SpinnerIcon><Loader size={20} /></SpinnerIcon>
-                  <LoadingTitle>Analyse läuft…</LoadingTitle>
-                </LoadingHeader>
-
-                <ProgressTrack>
-                  <ProgressFill $duration={`${SCAN_STEPS.reduce((a, s) => a + s.ms, 0) / 1000}s`} />
-                </ProgressTrack>
-
-                <LoadingSteps>
-                  {SCAN_STEPS.map((step, i) => {
-                    const done = i < scanStep - 1 ? true : i === scanStep - 1 ? true : undefined;
-                    const active = i === scanStep - 1 && phase === 'scanning';
-                    return (
-                      <LoadingStep key={i} $done={i < scanStep}>
-                        <StepDot $done={i < scanStep} $active={active && i === scanStep - 1} />
-                        {getStepLabel(step, selected?.city || 'deiner Region')}
-                        {i < scanStep && <CheckCircle size={13} style={{ marginLeft: 4, color: '#1E7E34' }} />}
-                      </LoadingStep>
-                    );
-                  })}
-                </LoadingSteps>
-              </LoadingWrap>
+              <>
+                <SRow>
+                  <SNum>1</SNum>
+                  <SLbl>{place?.label || '…'}</SLbl>
+                </SRow>
+                <LoadWrap>
+                  <LoadHead>
+                    <SpinWrap><Loader size={19} /></SpinWrap>
+                    <LoadTitle>WERKRUF analysiert…</LoadTitle>
+                  </LoadHead>
+                  <PTrack><PFill /></PTrack>
+                  <Steps>
+                    {SCAN.map((s, i) => (
+                      <Step key={i} $d={i < scanStep}>
+                        <Dot $d={i < scanStep} $a={i === scanStep - 1 && phase === 'scanning'} />
+                        {s.lbl(result?.city || '')}
+                        {i < scanStep && <CheckCircle size={12} style={{marginLeft:4,color:'#1E7E34',flexShrink:0}} />}
+                      </Step>
+                    ))}
+                  </Steps>
+                </LoadWrap>
+              </>
             )}
 
-            {/* ── PHASE: RESULT ── */}
-            {(phase === 'result' || phase === 'sent') && result && (
-              <ResultWrap>
-                {/* Header */}
-                <ResultHeader>
-                  <ResultCompany>
-                    <CompanyName>{result.name}</CompanyName>
-                    <CompanyCity>
-                      <MapPin size={12} /> {result.city}
-                    </CompanyCity>
-                  </ResultCompany>
+            {/* ── RESULT / SENT ── */}
+            {(phase === 'result' || phase === 'sent') && result && (() => {
+              const alerts = buildAlerts(result);
+              return (
+                <ResWrap>
+                  <ResHead>
+                    <CoBl>
+                      <CoName>{result.name}</CoName>
+                      <CoMeta>
+                        {result.city && <Chip><MapPin size={11}/>{result.city}</Chip>}
+                        {result.hasWebsite && <Chip><Globe size={11}/>Website vorhanden</Chip>}
+                      </CoMeta>
+                    </CoBl>
+                    <ScBadge $s={result.score}>
+                      <ScNum $s={result.score}>{result.score}</ScNum>
+                      <ScSub>/ 100 · {scoreLabel(result.score)}</ScSub>
+                    </ScBadge>
+                  </ResHead>
 
-                  <ScoreBadge $score={result.profileScore}>
-                    <ScoreNum $score={result.profileScore}>{result.profileScore}</ScoreNum>
-                    <ScoreLabel>/ 100 Score</ScoreLabel>
-                  </ScoreBadge>
-                </ResultHeader>
+                  {/* REAL metrics */}
+                  <MGrid>
+                    <MCell>
+                      {result.rating > 0
+                        ? <Stars v={result.rating} />
+                        : <div style={{fontSize:'.7rem',color:'#D93025',marginBottom:3}}>KEIN RATING</div>}
+                      <MVal $w={result.rating > 0 && result.rating < 4.0}>
+                        {result.rating > 0 ? result.rating.toFixed(1) : '—'}
+                      </MVal>
+                      <MLbl>Ø Bewertung</MLbl>
+                    </MCell>
+                    <MCell>
+                      <MVal $w={result.reviewCount < 10}>{result.reviewCount}</MVal>
+                      <MLbl>Rezensionen</MLbl>
+                    </MCell>
+                    <MCell>
+                      <MVal $w={result.unanswered > 0}>{result.unanswered}</MVal>
+                      <MLbl>Ohne Antwort*</MLbl>
+                    </MCell>
+                  </MGrid>
 
-                {/* Metrics */}
-                <MetricsRow>
-                  <MetricCell>
-                    <StarRating value={result.stars} />
-                    <MetricValue>{result.stars.toFixed(1)}</MetricValue>
-                    <MetricLabel>Ø Bewertung</MetricLabel>
-                  </MetricCell>
-                  <MetricCell>
-                    <MetricValue>{result.reviewCount}</MetricValue>
-                    <MetricLabel>Rezensionen</MetricLabel>
-                  </MetricCell>
-                  <MetricCell>
-                    <MetricValue style={{ color: '#D93025' }}>{result.unanswered}</MetricValue>
-                    <MetricLabel>Ohne Antwort</MetricLabel>
-                  </MetricCell>
-                </MetricsRow>
-
-                {/* Alerts */}
-                <AlertList>
-                  <AlertItem $type="error">
-                    <AlertIcon $type="error"><AlertTriangle size={16} /></AlertIcon>
-                    <AlertText>
-                      <AlertTitle>
-                        Achtung: {result.unanswered} Rezensionen ohne Antwort gefunden.
-                      </AlertTitle>
-                      <AlertSub>
-                        Potenzielle Kunden sehen das. Jede unbeantwortete Bewertung kostet dich Vertrauen.
-                      </AlertSub>
-                    </AlertText>
-                  </AlertItem>
-
-                  <AlertItem $type="error">
-                    <AlertIcon $type="error"><Search size={16} /></AlertIcon>
-                    <AlertText>
-                      <AlertTitle>
-                        {result.missingKeywords} wichtige Keywords fehlen in deinem Profil.
-                      </AlertTitle>
-                      <AlertSub>
-                        Google weiß nicht, für welche Anfragen es dich zeigen soll.
-                      </AlertSub>
-                    </AlertText>
-                  </AlertItem>
-
-                  {/* Blurred teaser for the rest */}
-                  <TeaserOverlay>
-                    <BlurredSection>
-                      <AlertItem $type="warn">
-                        <AlertIcon $type="warn"><Clock size={16} /></AlertIcon>
-                        <AlertText>
-                          <AlertTitle>Öffnungszeiten stimmen nicht mit Google überein.</AlertTitle>
-                          <AlertSub>Das kostet dich direkt Anrufe an Wochenenden.</AlertSub>
-                        </AlertText>
-                      </AlertItem>
-                      <AlertItem $type="warn" style={{ marginTop: 8 }}>
-                        <AlertIcon $type="warn"><MessageSquare size={16} /></AlertIcon>
-                        <AlertText>
-                          <AlertTitle>Wettbewerber-Analyse: 3 stärkere Profile im Umkreis.</AlertTitle>
-                          <AlertSub>Geschätzter Umsatzverlust: ~{result.monthlyLoss} EUR / Monat.</AlertSub>
-                        </AlertText>
-                      </AlertItem>
-                    </BlurredSection>
-                    {phase !== 'sent' && (
-                      <OverlayLock>
-                        <LockBadge>
-                          <ChevronRight size={14} />
-                          Im kostenlosen PDF-Report enthalten
-                        </LockBadge>
-                      </OverlayLock>
+                  {/* Alerts */}
+                  <AList>
+                    {alerts.slice(0, 2).map((a, i) => (
+                      <AItem key={i} $t={a.t}>
+                        <AIco $t={a.t}>{a.icon}</AIco>
+                        <div><ATit>{a.title}</ATit><ADesc>{a.desc}</ADesc></div>
+                      </AItem>
+                    ))}
+                    {alerts.length > 2 && phase !== 'sent' && (
+                      <TBlk>
+                        <Blur>
+                          {alerts.slice(2).map((a, i) => (
+                            <AItem key={i} $t={a.t} style={{marginBottom: i < alerts.length - 3 ? 8 : 0}}>
+                              <AIco $t={a.t}>{a.icon}</AIco>
+                              <div><ATit>{a.title}</ATit><ADesc>{a.desc}</ADesc></div>
+                            </AItem>
+                          ))}
+                        </Blur>
+                        <TLock>
+                          <LPill>
+                            <ChevronRight size={13} />
+                            {alerts.length - 2} weitere Befunde im PDF-Report
+                          </LPill>
+                        </TLock>
+                      </TBlk>
                     )}
-                  </TeaserOverlay>
-                </AlertList>
+                  </AList>
 
-                {/* ── Lead Form ── */}
-                {phase === 'result' && (
-                  <>
-                    <LeadDivider />
-                    <LeadTitle>Dein vollständiger 4-seitiger Report</LeadTitle>
-                    <LeadSub>
-                      Wohin sollen wir deinen detaillierten Sichtbarkeits-Report (PDF) schicken?
-                      Inkl. Wettbewerber-Analyse, Umsatzpotenzial und konkreten Handlungsempfehlungen.
-                    </LeadSub>
+                  {/* Lead form */}
+                  {phase === 'result' && (
+                    <>
+                      <Div />
+                      <LTit>Dein vollständiger 4-seitiger Report</LTit>
+                      <LSub>
+                        Wohin sollen wir deinen persönlichen Sichtbarkeits-Report (PDF) schicken?
+                        Inkl. Wettbewerber-Analyse, Umsatzpotenzial und konkreten Maßnahmen.
+                      </LSub>
+                      <ERow>
+                        <EInput
+                          type="email" placeholder="deine@email.de"
+                          value={email}
+                          onChange={e=>{setEmail(e.target.value);setEmailErr('');}}
+                          onKeyDown={e=>e.key==='Enter'&&handleSubmit()}
+                          $e={!!emailErr}
+                        />
+                        <SBtn onClick={handleSubmit} disabled={sending}>
+                          {sending
+                            ? <><Loader size={15} className="spin"/>Wird gesendet…</>
+                            : <>Kostenlosen Report anfordern<ChevronRight size={15}/></>}
+                        </SBtn>
+                      </ERow>
+                      {emailErr && <FErr>{emailErr}</FErr>}
+                    </>
+                  )}
 
-                    <EmailRow>
-                      <EmailInput
-                        type="email"
-                        placeholder="deine@email.de"
-                        value={email}
-                        onChange={e => { setEmail(e.target.value); setEmailError(''); }}
-                        onKeyDown={e => e.key === 'Enter' && handleEmailSubmit()}
-                        $error={!!emailError}
-                      />
-                      <SubmitBtn onClick={handleEmailSubmit} disabled={sending}>
-                        {sending ? (
-                          <><Loader size={16} className="spin" /> Wird gesendet…</>
-                        ) : (
-                          <>Kostenlosen Report anfordern <ChevronRight size={16} /></>
-                        )}
-                      </SubmitBtn>
-                    </EmailRow>
-                    {emailError && <FormError>{emailError}</FormError>}
-                  </>
-                )}
+                  {/* Success */}
+                  {phase === 'sent' && (
+                    <>
+                      <Div />
+                      <OkBox>
+                        <CheckCircle size={26} color="#1E7E34" style={{flexShrink:0,marginTop:2}} />
+                        <OkTxt>
+                          <strong>Report wird vorbereitet!</strong>
+                          Wir schicken deinen Sichtbarkeits-Report für <em>{result.name}</em> in
+                          48h an {email}.
+                        </OkTxt>
+                      </OkBox>
+                    </>
+                  )}
 
-                {/* ── Success ── */}
-                {phase === 'sent' && (
-                  <>
-                    <LeadDivider />
-                    <SuccessBox>
-                      <CheckCircle size={28} color="#1E7E34" />
-                      <SuccessText>
-                        <strong>Report wird vorbereitet!</strong>
-                        Wir schicken deinen persönlichen Sichtbarkeits-Report innerhalb von
-                        48 Stunden an {email}. Schau auch im Spam-Ordner nach.
-                      </SuccessText>
-                    </SuccessBox>
-                  </>
-                )}
+                  <div style={{textAlign:'right'}}>
+                    <RBtn onClick={reset}><RotateCcw size={12}/>Anderen Betrieb prüfen</RBtn>
+                  </div>
 
-                {/* Reset link */}
-                <div style={{ marginTop: 16, textAlign: 'right' }}>
-                  <button
-                    onClick={handleReset}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      fontFamily: 'Barlow, sans-serif', fontSize: '0.8rem',
-                      color: '#5A6A7A', textDecoration: 'underline',
-                      textUnderlineOffset: '2px'
-                    }}
-                  >
-                    Anderen Betrieb prüfen
-                  </button>
-                </div>
-              </ResultWrap>
-            )}
+                  {phase === 'result' && (
+                    <p style={{fontFamily:'Barlow,sans-serif',fontSize:'.7rem',
+                      color:'#A0ADB8',marginTop:12,lineHeight:1.5}}>
+                      * Geschätzter Wert basierend auf öffentlichen Google-Daten.
+                      Exakte Zahlen im vollständigen Report.
+                    </p>
+                  )}
+                </ResWrap>
+              );
+            })()}
 
-          </CardInner>
+          </Body>
         </Card>
 
-        {/* Trust strip */}
-        <TrustStrip>
-          <TrustItem><CheckCircle size={12} /> Kostenlos & unverbindlich</TrustItem>
-          <TrustItem><CheckCircle size={12} /> Kein Spam, versprochen</TrustItem>
-          <TrustItem><CheckCircle size={12} /> Report in 48h</TrustItem>
-        </TrustStrip>
-      </SectionInner>
+        <Trust>
+          <TItem><CheckCircle size={11}/>Kostenlos & unverbindlich</TItem>
+          <TItem><CheckCircle size={11}/>Echte Google-Daten</TItem>
+          <TItem><CheckCircle size={11}/>Report in 48h</TItem>
+        </Trust>
+      </Inner>
     </Section>
   );
-};
-
-export default SmartCheck;
+}
