@@ -214,7 +214,6 @@ export function usePlacesAnalysis() {
   const [selectedPlace, setSelectedPlace] = useState(null);
 
   const runAnalysis = useCallback(async (placeOption) => {
-    // Guard — must have something to work with
     if (!placeOption) return;
 
     setSelectedPlace(placeOption);
@@ -222,101 +221,88 @@ export function usePlacesAnalysis() {
     setScanStep(0);
     setFetchErr('');
 
-    /* ── NORMALISE INPUT ──────────────────────────────────────────
-       PlacesSearch (new) delivers:
+    /* ── NORMALISE INPUT ────────────────────────────────────────
+       New PlacesSearch delivers a normalised object:
          { placeId, name, address, rating, reviewCount,
            hasWebsite, website, addressComponents }
 
-       Legacy format (react-google-places-autocomplete) delivers:
+       Legacy format (old library):
          { label, value: { place_id, ... } }
-
-       We unify everything into `pd` with consistent field names.
-    ────────────────────────────────────────────────────────────── */
-    const isNormalised = !!placeOption.placeId; // new PlacesSearch format
-    const isLegacy     = !!placeOption.value?.place_id;
-
+    ─────────────────────────────────────────────────────────── */
     let pd = null;
 
-    if (isNormalised) {
-      // Already has full data from PlacesSearch.fetchFields — use directly
-      pd = {
-        place_id:           placeOption.placeId,
-        name:               placeOption.name               || '',
-        rating:             placeOption.rating             || 0,
-        user_ratings_total: placeOption.reviewCount        || 0,
-        website:            placeOption.website            || null,
-        formatted_address:  placeOption.address            || '',
-        address_components: placeOption.addressComponents  || [],
-      };
-    } else {
-      // Legacy / fallback — fetch from PlacesService
-      const placeId = placeOption.value?.place_id
-                   || placeOption.placeId
-                   || null;
-
-      if (!placeId) {
-        setFetchErr('Kein gültiger Betrieb ausgewählt.');
-        setPhase('idle');
-        return;
+    try {
+      if (placeOption.placeId) {
+        // ── New normalised format from PlacesSearch ──
+        pd = {
+          place_id:           placeOption.placeId,
+          name:               placeOption.name               || '',
+          rating:             placeOption.rating             || 0,
+          user_ratings_total: placeOption.reviewCount        || 0,
+          website:            placeOption.website            || null,
+          formatted_address:  placeOption.address            || '',
+          address_components: placeOption.addressComponents  || [],
+        };
+      } else {
+        // ── Legacy format — fetch from PlacesService ──
+        const legacyId = placeOption.value?.place_id
+                      || placeOption.value?.value?.place_id
+                      || null;
+        if (!legacyId) throw new Error('No place_id found in placeOption');
+        pd = await fetchPlaceDetails(legacyId);
       }
-
-      // Run scan animation while fetching
-      let acc = 0;
-      SCAN_STEPS.forEach((s, i) => {
-        acc += s.ms;
-        setTimeout(() => setScanStep(i + 1), acc);
-      });
-
-      const [fetched] = await Promise.all([
-        fetchPlaceDetails(placeId).catch(() => null),
-        new Promise(r => setTimeout(r, acc + 200)),
-      ]);
-
-      pd = fetched;
-    }
-
-    // Null-check — guard against missing/broken response
-    if (!pd || (!pd.place_id && !pd.name)) {
-      setFetchErr(
-        'Google Places konnte diesen Betrieb nicht laden. ' +
-        'Bitte einen anderen auswählen.'
-      );
+    } catch (err) {
+      console.error('[usePlacesAnalysis] Failed to resolve place:', err);
+      setFetchErr('Google Places konnte diesen Betrieb nicht laden. Bitte einen anderen auswählen.');
       setPhase('idle');
       setSelectedPlace(null);
       return;
     }
 
-    // Run scan animation for normalised path too
-    if (isNormalised) {
-      let acc = 0;
-      SCAN_STEPS.forEach((s, i) => {
-        acc += s.ms;
-        setTimeout(() => setScanStep(i + 1), acc);
-      });
-      await new Promise(r => setTimeout(r, acc + 200));
+    // Null-check after all paths
+    if (!pd || (!pd.place_id && !pd.name)) {
+      setFetchErr('Kein gültiger Betrieb gefunden. Bitte einen anderen auswählen.');
+      setPhase('idle');
+      setSelectedPlace(null);
+      return;
     }
 
-    const city        = extractCity(pd.address_components || []);
-    const rating      = pd.rating              || 0;
-    const reviewCount = pd.user_ratings_total  || 0;
-    const hasWebsite  = !!(pd.website);
-    const unanswered  = estimateUnanswered(reviewCount);
-    const score       = calcScore({ rating, reviewCount, hasWebsite });
-
-    setResult({
-      placeId:     pd.place_id         || placeOption.placeId || '',
-      name:        pd.name             || '',
-      city,
-      address:     pd.formatted_address || '',
-      rating,
-      reviewCount,
-      hasWebsite,
-      website:     pd.website          || null,
-      unanswered,
-      score,
+    // Run scan animation
+    let acc = 0;
+    SCAN_STEPS.forEach((s, i) => {
+      acc += s.ms;
+      setTimeout(() => setScanStep(i + 1), acc);
     });
+    await new Promise(r => setTimeout(r, acc + 200));
 
-    setPhase('result');
+    // Build result
+    try {
+      const city        = extractCity(pd.address_components || []);
+      const rating      = pd.rating             || 0;
+      const reviewCount = pd.user_ratings_total || 0;
+      const hasWebsite  = !!pd.website;
+      const unanswered  = estimateUnanswered(reviewCount);
+      const score       = calcScore({ rating, reviewCount, hasWebsite });
+
+      setResult({
+        placeId:     pd.place_id || placeOption.placeId || '',
+        name:        pd.name     || '',
+        city,
+        address:     pd.formatted_address || '',
+        rating,
+        reviewCount,
+        hasWebsite,
+        website:     pd.website || null,
+        unanswered,
+        score,
+      });
+      setPhase('result');
+
+    } catch (err) {
+      console.error('[usePlacesAnalysis] Result build error:', err);
+      setFetchErr('Fehler beim Verarbeiten der Ortsdaten. Bitte nochmal versuchen.');
+      setPhase('idle');
+    }
   }, []);
 
   const reset = useCallback(() => {
