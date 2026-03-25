@@ -1,20 +1,30 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-/* Industry system */
+/* Providers */
 import { IndustryProvider } from './context/IndustryContext';
+import { AuthProvider }     from './context/AuthContext';
 import ThemeInjector        from './components/ThemeInjector';
+import ProtectedRoute       from './components/auth/ProtectedRoute';
 
-/* Shell */
+/* Global shell */
 import GlobalStyle from './components/GlobalStyle';
 import Header      from './components/Header';
 import Footer      from './components/Footer';
 
-/* Pages */
-import HomePage from './pages/HomePage';
-import Pricing  from './pages/Pricing';
+/* Public pages */
+import HomePage  from './pages/HomePage';
+import Pricing   from './pages/Pricing';
+import Success   from './pages/Success';
+import Signup    from './pages/Signup';
+import Login     from './pages/Login';
 
-/* Placeholder pages */
+/* Dashboard */
+import DashboardLayout      from './pages/dashboard/DashboardLayout';
+import DashboardHome        from './pages/dashboard/DashboardHome';
+import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
+
+/* Placeholder for future pages */
 const Placeholder = ({ title }) => (
   <div style={{
     padding: '120px 24px', textAlign: 'center',
@@ -25,29 +35,101 @@ const Placeholder = ({ title }) => (
   </div>
 );
 
+/* ─────────────────────────────────────────────
+   Shell wrapper — Header + Footer only on
+   public pages, not inside the Dashboard
+───────────────────────────────────────────── */
+function PublicLayout({ children }) {
+  return (
+    <>
+      <Header />
+      {children}
+      <Footer />
+    </>
+  );
+}
+
 function App() {
   return (
     /*
-      IndustryProvider reads the domain/URL and provides
-      the correct config to all children via context.
-      
-      ThemeInjector (render-less) writes CSS custom properties
-      to :root so all styled-components can use var(--color-*)
+      Provider order:
+      1. IndustryProvider — detects domain → loads brand/colors/copy
+      2. BrowserRouter    — routing
+      3. AuthProvider     — Supabase session (needs to be inside Router
+                           so auth redirects work)
+      4. ThemeInjector    — writes CSS vars from industry config to :root
     */
     <IndustryProvider>
       <BrowserRouter>
-        <GlobalStyle />
-        <ThemeInjector />
-        <Header />
-        <Routes>
-          <Route path="/"         element={<HomePage />} />
-          <Route path="/pricing"  element={<Pricing />} />
-          <Route path="/register" element={<Placeholder title="Registrierung" />} />
-          <Route path="/login"    element={<Placeholder title="Login" />} />
-          <Route path="/impressum"   element={<Placeholder title="Impressum" />} />
-          <Route path="/datenschutz" element={<Placeholder title="Datenschutz" />} />
-        </Routes>
-        <Footer />
+        <AuthProvider>
+          <GlobalStyle />
+          <ThemeInjector />
+
+          <Routes>
+            {/* ── PUBLIC ── */}
+            <Route path="/" element={
+              <PublicLayout><HomePage /></PublicLayout>
+            } />
+            <Route path="/pricing" element={
+              <PublicLayout><Pricing /></PublicLayout>
+            } />
+            <Route path="/success" element={<Success />} />
+            <Route path="/signup"  element={<Signup />} />
+            <Route path="/login"   element={<Login />} />
+            <Route path="/forgot-password" element={
+              <PublicLayout><Placeholder title="Passwort zurücksetzen" /></PublicLayout>
+            } />
+            <Route path="/impressum" element={
+              <PublicLayout><Placeholder title="Impressum" /></PublicLayout>
+            } />
+            <Route path="/datenschutz" element={
+              <PublicLayout><Placeholder title="Datenschutz" /></PublicLayout>
+            } />
+
+            {/* ── PROTECTED DASHBOARD ── */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }>
+              {/* index = /dashboard */}
+              <Route index element={<DashboardHome />} />
+
+              {/* Nested routes */}
+              <Route path="bewertungen" element={
+                <DashboardPlaceholder
+                  title="Bewertungen"
+                  description="Alle Google-Rezensionen auf einen Blick — mit KI-Antwort-Assistent."
+                />
+              } />
+              <Route path="fotos" element={
+                <DashboardPlaceholder
+                  title="Fotos"
+                  description="Google-Profilbilder verwalten und optimieren."
+                />
+              } />
+              <Route path="reporting" element={
+                <DashboardPlaceholder
+                  title="Reporting"
+                  description="Monatliche PDF-Reports und Sichtbarkeits-Entwicklung."
+                />
+              } />
+              <Route path="einstellungen" element={
+                <DashboardPlaceholder
+                  title="Einstellungen"
+                  description="Profil, Benachrichtigungen und Abo-Verwaltung."
+                />
+              } />
+            </Route>
+
+            {/* 404 */}
+            <Route path="*" element={
+              <PublicLayout>
+                <Placeholder title="404 — Seite nicht gefunden" />
+              </PublicLayout>
+            } />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </IndustryProvider>
   );

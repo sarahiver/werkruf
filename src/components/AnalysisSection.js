@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes, css } from 'styled-components';
 import {
   Star, AlertTriangle, MessageSquare, Globe, MapPin,
@@ -320,6 +320,7 @@ const AnalysisSection = ({
   const { key: industryKey, copy, design } = useIndustry();
   const { analysis: analysisCopy } = copy;
 
+  const navigate = useNavigate();
   const [email,   setEmail]   = useState('');
   const [emailErr,setEmailErr]= useState('');
   const [sending, setSending] = useState(false);
@@ -337,7 +338,7 @@ const AnalysisSection = ({
       console.error('Supabase:', err);
     }
     setSending(false);
-    onMarkSent();
+    navigate('/success', { state: { email, result } });
   };
 
   const alerts = result ? buildAlerts(result) : [];
