@@ -7,6 +7,18 @@
     <meta name="theme-color" content="#002C51" />
     <meta name="description" content="Werkruf – Digitaler Rückenwind für echtes Handwerk. Mehr A-Kunden, mehr Sichtbarkeit, weniger Stress." />
     <title>Werkruf – Digitaler Rückenwind für echtes Handwerk</title>
+    <!-- Google Maps — loaded manually, supports Places API (New) -->
+    <script>
+      (function() {
+        var key = '%REACT_APP_GOOGLE_PLACES_API_KEY%';
+        if (!key || key.indexOf('%') === 0) return;
+        var s = document.createElement('script');
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + key + '&libraries=places&language=de&region=DE&loading=async';
+        s.async = true;
+        s.defer = true;
+        document.head.appendChild(s);
+      })();
+    </script>
   </head>
   <body>
     <noscript>Du musst JavaScript aktivieren, um diese Seite zu nutzen.</noscript>
