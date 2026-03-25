@@ -158,12 +158,36 @@ export const INDUSTRIES = {
     /* Pricing */
     pricing: {
       currency:        '€',
-      monthlyPrice:    149,
-      annualPrice:     1490,       // ~2 Monate gratis
       trialDays:       30,
+      productName:     'WERKRUF PRO',
       priceLabel:      '/ Monat (netto)',
       trialCTA:        'Jetzt 30 Tage gratis testen',
-      productName:     'WERKRUF PRO',
+
+      /* Pfad A: GMB vorhanden → Optimierung */
+      pathA: {
+        setupFee:      0,
+        monthlyPrice:  49,
+        quarterPrice:  129,   // ~12% Ersparnis
+        annualPrice:   449,   // ~24% Ersparnis
+        label:         'Optimierung',
+        description:   'Dein Profil existiert — wir machen es unschlagbar.',
+      },
+
+      /* Pfad B: kein GMB → Setup + Software */
+      pathB: {
+        setupFee:      149,   // einmalig für GMB-Erstellung
+        monthlyPrice:  49,
+        quarterPrice:  129,
+        annualPrice:   449,
+        label:         'Setup + Optimierung',
+        description:   'Wir erstellen dein Google-Profil und optimieren es vollständig.',
+        setupIncludes: [
+          'Google Business Profil anlegen & verifizieren',
+          'Vollständige Erstoptimierung (Keywords, Beschreibung, Fotos)',
+          '30 Tage kostenlose Software-Nutzung',
+          'Das Profil bleibt für immer dein Eigentum',
+        ],
+      },
       roi: {
         avgOrderValue:     400,    // EUR
         upliftFactor:      0.30,   // +30% mehr qualif. Anfragen
