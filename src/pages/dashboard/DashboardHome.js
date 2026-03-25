@@ -392,6 +392,16 @@ const GhostCTABtn = styled.button`
   transition:filter .2s,transform .1s;
   &:hover{filter:brightness(.9);transform:translateY(-1px);}
 `;
+const GhostResetBtn = styled.button`
+  background: none;
+  border: 1px solid rgba(255,255,255,.25);
+  color: rgba(255,255,255,.55);
+  font-family: var(--font-body); font-size: .8rem;
+  padding: 10px 16px; border-radius: var(--radius-button);
+  cursor: pointer; transition: border-color .2s, color .2s;
+  &:hover:not(:disabled) { border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85); }
+  &:disabled { opacity: .4; cursor: not-allowed; }
+`;
 
 /* ─────────────────────────────────────────────
    GMB CARD
@@ -554,7 +564,7 @@ export default function DashboardHome() {
     setSaving(false);
   };
 
-  /* ── Reset business ── */
+  /* ── Reset business (linked state) ── */
   const handleReset = async () => {
     setResetting(true);
     await supabase.from('user_profiles').update({
@@ -562,6 +572,25 @@ export default function DashboardHome() {
       google_rating: null, google_review_count: null, visibility_score: null,
     }).eq('id', user.id);
     setSelectedPlace(null);
+    await refreshProfile();
+    setResetting(false);
+  };
+
+  /* ── Reset ghost town (versehentlich manuell eingetragen) ── */
+  const handleGhostReset = async () => {
+    if (!window.confirm('Eintrag zurücksetzen? Du kannst danach deinen Betrieb per Google-Suche verknüpfen.')) return;
+    setResetting(true);
+    await supabase.from('user_profiles').update({
+      company_name:     null,
+      visibility_score: null,
+      industry_key:     industryKey || 'handwerk',
+    }).eq('id', user.id);
+    // Mark the manual lead as cancelled
+    await supabase.from('leads')
+      .update({ status: 'cancelled' })
+      .eq('email', user.email)
+      .eq('needs_manual_setup', true)
+      .eq('status', 'new');
     await refreshProfile();
     setResetting(false);
   };
@@ -705,10 +734,13 @@ export default function DashboardHome() {
               <GhostStepText>{brand.name} übernimmt die komplette Optimierung.</GhostStepText>
             </GhostStep>
           </GhostSteps>
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
             <GhostCTABtn onClick={() => setShowGhostSetup(true)}>
               Sichtbarkeit buchen — 149€ Setup <ArrowRight size={16}/>
             </GhostCTABtn>
+            <GhostResetBtn onClick={handleGhostReset} disabled={resetting}>
+              {resetting ? 'Wird zurückgesetzt…' : 'Versehentlich eingetragen? Zurücksetzen'}
+            </GhostResetBtn>
           </div>
           <p style={{
             fontFamily:'var(--font-body)',fontSize:'.72rem',

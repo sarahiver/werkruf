@@ -155,6 +155,39 @@ export const INDUSTRIES = {
       },
     },
 
+    /* E-Mail & PDF copy — industry-specific */
+    comms: {
+      expertTitle:   'Handwerk-Experte',
+      greeting:      'Moin',
+      emailFrom:     'hallo@werkruf.de',
+      emailSignature:'Dein WERKRUF-Team',
+      fahrplanTitle: 'Dein Sichtbarkeits-Fahrplan',
+      phases: [
+        {
+          num: '01', title: 'Analyse & Optimierung',
+          text: 'Wir optimieren deine Google-Kategorien, Leistungen und Keywords — damit Handwerker-Anfragen bei dir landen.',
+          icon: '🔍',
+        },
+        {
+          num: '02', title: 'Verifizierung',
+          text: 'Achte auf die Google-Postkarte! Sobald sie da ist, brauchst du nur kurz deinen Code eingeben — wir erledigen den Rest.',
+          icon: '📬',
+        },
+        {
+          num: '03', title: 'Go-Live & KI-Monitoring',
+          text: 'Dein Profil ist sichtbar. Ab jetzt überwacht unsere KI Bewertungen, Sichtbarkeit und Mitbewerber — du arbeitest, wir beobachten.',
+          icon: '🚀',
+        },
+      ],
+      checklist: [
+        '5 Fotos (Außenansicht, Werkzeug, Team, Arbeitsergebnisse)',
+        'Öffnungszeiten (inkl. Sonderzeiten)',
+        'Deine Top-3-Leistungen (z.B. Sanitär, Heizung, Reparaturen)',
+        'Telefonnummer und Website (falls vorhanden)',
+        'Firmenanschrift mit PLZ',
+      ],
+    },
+
     /* Pricing */
     pricing: {
       currency:        '€',
@@ -353,6 +386,38 @@ export const INDUSTRIES = {
           { label: 'Kontakt',     href: 'mailto:hallo@gastroruf.de' },
         ],
       },
+    },
+
+    comms: {
+      expertTitle:   'Gastronomie-Experte',
+      greeting:      'Hallo',
+      emailFrom:     'hallo@gastroruf.de',
+      emailSignature:'Dein GASTRORUF-Team',
+      fahrplanTitle: 'Dein Restaurant-Fahrplan',
+      phases: [
+        {
+          num: '01', title: 'Profil-Optimierung',
+          text: 'Wir optimieren dein Restaurant-Profil: Küchenstil, Spezialitäten, Atmosphäre — damit hungrige Gäste dich finden.',
+          icon: '🍽️',
+        },
+        {
+          num: '02', title: 'Verifizierung',
+          text: 'Achte auf die Google-Postkarte! Sobald sie da ist, gibst du kurz deinen Code ein — wir erledigen den Rest.',
+          icon: '📬',
+        },
+        {
+          num: '03', title: 'Go-Live & KI-Monitoring',
+          text: 'Dein Profil ist sichtbar. Ab jetzt monitoren wir Bewertungen und Reservierungs-Trends automatisch.',
+          icon: '🚀',
+        },
+      ],
+      checklist: [
+        '5 Fotos (Außenansicht, Innenraum, Speisen, Team)',
+        'Öffnungszeiten und Ruhetage',
+        'Speisekarte-Link oder Top-Gerichte',
+        'Telefonnummer für Reservierungen',
+        'Firmenanschrift mit PLZ',
+      ],
     },
 
     pricing: {

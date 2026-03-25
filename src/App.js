@@ -22,6 +22,7 @@ import Login     from './pages/Login';
 /* Dashboard */
 import DashboardLayout      from './pages/dashboard/DashboardLayout';
 import DashboardHome        from './pages/dashboard/DashboardHome';
+import DashboardReporting   from './pages/dashboard/DashboardReporting';
 import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
 
 /* Placeholder for future pages */
@@ -108,12 +109,7 @@ function App() {
                   description="Google-Profilbilder verwalten und optimieren."
                 />
               } />
-              <Route path="reporting" element={
-                <DashboardPlaceholder
-                  title="Reporting"
-                  description="Monatliche PDF-Reports und Sichtbarkeits-Entwicklung."
-                />
-              } />
+              <Route path="reporting" element={<DashboardReporting />} />
               <Route path="einstellungen" element={
                 <DashboardPlaceholder
                   title="Einstellungen"
