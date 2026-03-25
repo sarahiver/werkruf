@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import styled, { keyframes, css } from 'styled-components';
 import {
   Star, AlertTriangle, MessageSquare, Globe, MapPin,
-  CheckCircle, ChevronRight, Loader, RotateCcw
+  CheckCircle, ChevronRight, Loader, RotateCcw, TrendingUp
 } from 'lucide-react';
 import {
-  scoreColor, scoreBg, scoreLabel, buildAlerts, SCAN_STEPS
+  scoreColor, scoreBg, scoreLabel,
+  buildAlerts, SCAN_STEPS, saveLeadToSupabase,
 } from '../hooks/usePlacesAnalysis';
-import supabase from '../supabaseClient';
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
@@ -17,26 +18,26 @@ const fadeIn  = keyframes`from{opacity:0}to{opacity:1}`;
 const scanBar = keyframes`0%{width:0%}85%{width:90%}100%{width:100%}`;
 const pulse   = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
 const spin    = keyframes`to{transform:rotate(360deg)}`;
+const stampIn = keyframes`
+  0%   { opacity:0; transform:scale(1.4) rotate(-6deg); }
+  60%  { opacity:1; transform:scale(0.95) rotate(1deg); }
+  100% { opacity:1; transform:scale(1) rotate(0deg); }
+`;
 
 /* ─────────────────────────────────────────────
-   LAYOUT
+   SECTION
 ───────────────────────────────────────────── */
 const Section = styled.section`
   background: #F2F2F2;
   padding: 80px 24px 100px;
   position: relative;
-  /* Scroll margin so sticky header doesn't overlap */
-  scroll-margin-top: 0px;
 `;
 
 const TopStripe = styled.div`
   position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 5px;
+  top: 0; left: 0; right: 0; height: 5px;
   background: repeating-linear-gradient(
-    90deg,
-    #002C51 0px, #002C51 60px,
-    #FF8C00 60px, #FF8C00 80px
+    90deg, #002C51 0px, #002C51 60px, #FF8C00 60px, #FF8C00 80px
   );
 `;
 
@@ -47,122 +48,93 @@ const Inner = styled.div`
 
 const Eyebrow = styled.p`
   font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #FF8C00;
-  text-align: center;
-  margin-bottom: 10px;
+  font-weight: 700; font-size: .72rem;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: #FF8C00; text-align: center; margin-bottom: 10px;
 `;
 
 const H2 = styled.h2`
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 900;
   font-size: clamp(1.8rem, 3.5vw, 2.5rem);
-  text-transform: uppercase;
-  color: #002C51;
-  text-align: center;
-  line-height: 1.05;
-  margin-bottom: 8px;
+  text-transform: uppercase; color: #002C51;
+  text-align: center; line-height: 1.05; margin-bottom: 8px;
 `;
 
 const Accent = styled.span`color: #FF8C00;`;
 
 const SubText = styled.p`
   font-family: 'Barlow', sans-serif;
-  font-size: 0.9rem;
-  color: #5A6A7A;
-  text-align: center;
-  margin-bottom: 36px;
+  font-size: .9rem; color: #5A6A7A;
+  text-align: center; margin-bottom: 36px;
 `;
 
 /* ─────────────────────────────────────────────
-   IDLE STATE
+   IDLE
 ───────────────────────────────────────────── */
 const IdleBox = styled.div`
   background: white;
   border-top: 5px solid #D0D8E0;
-  padding: 48px 32px;
-  text-align: center;
-  animation: ${fadeIn} 0.4s ease both;
+  padding: 48px 32px; text-align: center;
+  animation: ${fadeIn} .4s ease both;
 `;
 
 const IdleIcon = styled.div`
-  width: 64px; height: 64px;
-  background: #F2F2F2;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-  color: #D0D8E0;
+  width: 56px; height: 56px;
+  background: #F2F2F2; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 14px; color: #D0D8E0;
 `;
 
-const IdleText = styled.p`
+const IdleTxt = styled.p`
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  font-size: 1.1rem;
-  text-transform: uppercase;
-  color: #A0ADB8;
-  letter-spacing: 0.05em;
+  font-weight: 700; font-size: 1.05rem;
+  text-transform: uppercase; color: #A0ADB8; letter-spacing: .05em;
 `;
 
 const IdleSub = styled.p`
   font-family: 'Barlow', sans-serif;
-  font-size: 0.82rem;
-  color: #C0C8D0;
-  margin-top: 6px;
+  font-size: .8rem; color: #C0C8D0; margin-top: 5px;
 `;
 
 /* ─────────────────────────────────────────────
-   CARD (shared wrapper)
+   CARD
 ───────────────────────────────────────────── */
 const Card = styled.div`
   background: white;
   border-top: 5px solid #FF8C00;
-  animation: ${fadeUp} 0.4s ease both;
+  animation: ${fadeUp} .4s ease both;
 `;
 
 const CardBody = styled.div`
   padding: 28px 28px 32px;
-  @media (max-width: 560px) { padding: 20px 16px 26px; }
+  @media(max-width:560px){padding:20px 16px 26px;}
 `;
 
 /* ─────────────────────────────────────────────
    SCANNING
 ───────────────────────────────────────────── */
 const LoadHead = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
 `;
 
 const SpinWrap = styled.div`
   color: #FF8C00;
-  animation: ${spin} 0.8s linear infinite;
+  animation: ${spin} .8s linear infinite;
   display: flex;
 `;
 
 const LoadTitle = styled.p`
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  font-size: 1.1rem;
-  text-transform: uppercase;
-  color: #002C51;
-  letter-spacing: 0.04em;
+  font-weight: 700; font-size: 1.1rem;
+  text-transform: uppercase; color: #002C51; letter-spacing: .04em;
 `;
 
-const CompanyPreview = styled.span`
-  color: #FF8C00;
-`;
+const PlacePreview = styled.span`color: #FF8C00;`;
 
 const PTrack = styled.div`
   width: 100%; height: 5px;
-  background: #E0E8F0;
-  overflow: hidden;
-  margin-bottom: 16px;
+  background: #E0E8F0; overflow: hidden; margin-bottom: 16px;
 `;
 
 const PFill = styled.div`
@@ -173,148 +145,100 @@ const PFill = styled.div`
 `;
 
 const ScanSteps = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
+  display: flex; flex-direction: column; gap: 9px;
 `;
 
 const ScanStep = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.85rem;
-  color: ${({ $done }) => $done ? '#1E7E34' : '#6B7E8F'};
-  transition: color 0.3s;
+  display: flex; align-items: center; gap: 9px;
+  font-family: 'Barlow', sans-serif; font-size: .85rem;
+  color: ${({ $d }) => $d ? '#1E7E34' : '#6B7E8F'};
+  transition: color .3s;
 `;
 
 const ScanDot = styled.div`
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: ${({ $done, $active }) => $done ? '#1E7E34' : $active ? '#FF8C00' : '#D0D8E0'};
-  ${({ $active }) => $active && css`animation: ${pulse} 0.9s ease infinite;`}
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: ${({ $d, $a }) => $d ? '#1E7E34' : $a ? '#FF8C00' : '#D0D8E0'};
+  ${({ $a }) => $a && css`animation: ${pulse} .9s ease infinite;`}
 `;
 
 /* ─────────────────────────────────────────────
    RESULT
 ───────────────────────────────────────────── */
 const ResHead = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-  flex-wrap: wrap;
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 16px;
+  margin-bottom: 18px; flex-wrap: wrap;
 `;
 
 const CoName = styled.h3`
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1.4rem;
-  text-transform: uppercase;
-  color: #002C51;
-  margin-bottom: 4px;
-  line-height: 1.1;
+  font-weight: 800; font-size: 1.4rem;
+  text-transform: uppercase; color: #002C51;
+  margin-bottom: 4px; line-height: 1.1;
 `;
 
 const CoMeta = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 `;
 
 const Chip = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.78rem;
-  color: #5A6A7A;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'Barlow', sans-serif; font-size: .78rem; color: #5A6A7A;
   svg { color: #FF8C00; flex-shrink: 0; }
 `;
 
 const ScBadge = styled.div`
   background: ${({ $s }) => scoreBg($s)};
   border: 2px solid ${({ $s }) => scoreColor($s)};
-  padding: 8px 14px;
-  text-align: center;
-  flex-shrink: 0;
-  min-width: 82px;
+  padding: 8px 14px; text-align: center; flex-shrink: 0; min-width: 82px;
 `;
 
 const ScNum = styled.div`
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 2rem;
-  line-height: 1;
+  font-weight: 900; font-size: 2rem; line-height: 1;
   color: ${({ $s }) => scoreColor($s)};
 `;
 
 const ScLbl = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.6rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #5A6A7A;
-  margin-top: 2px;
+  font-family: 'Barlow', sans-serif; font-weight: 700;
+  font-size: .6rem; letter-spacing: .1em; text-transform: uppercase;
+  color: #5A6A7A; margin-top: 2px;
 `;
 
 /* Metrics */
 const MGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  background: #D0D8E0;
-  margin-bottom: 16px;
+  display: grid; grid-template-columns: repeat(3,1fr);
+  gap: 2px; background: #D0D8E0; margin-bottom: 16px;
 `;
 
 const MCell = styled.div`
-  background: white;
-  padding: 13px 10px;
-  text-align: center;
+  background: white; padding: 13px 10px; text-align: center;
 `;
 
 const MVal = styled.div`
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 1.45rem;
+  font-weight: 900; font-size: 1.45rem;
   color: ${({ $w }) => $w ? '#D93025' : '#002C51'};
-  line-height: 1;
-  margin-bottom: 3px;
+  line-height: 1; margin-bottom: 3px;
 `;
 
 const MLbl = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.7rem;
-  color: #5A6A7A;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-family: 'Barlow', sans-serif; font-size: .7rem;
+  color: #5A6A7A; text-transform: uppercase; letter-spacing: .06em;
 `;
 
 const StarsRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  justify-content: center;
-  margin-bottom: 3px;
+  display: flex; align-items: center; gap: 2px;
+  justify-content: center; margin-bottom: 3px;
 `;
 
 /* Alerts */
 const AList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 18px;
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px;
 `;
 
 const AItem = styled.div`
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 11px 13px;
+  display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px;
   background: ${({ $t }) => $t === 'err' ? '#FDECEA' : $t === 'warn' ? '#FFF8E1' : '#E8F5E9'};
   border-left: 3px solid ${({ $t }) =>
     $t === 'err' ? '#D93025' : $t === 'warn' ? '#F5A623' : '#1E7E34'};
@@ -322,23 +246,16 @@ const AItem = styled.div`
 
 const AIco = styled.div`
   color: ${({ $t }) => $t === 'err' ? '#D93025' : $t === 'warn' ? '#D48A00' : '#1E7E34'};
-  flex-shrink: 0;
-  margin-top: 1px;
-  display: flex;
+  flex-shrink: 0; margin-top: 1px; display: flex;
 `;
 
 const ATit = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-weight: 700;
-  font-size: 0.86rem;
-  color: #1A1A1A;
-  margin-bottom: 1px;
+  font-family: 'Barlow', sans-serif; font-weight: 700;
+  font-size: .86rem; color: #1A1A1A; margin-bottom: 1px;
 `;
 
 const ADesc = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.77rem;
-  color: #5A6A7A;
+  font-family: 'Barlow', sans-serif; font-size: .77rem; color: #5A6A7A;
 `;
 
 /* Blur teaser */
@@ -348,136 +265,138 @@ const TLock = styled.div`
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
 `;
-
 const LPill = styled.div`
-  background: #002C51;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  font-size: 0.82rem;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+  background: #002C51; color: white;
+  display: flex; align-items: center; gap: 6px; padding: 7px 16px;
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: .82rem; letter-spacing: .07em; text-transform: uppercase;
+  box-shadow: 0 4px 16px rgba(0,0,0,.22);
 `;
 
-/* Lead form */
-const Divider = styled.div`height: 1px; background: #D0D8E0; margin: 20px 0 18px;`;
+/* ─────────────────────────────────────────────
+   LEAD FORM
+───────────────────────────────────────────── */
+const Divider = styled.div`height:1px;background:#D0D8E0;margin:20px 0 18px;`;
 
 const LTit = styled.h4`
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 1.15rem;
-  text-transform: uppercase;
-  color: #002C51;
-  margin-bottom: 5px;
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+  font-size: 1.15rem; text-transform: uppercase;
+  color: #002C51; margin-bottom: 5px;
 `;
 
 const LSub = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.83rem;
-  color: #5A6A7A;
-  margin-bottom: 14px;
-  line-height: 1.55;
+  font-family: 'Barlow', sans-serif; font-size: .83rem;
+  color: #5A6A7A; margin-bottom: 14px; line-height: 1.55;
 `;
 
 const ERow = styled.div`
   display: flex;
-  @media (max-width: 500px) { flex-direction: column; }
+  @media(max-width:500px){flex-direction:column;}
 `;
 
 const EInput = styled.input`
-  flex: 1;
-  padding: 13px 15px;
+  flex: 1; padding: 13px 15px;
   border: 2px solid ${({ $e }) => $e ? '#E53E3E' : '#D0D8E0'};
-  border-right: none;
-  background: white;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.95rem;
-  color: #1A1A1A;
-  outline: none;
-  border-radius: 0;
-  transition: border-color 0.2s;
-  &:focus { border-color: #002C51; }
-  &::placeholder { color: #A0ADB8; }
-  @media (max-width: 500px) {
+  border-right: none; background: white;
+  font-family: 'Barlow', sans-serif; font-size: .95rem; color: #1A1A1A;
+  outline: none; border-radius: 0; transition: border-color .2s;
+  &:focus{border-color:#002C51;}
+  &::placeholder{color:#A0ADB8;}
+  @media(max-width:500px){
     border-right: 2px solid ${({ $e }) => $e ? '#E53E3E' : '#D0D8E0'};
     border-bottom: none;
   }
 `;
 
 const SBtn = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 13px 20px;
+  display: flex; align-items: center; gap: 7px; padding: 13px 20px;
   background: ${({ disabled }) => disabled ? '#C07000' : '#FF8C00'};
-  color: white;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800;
-  font-size: 0.95rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border: none;
+  color: white; font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: .95rem; letter-spacing: .06em;
+  text-transform: uppercase; border: none; flex-shrink: 0;
   cursor: ${({ disabled }) => disabled ? 'not-allowed' : 'pointer'};
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background 0.2s, transform 0.1s;
-  &:hover:not(:disabled) { background: #E07A00; transform: translateY(-1px); }
-  .spin { animation: ${spin} 0.8s linear infinite; }
-  @media (max-width: 500px) { width: 100%; justify-content: center; }
+  white-space: nowrap; transition: background .2s, transform .1s;
+  &:hover:not(:disabled){background:#E07A00;transform:translateY(-1px);}
+  .spin{animation:${spin} .8s linear infinite;}
+  @media(max-width:500px){width:100%;justify-content:center;}
 `;
 
 const FErr = styled.p`
-  margin-top: 5px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.76rem;
-  color: #E53E3E;
+  margin-top:5px;font-family:'Barlow',sans-serif;
+  font-size:.76rem;color:#E53E3E;
 `;
 
-const OkBox = styled.div`
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #E8F5E9;
-  border-left: 4px solid #1E7E34;
-  animation: ${fadeIn} 0.3s ease;
+/* ─────────────────────────────────────────────
+   SUCCESS — Heavy Duty Style
+───────────────────────────────────────────── */
+const SuccessWrap = styled.div`
+  animation: ${fadeIn} .3s ease both;
 `;
 
-const OkTxt = styled.div`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.88rem;
-  color: #1A1A1A;
-  line-height: 1.5;
-  strong { font-weight: 700; display: block; margin-bottom: 2px; }
+const SuccessStamp = styled.div`
+  display: inline-flex; align-items: center; gap: 12px;
+  background: #002C51; padding: 16px 20px;
+  margin-bottom: 20px; width: 100%;
+  animation: ${stampIn} .5s cubic-bezier(.22,1,.36,1) both;
+`;
+
+const SuccessIcon = styled.div`
+  width: 44px; height: 44px; background: #FF8C00;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+`;
+
+const SuccessText = styled.div``;
+
+const SuccessTitle = styled.p`
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 900;
+  font-size: 1.2rem; text-transform: uppercase;
+  color: white; letter-spacing: .04em; line-height: 1.1;
+`;
+
+const SuccessSub = styled.p`
+  font-family: 'Barlow', sans-serif; font-size: .82rem;
+  color: rgba(255,255,255,.62); margin-top: 3px; line-height: 1.5;
+`;
+
+/* Upsell CTA after success */
+const UpsellBox = styled.div`
+  background: #FFF3E0; border-left: 4px solid #FF8C00;
+  padding: 16px 18px; margin-bottom: 16px;
+`;
+
+const UpsellTitle = styled.p`
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+  font-size: 1rem; text-transform: uppercase; color: #002C51;
+  margin-bottom: 4px; letter-spacing: .03em;
+`;
+
+const UpsellText = styled.p`
+  font-family: 'Barlow', sans-serif; font-size: .83rem;
+  color: #5A6A7A; line-height: 1.55; margin-bottom: 12px;
+`;
+
+const UpsellLink = styled(Link)`
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 20px; background: #FF8C00; color: white;
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+  font-size: .9rem; letter-spacing: .07em; text-transform: uppercase;
+  text-decoration: none; transition: background .2s;
+  &:hover{background:#E07A00;}
 `;
 
 const RBtn = styled.button`
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.78rem;
-  color: #5A6A7A;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background: none; border: none; cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  font-family: 'Barlow', sans-serif; font-size: .78rem;
+  color: #5A6A7A; text-decoration: underline; text-underline-offset: 2px;
   margin-top: 14px;
-  &:hover { color: #002C51; }
+  &:hover{color:#002C51;}
 `;
 
 const Footnote = styled.p`
-  font-family: 'Barlow', sans-serif;
-  font-size: 0.7rem;
-  color: #A0ADB8;
-  margin-top: 12px;
-  line-height: 1.5;
+  font-family: 'Barlow', sans-serif; font-size: .7rem;
+  color: #A0ADB8; margin-top: 12px; line-height: 1.5;
 `;
 
 /* ─────────────────────────────────────────────
@@ -496,22 +415,23 @@ function Stars({ v }) {
   );
 }
 
-/* ─────────────────────────────────────────────
-   ALERT ICONS (kept local, no import needed)
-───────────────────────────────────────────── */
-function alertIcon(i, t) {
-  const icons = [AlertTriangle, Globe, MessageSquare, Star, Star];
-  const Icon = icons[i] || AlertTriangle;
+/* Alert icon picker */
+const ALERT_ICONS = [AlertTriangle, Globe, MessageSquare, Star, TrendingUp];
+function AlertIcon({ idx, t }) {
+  const Icon = ALERT_ICONS[idx % ALERT_ICONS.length] || AlertTriangle;
   return <Icon size={15} />;
 }
 
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
-const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMarkSent }) => {
+const AnalysisSection = ({
+  phase, scanStep, result, selectedPlace, onReset, onMarkSent,
+}) => {
   const [email,    setEmail]    = useState('');
   const [emailErr, setEmailErr] = useState('');
   const [sending,  setSending]  = useState(false);
+  const [saveErr,  setSaveErr]  = useState('');
 
   const handleSubmit = async () => {
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -519,23 +439,24 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
       return;
     }
     setEmailErr('');
+    setSaveErr('');
     setSending(true);
+
     try {
-      await supabase.from('leads').insert([{
-        company_name:   result.name,
-        contact_person: '-',
-        phone:          '-',
-        city:           result.city,
-        email,
-        source:         'smart_check',
-        status:         'new',
-      }]);
-    } catch (e) { console.error(e); }
+      await saveLeadToSupabase({ email, result });
+    } catch (err) {
+      console.error('Supabase error:', err);
+      // Don't block UX on DB error — still show success to user
+      setSaveErr('');
+    }
+
     setSending(false);
     onMarkSent();
   };
 
   const alerts = result ? buildAlerts(result) : [];
+
+  const scanningName = selectedPlace?.label?.split(',')[0] || '…';
 
   return (
     <Section id="analysis">
@@ -547,17 +468,17 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
           {phase === 'idle'
             ? 'Betrieb oben eingeben — hier erscheinen deine Ergebnisse.'
             : phase === 'scanning'
-            ? 'Analyse läuft…'
-            : `Ergebnis für ${result?.name}`}
+            ? `Analysiere ${scanningName}…`
+            : result
+            ? `Ergebnis für ${result.name}`
+            : ''}
         </SubText>
 
         {/* ── IDLE ── */}
         {phase === 'idle' && (
           <IdleBox>
-            <IdleIcon>
-              <Star size={28} />
-            </IdleIcon>
-            <IdleText>Noch kein Betrieb ausgewählt</IdleText>
+            <IdleIcon><Star size={26} /></IdleIcon>
+            <IdleTxt>Noch kein Betrieb ausgewählt</IdleTxt>
             <IdleSub>Scroll nach oben und gib deinen Firmennamen ein.</IdleSub>
           </IdleBox>
         )}
@@ -570,9 +491,7 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                 <SpinWrap><Loader size={20} /></SpinWrap>
                 <LoadTitle>
                   WERKRUF analysiert{' '}
-                  {selectedPlace?.label
-                    ? <CompanyPreview>{selectedPlace.label.split(',')[0]}</CompanyPreview>
-                    : '…'}
+                  <PlacePreview>{scanningName}</PlacePreview>
                 </LoadTitle>
               </LoadHead>
 
@@ -580,10 +499,10 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
 
               <ScanSteps>
                 {SCAN_STEPS.map((s, i) => (
-                  <ScanStep key={i} $done={i < scanStep}>
+                  <ScanStep key={i} $d={i < scanStep}>
                     <ScanDot
-                      $done={i < scanStep}
-                      $active={i === scanStep - 1 && phase === 'scanning'}
+                      $d={i < scanStep}
+                      $a={i === scanStep - 1 && phase === 'scanning'}
                     />
                     {s.lbl(result?.city || '')}
                     {i < scanStep && (
@@ -601,12 +520,19 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
         {(phase === 'result' || phase === 'sent') && result && (
           <Card>
             <CardBody>
+
+              {/* Header */}
               <ResHead>
                 <div>
                   <CoName>{result.name}</CoName>
                   <CoMeta>
                     {result.city && <Chip><MapPin size={11} />{result.city}</Chip>}
                     {result.hasWebsite && <Chip><Globe size={11} />Website vorhanden</Chip>}
+                    {!result.hasWebsite && (
+                      <Chip style={{ color: '#D93025' }}>
+                        <Globe size={11} />Keine Website
+                      </Chip>
+                    )}
                   </CoMeta>
                 </div>
                 <ScBadge $s={result.score}>
@@ -615,12 +541,12 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                 </ScBadge>
               </ResHead>
 
-              {/* Real metrics */}
+              {/* REAL Metrics from Google Places API */}
               <MGrid>
                 <MCell>
                   {result.rating > 0
                     ? <Stars v={result.rating} />
-                    : <div style={{ fontSize: '.7rem', color: '#D93025', marginBottom: 3 }}>KEIN RATING</div>
+                    : <div style={{fontSize:'.7rem',color:'#D93025',marginBottom:3}}>KEIN RATING</div>
                   }
                   <MVal $w={result.rating > 0 && result.rating < 4.0}>
                     {result.rating > 0 ? result.rating.toFixed(1) : '—'}
@@ -628,7 +554,9 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                   <MLbl>Ø Bewertung</MLbl>
                 </MCell>
                 <MCell>
-                  <MVal $w={result.reviewCount < 10}>{result.reviewCount}</MVal>
+                  <MVal $w={result.reviewCount < 10}>
+                    {result.reviewCount.toLocaleString('de-DE')}
+                  </MVal>
                   <MLbl>Rezensionen</MLbl>
                 </MCell>
                 <MCell>
@@ -637,11 +565,11 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                 </MCell>
               </MGrid>
 
-              {/* Alerts */}
+              {/* Alerts — first 2 visible, rest blurred */}
               <AList>
                 {alerts.slice(0, 2).map((a, i) => (
                   <AItem key={i} $t={a.t}>
-                    <AIco $t={a.t}>{alertIcon(i, a.t)}</AIco>
+                    <AIco $t={a.t}><AlertIcon idx={i} t={a.t} /></AIco>
                     <div>
                       <ATit>{a.title}</ATit>
                       <ADesc>{a.desc}</ADesc>
@@ -655,8 +583,11 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                       {alerts.slice(2).map((a, i) => (
                         <AItem key={i} $t={a.t}
                           style={{ marginBottom: i < alerts.slice(2).length - 1 ? 8 : 0 }}>
-                          <AIco $t={a.t}>{alertIcon(i + 2, a.t)}</AIco>
-                          <div><ATit>{a.title}</ATit><ADesc>{a.desc}</ADesc></div>
+                          <AIco $t={a.t}><AlertIcon idx={i + 2} t={a.t} /></AIco>
+                          <div>
+                            <ATit>{a.title}</ATit>
+                            <ADesc>{a.desc}</ADesc>
+                          </div>
                         </AItem>
                       ))}
                     </Blur>
@@ -670,7 +601,7 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                 )}
               </AList>
 
-              {/* Lead form */}
+              {/* ── LEAD FORM ── */}
               {phase === 'result' && (
                 <>
                   <Divider />
@@ -696,23 +627,43 @@ const AnalysisSection = ({ phase, scanStep, result, selectedPlace, onReset, onMa
                     </SBtn>
                   </ERow>
                   {emailErr && <FErr>{emailErr}</FErr>}
+                  {saveErr  && <FErr>{saveErr}</FErr>}
                 </>
               )}
 
-              {/* Success */}
+              {/* ── SUCCESS — Heavy Duty ── */}
               {phase === 'sent' && (
-                <>
+                <SuccessWrap>
                   <Divider />
-                  <OkBox>
-                    <CheckCircle size={26} color="#1E7E34"
-                      style={{ flexShrink: 0, marginTop: 2 }} />
-                    <OkTxt>
-                      <strong>Report wird vorbereitet!</strong>
-                      Wir schicken deinen Sichtbarkeits-Report für{' '}
-                      <em>{result.name}</em> in 48h an {email}.
-                    </OkTxt>
-                  </OkBox>
-                </>
+                  <SuccessStamp>
+                    <SuccessIcon>
+                      <CheckCircle size={24} color="white" />
+                    </SuccessIcon>
+                    <SuccessText>
+                      <SuccessTitle>
+                        Moin! Dein persönlicher Report für{' '}
+                        {result.name} wird erstellt.
+                      </SuccessTitle>
+                      <SuccessSub>
+                        Wir schicken deinen Sichtbarkeits-Report in 48h an {email}.
+                        Schau auch im Spam-Ordner nach.
+                      </SuccessSub>
+                    </SuccessText>
+                  </SuccessStamp>
+
+                  {/* Upsell to /pricing */}
+                  <UpsellBox>
+                    <UpsellTitle>Direkt loslegen statt warten?</UpsellTitle>
+                    <UpsellText>
+                      Mit WERKRUF PRO startest du sofort — keine Wartezeit, kein PDF.
+                      Profil-Optimierung, Bewertungs-Autopilot und monatliche Reports
+                      für 149 €/Monat. Die ersten 30 Tage sind kostenlos.
+                    </UpsellText>
+                    <UpsellLink to="/pricing">
+                      30 Tage gratis testen <ChevronRight size={14} />
+                    </UpsellLink>
+                  </UpsellBox>
+                </SuccessWrap>
               )}
 
               <div style={{ textAlign: 'right' }}>

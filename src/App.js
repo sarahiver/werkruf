@@ -1,51 +1,27 @@
 import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import GlobalStyle from './components/GlobalStyle';
 import Header from './components/Header';
-import Hero from './components/Hero';
-import AnalysisSection from './components/AnalysisSection';
-import Features from './components/Features';
-import LeadForm from './components/LeadForm';
 import Footer from './components/Footer';
-import { usePlacesAnalysis } from './hooks/usePlacesAnalysis';
+
+/* Pages */
+import HomePage from './pages/HomePage';
+import Pricing  from './pages/Pricing';
 
 function App() {
-  const {
-    phase,
-    scanStep,
-    result,
-    fetchErr,
-    selectedPlace,
-    runAnalysis,
-    reset,
-    markSent,
-  } = usePlacesAnalysis();
-
   return (
-    <>
+    <BrowserRouter>
       <GlobalStyle />
       <Header />
-      <main>
-        {/* Hero passes onPlaceSelect up — triggers scroll + analysis */}
-        <Hero
-          onPlaceSelect={runAnalysis}
-          fetchErr={fetchErr}
-        />
-
-        {/* Analysis section is the scroll target */}
-        <AnalysisSection
-          phase={phase}
-          scanStep={scanStep}
-          result={result}
-          selectedPlace={selectedPlace}
-          onReset={reset}
-          onMarkSent={markSent}
-        />
-
-        <Features />
-        <LeadForm />
-      </main>
+      <Routes>
+        <Route path="/"        element={<HomePage />} />
+        <Route path="/pricing" element={<Pricing />} />
+        {/* Placeholder routes — add later */}
+        <Route path="/register" element={<div style={{padding:'120px 24px',textAlign:'center',fontFamily:'Barlow Condensed,sans-serif',fontSize:'2rem',color:'#002C51'}}>REGISTRIERUNG — COMING SOON</div>} />
+        <Route path="/login"    element={<div style={{padding:'120px 24px',textAlign:'center',fontFamily:'Barlow Condensed,sans-serif',fontSize:'2rem',color:'#002C51'}}>LOGIN — COMING SOON</div>} />
+      </Routes>
       <Footer />
-    </>
+    </BrowserRouter>
   );
 }
 

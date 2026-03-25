@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { Menu, X } from 'lucide-react';
 
@@ -149,6 +150,7 @@ const Header = () => {
             <NavLink href="#features">Was du kriegst</NavLink>
             <NavLink href="#how">Wie's läuft</NavLink>
             <NavLink href="#form">Sichtbarkeits-Check</NavLink>
+            <NavLink as={Link} to="/pricing" style={{color:'#FF8C00'}}>Preise</NavLink>
           </NavLinks>
           <LoginBtn href="/login">Einloggen</LoginBtn>
           <MobileMenuBtn onClick={() => setMenuOpen(!menuOpen)}>
@@ -160,6 +162,7 @@ const Header = () => {
         <MobileNavLink href="#features" onClick={() => setMenuOpen(false)}>Was du kriegst</MobileNavLink>
         <MobileNavLink href="#how" onClick={() => setMenuOpen(false)}>Wie's läuft</MobileNavLink>
         <MobileNavLink href="#form" onClick={() => setMenuOpen(false)}>Sichtbarkeits-Check</MobileNavLink>
+        <MobileNavLink as={Link} to="/pricing" onClick={() => setMenuOpen(false)} style={{color:'#FF8C00'}}>Preise</MobileNavLink>
         <MobileLoginBtn href="/login">Einloggen</MobileLoginBtn>
       </MobileMenu>
     </>
