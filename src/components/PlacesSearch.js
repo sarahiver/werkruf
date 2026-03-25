@@ -1,30 +1,34 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { Search } from 'lucide-react';
+import { Search, AlertCircle } from 'lucide-react';
 
-const spin = keyframes`to{transform:rotate(360deg)}`;
+const spin = keyframes`to { transform: rotate(360deg); }`;
 
+/* ─────────────────────────────────────────────
+   STYLED
+───────────────────────────────────────────── */
 const Wrap = styled.div`position: relative;`;
 
-const SearchIcon = styled.div`
-  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+const SearchIconWrap = styled.div`
+  position: absolute; left: 13px; top: 19px;
   color: var(--color-accent); display: flex; align-items: center;
   z-index: 5; pointer-events: none;
 `;
 
-const SearchInput = styled.input`
+const StyledInput = styled.input`
   width: 100%;
   padding: 13px 40px 13px 40px;
-  border: 2px solid ${({ $dark }) => $dark ? 'rgba(255,255,255,.15)' : 'var(--color-border)'};
-  background: ${({ $dark }) => $dark ? 'rgba(255,255,255,.07)' : 'var(--color-bg)'};
+  border: 2px solid ${({ $dark }) => $dark ? 'rgba(255,255,255,.2)' : 'var(--color-border)'};
+  background: ${({ $dark }) => $dark ? 'rgba(255,255,255,.08)' : 'var(--color-bg)'};
   color: ${({ $dark }) => $dark ? 'white' : 'var(--color-text)'};
   font-family: var(--font-body); font-size: 1rem;
   outline: none; border-radius: var(--radius-card);
   transition: border-color .2s, background .2s;
+  box-sizing: border-box;
 
   &:focus {
     border-color: var(--color-accent);
-    background: ${({ $dark }) => $dark ? 'rgba(255,255,255,.12)' : 'var(--color-white)'};
+    background: ${({ $dark }) => $dark ? 'rgba(255,255,255,.13)' : 'var(--color-white)'};
   }
   &::placeholder {
     color: ${({ $dark }) => $dark ? 'rgba(255,255,255,.4)' : '#A0ADB8'};
@@ -32,7 +36,7 @@ const SearchInput = styled.input`
 `;
 
 const Spinner = styled.div`
-  position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 13px; top: 19px;
   width: 16px; height: 16px;
   border: 2px solid rgba(var(--color-accent-rgb), .3);
   border-top-color: var(--color-accent);
@@ -42,186 +46,293 @@ const Spinner = styled.div`
 
 const ClearBtn = styled.button`
   position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
-  background: none; border: none; cursor: pointer; padding: 2px;
-  color: ${({ $dark }) => $dark ? 'rgba(255,255,255,.4)' : '#A0ADB8'};
-  display: flex; align-items: center;
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: ${({ $dark }) => $dark ? 'rgba(255,255,255,.45)' : '#A0ADB8'};
+  font-size: 14px; line-height: 1;
   &:hover { color: ${({ $dark }) => $dark ? 'white' : 'var(--color-primary)'}; }
 `;
 
-const List = styled.ul`
-  position: absolute; top: calc(100% + 2px); left: 0; right: 0;
-  background: var(--color-white);
-  border: 2px solid var(--color-primary);
-  border-top: none;
-  border-radius: 0 0 var(--radius-card) var(--radius-card);
-  list-style: none; z-index: 200;
-  max-height: 280px; overflow-y: auto;
-  box-shadow: 0 8px 24px rgba(var(--color-primary-rgb), .14);
+/* Fallback trigger — shown after typing with no results */
+const FallbackRow = styled.div`
+  margin-top: 8px;
+  display: flex; align-items: center; gap: 6px;
 `;
 
-const ListItem = styled.li`
-  padding: 11px 14px; cursor: pointer;
-  border-bottom: 1px solid var(--color-border);
-  &:last-child { border-bottom: none; }
-  &:hover { background: rgba(var(--color-primary-rgb), .05); }
+const FallbackBtn = styled.button`
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-family: var(--font-body); font-size: .82rem;
+  color: var(--color-text-muted);
+  text-decoration: underline; text-underline-offset: 2px;
+  display: flex; align-items: center; gap: 5px;
+  transition: color .2s;
+  &:hover { color: var(--color-accent); }
 `;
 
-const ItemMain = styled.p`
-  font-family: var(--font-body); font-size: .9rem;
-  color: var(--color-primary); font-weight: 600;
-`;
+/* Override Google's pac-container to match our theme */
+const GlobalPacStyle = () => {
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .pac-container {
+        border: 2px solid var(--color-primary, #002C51) !important;
+        border-top: none !important;
+        border-radius: 0 0 4px 4px !important;
+        box-shadow: 0 8px 24px rgba(0,44,81,.15) !important;
+        font-family: var(--font-body, Arial, sans-serif) !important;
+        margin-top: -2px;
+        z-index: 10000 !important;
+      }
+      .pac-item {
+        padding: 10px 14px !important;
+        font-size: 14px !important;
+        border-top: 1px solid #E5EBF0 !important;
+        cursor: pointer !important;
+        color: #1A1A1A !important;
+      }
+      .pac-item:hover, .pac-item-selected {
+        background: rgba(0,44,81,.05) !important;
+      }
+      .pac-item-query {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        color: var(--color-primary, #002C51) !important;
+      }
+      .pac-matched { color: var(--color-accent, #FF8C00) !important; }
+      .pac-icon { display: none !important; }
+      .pac-logo::after { display: none !important; }
+    `;
+    style.id = 'pac-overrides';
+    if (!document.getElementById('pac-overrides')) {
+      document.head.appendChild(style);
+    }
+    return () => {
+      const el = document.getElementById('pac-overrides');
+      if (el) el.remove();
+    };
+  }, []);
+  return null;
+};
 
-const ItemSec = styled.p`
-  font-family: var(--font-body); font-size: .78rem;
-  color: var(--color-text-muted); margin-top: 1px;
-`;
-
-const NoResults = styled.li`
-  padding: 12px 14px;
-  font-family: var(--font-body); font-size: .85rem;
-  color: var(--color-text-muted); text-align: center;
-`;
+/* ─────────────────────────────────────────────
+   WAIT FOR GOOGLE HELPER
+   Polls until window.google.maps.places is ready
+   (script loads async — may not be ready on mount)
+───────────────────────────────────────────── */
+function waitForGoogle(timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    if (window.google?.maps?.places) {
+      resolve();
+      return;
+    }
+    const start    = Date.now();
+    const interval = setInterval(() => {
+      if (window.google?.maps?.places) {
+        clearInterval(interval);
+        resolve();
+      } else if (Date.now() - start > timeout) {
+        clearInterval(interval);
+        reject(new Error('Google Maps timed out'));
+      }
+    }, 100);
+  });
+}
 
 /* ─────────────────────────────────────────────
    COMPONENT
+
    Props:
-     onSelect(result)  — { placeId, name, label }
-     placeholder       — string
-     dark              — bool (for hero on dark bg)
-     style             — optional style override
+     onSelect(result)    result = { placeId, name, address,
+                                    rating, reviewCount,
+                                    hasWebsite, website,
+                                    addressComponents }
+     onNoResults()       called when user has typed ≥3 chars
+                         and the dropdown shows nothing
+     placeholder         string
+     dark                bool  (for hero dark background)
+     style               optional style override
 ───────────────────────────────────────────── */
-export default function PlacesSearch({ onSelect, placeholder, dark = false, style }) {
-  const [query,       setQuery]       = useState('');
-  const [suggestions, setSuggestions] = useState([]);
+export default function PlacesSearch({
+  onSelect,
+  onNoResults,
+  placeholder,
+  dark = false,
+  style,
+}) {
+  const inputRef      = useRef(null);
+  const autocompleteRef = useRef(null);
+  const [ready,       setReady]       = useState(false);
   const [loading,     setLoading]     = useState(false);
-  const [open,        setOpen]        = useState(false);
-  const [searched,    setSearched]    = useState(false);
-  const debounceRef = useRef(null);
+  const [query,       setQuery]       = useState('');
+  const [showFallback,setShowFallback]= useState(false);
 
-  const search = (val) => {
-    setQuery(val);
-    setSearched(false);
+  /* ─────────────────────────────────────────────
+     1. Wait for Google → init Autocomplete widget
+  ───────────────────────────────────────────── */
+  useEffect(() => {
+    let destroyed = false;
 
-    if (!val.trim() || val.length < 2) {
-      setSuggestions([]);
-      setOpen(false);
-      return;
-    }
+    waitForGoogle()
+      .then(() => {
+        if (destroyed || !inputRef.current) return;
 
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      let found = false;
-
-      // 1. Try new Places API (v1)
-      if (window.google?.maps?.places?.AutocompleteSuggestion) {
-        try {
-          const { suggestions: suggs } =
-            await window.google.maps.places.AutocompleteSuggestion
-              .fetchAutocompleteSuggestions({
-                input: val,
-                includedPrimaryTypes: ['establishment'],
-                includedRegionCodes:  ['de'],
-              });
-          setSuggestions(suggs || []);
-          setOpen(true);
-          setSearched(true);
-          found = true;
-        } catch (_) {
-          found = false;
-        }
-      }
-
-      // 2. Fallback: legacy AutocompleteService
-      if (!found && window.google?.maps?.places?.AutocompleteService) {
-        const svc = new window.google.maps.places.AutocompleteService();
-        svc.getPlacePredictions(
+        /* new google.maps.places.Autocomplete
+           Uses the same input element — Google renders
+           its own dropdown (.pac-container) */
+        const ac = new window.google.maps.places.Autocomplete(
+          inputRef.current,
           {
-            input: val,
-            componentRestrictions: { country: 'de' },
-            types: ['establishment'],
-          },
-          (predictions, status) => {
-            const mapped = status === 'OK'
-              ? predictions.map(p => ({
-                  placePrediction: {
-                    placeId:       p.place_id,
-                    text:          { text: p.description },
-                    mainText:      { text: p.structured_formatting.main_text },
-                    secondaryText: { text: p.structured_formatting.secondary_text || '' },
-                  },
-                }))
-              : [];
-            setSuggestions(mapped);
-            setOpen(true);
-            setSearched(true);
+            types:                ['establishment'],
+            componentRestrictions:{ country: 'de' },
+            language:             'de',
+            // Field masking in constructor (legacy format)
+            fields: [
+              'place_id', 'name', 'formatted_address',
+              'address_components', 'rating', 'user_ratings_total',
+              'website', 'geometry',
+            ],
           }
         );
+
+        // Also call setFields explicitly for v1 API (CamelCase)
+        // This ensures field masking works regardless of API version
+        if (typeof ac.setFields === 'function') {
+          ac.setFields([
+            'id', 'displayName', 'formattedAddress',
+            'location', 'addressComponents',
+            'rating', 'userRatingCount', 'websiteURI',
+            // legacy names in same call — Google ignores unknown ones
+            'place_id', 'name', 'formatted_address',
+            'address_components', 'user_ratings_total', 'website',
+          ]);
+        }
+
+        /* ── place_changed: user selected a suggestion ── */
+        ac.addListener('place_changed', () => {
+          const place = ac.getPlace();
+          console.log('[PlacesSearch] Raw place object:', place);
+
+          // Null-check: no valid place selected (e.g. user pressed Enter)
+          const placeId = place?.id || place?.place_id;
+          if (!place || !placeId) {
+            setShowFallback(true);
+            return;
+          }
+
+          setShowFallback(false);
+          setLoading(false);
+
+          // Normalise — v1 CamelCase + legacy snake_case, take whichever exists
+          const normalised = {
+            placeId:           placeId,
+            name:              place.displayName?.text
+                            || place.name
+                            || '',
+            address:           place.formattedAddress
+                            || place.formatted_address
+                            || '',
+            rating:            place.rating || 0,
+            reviewCount:       place.userRatingCount
+                            || place.user_ratings_total
+                            || 0,
+            hasWebsite:        !!(place.websiteURI || place.website),
+            website:           place.websiteURI
+                            || place.website
+                            || null,
+            addressComponents: place.addressComponents
+                            || place.address_components
+                            || [],
+          };
+
+          console.log('[PlacesSearch] Normalised result:', normalised);
+          if (onSelect) onSelect(normalised);
+        });
+
+        autocompleteRef.current = ac;
+        setReady(true);
+      })
+      .catch(err => {
+        console.warn('[PlacesSearch] Google Maps not available:', err.message);
+      });
+
+    return () => {
+      destroyed = true;
+      // Clean up Google listener
+      if (autocompleteRef.current && window.google?.maps?.event) {
+        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
       }
+    };
+  }, []); // run once on mount
 
-      setLoading(false);
-    }, 320);
-  };
+  /* ─────────────────────────────────────────────
+     2. Track query for fallback trigger
+  ───────────────────────────────────────────── */
+  const handleInput = useCallback((e) => {
+    const val = e.target.value;
+    setQuery(val);
+    // Hide fallback while user is typing again
+    if (showFallback) setShowFallback(false);
+    // Show fallback hint if long enough query but no selection yet
+    // Google fires place_changed on selection — if user clears or types
+    // and blurs without selecting, we show fallback after blur
+  }, [showFallback]);
 
-  const handleSelect = (sugg) => {
-    const pred   = sugg.placePrediction;
-    const name   = pred.mainText?.text || pred.text?.text || '';
-    const label  = pred.text?.text || name;
-    setQuery(name);
-    setOpen(false);
-    setSuggestions([]);
-    if (onSelect) onSelect({ placeId: pred.placeId, name, label });
-  };
+  const handleBlur = useCallback(() => {
+    // Small delay so place_changed fires first
+    setTimeout(() => {
+      if (query.length >= 3 && !autocompleteRef.current?.getPlace()?.place_id
+          && !autocompleteRef.current?.getPlace()?.id) {
+        setShowFallback(true);
+      }
+    }, 400);
+  }, [query]);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     setQuery('');
-    setSuggestions([]);
-    setOpen(false);
-    setSearched(false);
+    setShowFallback(false);
+    if (inputRef.current) inputRef.current.value = '';
     if (onSelect) onSelect(null);
-  };
+  }, [onSelect]);
+
+  const handleFallback = useCallback(() => {
+    setShowFallback(false);
+    if (onNoResults) onNoResults();
+  }, [onNoResults]);
 
   return (
-    <Wrap style={style}>
-      <SearchIcon><Search size={17} /></SearchIcon>
+    <>
+      <GlobalPacStyle />
+      <Wrap style={style}>
+        <SearchIconWrap>
+          <Search size={17} />
+        </SearchIconWrap>
 
-      <SearchInput
-        value={query}
-        onChange={e => search(e.target.value)}
-        placeholder={placeholder || 'Betrieb suchen…'}
-        onFocus={() => suggestions.length > 0 && setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 180)}
-        $dark={dark}
-        autoComplete="off"
-      />
+        <StyledInput
+          ref={inputRef}
+          type="text"
+          placeholder={ready ? (placeholder || 'Betrieb suchen…') : 'Karte wird geladen…'}
+          disabled={!ready}
+          $dark={dark}
+          onInput={handleInput}
+          onBlur={handleBlur}
+          autoComplete="off"
+          spellCheck="false"
+        />
 
-      {loading && <Spinner />}
-      {!loading && query && (
-        <ClearBtn $dark={dark} onMouseDown={handleClear} type="button">
-          ✕
-        </ClearBtn>
+        {loading && <Spinner />}
+        {!loading && query && (
+          <ClearBtn $dark={dark} onClick={handleClear} type="button">✕</ClearBtn>
+        )}
+      </Wrap>
+
+      {/* Fallback — shown when typing yields no selection */}
+      {showFallback && (
+        <FallbackRow>
+          <AlertCircle size={13} color="var(--color-text-muted)" />
+          <FallbackBtn onClick={handleFallback} type="button">
+            Betrieb nicht gefunden? Hier manuell eintragen.
+          </FallbackBtn>
+        </FallbackRow>
       )}
-
-      {open && (
-        <List>
-          {suggestions.length > 0
-            ? suggestions.map((s, i) => {
-                const pred = s.placePrediction;
-                const main = pred.mainText?.text || pred.text?.text || '';
-                const sec  = pred.secondaryText?.text || '';
-                return (
-                  <ListItem key={i} onMouseDown={() => handleSelect(s)}>
-                    <ItemMain>{main}</ItemMain>
-                    {sec && <ItemSec>{sec}</ItemSec>}
-                  </ListItem>
-                );
-              })
-            : searched && (
-                <NoResults>Kein Treffer — versuch es genauer.</NoResults>
-              )
-          }
-        </List>
-      )}
-    </Wrap>
+    </>
   );
 }
