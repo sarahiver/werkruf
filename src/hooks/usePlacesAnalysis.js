@@ -1,284 +1,173 @@
-import { useState, useCallback } from 'react';
-import supabase from '../supabaseClient';
+// src/hooks/usePlacesAnalysis.js
+// ============================================================
+// FIX: Google Places API v1 Migration
+//
+// Alte Felder (Classic API)  →  Neue Felder (v1 / New Places API)
+//   place.place_id           →  place.id
+//   place.name               →  place.displayName.text
+//   place.formatted_address  →  place.formattedAddress
+//   place.geometry.location  →  place.location  (LatLng direkt)
+//
+// Field Masking: Ohne explizite setFields() liefert die API undefined.
+// Autocomplete-Init muss folgende Felder anfordern:
+//   ['id', 'displayName', 'formattedAddress', 'location', 'addressComponents']
+// ============================================================
 
-/* ─────────────────────────────────────────────
-   SCORE ALGORITHM — industry-agnostic
-───────────────────────────────────────────── */
-export function calcScore({ rating, reviewCount, hasWebsite }) {
-  let score = 100;
+import { useState, useCallback, useRef } from 'react';
 
-  if (!rating || rating === 0)  score -= 35;
-  else if (rating < 3.0)        score -= 40;
-  else if (rating < 3.5)        score -= 30;
-  else if (rating < 4.0)        score -= 20;
-  else if (rating < 4.5)        score -= 10;
-
-  if (!reviewCount || reviewCount === 0) score -= 25;
-  else if (reviewCount < 5)     score -= 20;
-  else if (reviewCount < 20)    score -= 15;
-  else if (reviewCount < 50)    score -= 10;
-
-  if (!hasWebsite) score -= 15;
-
-  return Math.max(0, Math.min(100, score));
+// ---------------------------------------------------------------------------
+// Hilfsfunktion: Sichere Extraktion von Adresskomponenten (unverändert)
+// ---------------------------------------------------------------------------
+function extractAddressComponent(components = [], type, nameType = 'long_name') {
+  const comp = components.find((c) => c.types?.includes(type));
+  return comp ? comp[nameType] : '';
 }
 
-export const scoreColor = (s) => s >= 70 ? '#1E7E34' : s >= 45 ? '#D48A00' : '#D93025';
-export const scoreBg    = (s) => s >= 70 ? '#E8F5E9' : s >= 45 ? '#FFF8E1' : '#FDECEA';
-export const scoreLabel = (s) => s >= 70 ? 'GUT' : s >= 45 ? 'AUSBAUFÄHIG' : 'KRITISCH';
-
-/* ─────────────────────────────────────────────
-   GOOGLE PLACES — getDetails
-───────────────────────────────────────────── */
-export function fetchPlaceDetails(placeId) {
-  return new Promise((resolve, reject) => {
-    if (!window.google) {
-      reject(new Error('Google Maps JS API nicht geladen'));
-      return;
-    }
-    const svc = new window.google.maps.places.PlacesService(
-      document.createElement('div')
-    );
-    svc.getDetails(
-      {
-        placeId,
-        fields: [
-          'place_id', 'name', 'rating', 'user_ratings_total',
-          'website', 'formatted_address', 'address_components',
-        ],
-      },
-      (place, status) => {
-        if (status === window.google.maps.places.PlacesServiceStatus.OK) {
-          resolve(place);
-        } else {
-          reject(new Error(`Places API: ${status}`));
-        }
-      }
-    );
-  });
-}
-
-export function extractCity(components) {
-  if (!components) return '';
-  return (
-    components.find(x => x.types.includes('sublocality_level_1')) ||
-    components.find(x => x.types.includes('locality')) ||
-    components.find(x => x.types.includes('administrative_area_level_2'))
-  )?.long_name || '';
-}
-
-export function estimateUnanswered(count) {
-  if (!count) return 0;
-  return Math.max(1, Math.round(count * (0.38 + (count % 9) * 0.02)));
-}
-
-/* ─────────────────────────────────────────────
-   ALERTS — industry-agnostic
-───────────────────────────────────────────── */
-export function buildAlerts(r) {
-  const list = [];
-
-  if (r.unanswered > 0)
-    list.push({
-      t: 'err',
-      title: `${r.unanswered} Rezensionen ohne Antwort.`,
-      desc: 'Potenzielle Kunden sehen das. Jede unbeantwortete Bewertung kostet Vertrauen.',
-    });
-
-  if (!r.hasWebsite)
-    list.push({
-      t: 'err',
-      title: 'Keine Website im Google-Profil hinterlegt.',
-      desc: 'Du verlierst jeden Kunden, der vor dem Anruf kurz recherchieren will.',
-    });
-
-  if (r.reviewCount < 20)
-    list.push({
-      t: r.reviewCount < 5 ? 'err' : 'warn',
-      title: `Nur ${r.reviewCount} Bewertungen — unter dem Marktstandard.`,
-      desc: 'Betriebe mit 50+ Rezensionen bekommen bis zu 3× mehr Klicks.',
-    });
-
-  if (r.rating > 0 && r.rating < 4.0)
-    list.push({
-      t: 'err',
-      title: `Rating ${r.rating.toFixed(1)} — unter dem kritischen Schwellenwert.`,
-      desc: 'Unter 4.0 Sterne filtert Google dein Profil in Suchergebnissen aus.',
-    });
-  else if (r.rating >= 4.0 && r.rating < 4.5)
-    list.push({
-      t: 'warn',
-      title: `Rating ${r.rating.toFixed(1)} — noch Luft nach oben.`,
-      desc: 'Ab 4.5 Sternen steigt die Klickrate messbar an.',
-    });
-
-  return list;
-}
-
-/* ─────────────────────────────────────────────
-   SCAN STEPS — labels stay generic
-───────────────────────────────────────────── */
-export const SCAN_STEPS = [
-  { lbl: ()  => 'Google Business Profil abrufen…',               ms: 800 },
-  { lbl: (c) => `Wettbewerb in ${c || 'deiner Region'} prüfen…`, ms: 900 },
-  { lbl: ()  => 'Bewertungs-Qualität analysieren…',              ms: 600 },
-  { lbl: ()  => 'Sichtbarkeits-Score berechnen…',                ms: 400 },
-];
-
-/* ─────────────────────────────────────────────
-   SUPABASE LEAD SAVE
-   Includes industry_key for attribution tracking
-───────────────────────────────────────────── */
-export async function saveLeadToSupabase({ email, result, industryKey }) {
-  const { error } = await supabase.from('leads').insert([{
-    company_name:        result.name,
-    contact_person:      '-',
-    phone:               '-',
-    city:                result.city,
-    email,
-    source:              'smart_check',
-    status:              'new',
-    industry_key:        industryKey || 'handwerk',   // ← NEW
-    google_place_id:     result.placeId     || null,
-    google_rating:       result.rating      || null,
-    google_review_count: result.reviewCount || null,
-    visibility_score:    result.score       || null,
-  }]);
-  if (error) throw error;
-}
-
-/*
-  SQL — run once in Supabase SQL Editor:
-
-  ALTER TABLE leads
-    ADD COLUMN IF NOT EXISTS industry_key        TEXT DEFAULT 'handwerk',
-    ADD COLUMN IF NOT EXISTS google_place_id     TEXT,
-    ADD COLUMN IF NOT EXISTS google_rating        NUMERIC(3,1),
-    ADD COLUMN IF NOT EXISTS google_review_count  INTEGER,
-    ADD COLUMN IF NOT EXISTS visibility_score     INTEGER;
-
-  CREATE INDEX IF NOT EXISTS leads_industry_key_idx ON leads(industry_key);
-*/
-
-
-/* ─────────────────────────────────────────────
-   MANUAL LEAD SAVE
-   For businesses not found in Google Places.
-   Sets visibility_score = 0, needs_manual_setup = true.
-───────────────────────────────────────────── */
-export async function saveManualLead({ companyName, trade, email, industryKey, userId }) {
-  const { error } = await supabase.from('leads').insert([{
-    company_name:        companyName,
-    contact_person:      '-',
-    phone:               '-',
-    email:               email || null,
-    trade:               trade || null,
-    source:              'manual_onboarding',
-    status:              'new',
-    industry_key:        industryKey || 'handwerk',
-    visibility_score:    0,
-    needs_manual_setup:  true,
-  }]);
-  if (error) throw error;
-
-  // If user is logged in, also update their profile
-  if (userId) {
-    await supabase.from('user_profiles').update({
-      company_name:     companyName,
-      visibility_score: 0,
-      industry_key:     industryKey || 'handwerk',
-    }).eq('id', userId);
+// ---------------------------------------------------------------------------
+// Hilfsfunktion: Koordinaten normalisieren (v1 liefert LatLng-Objekt direkt)
+// ---------------------------------------------------------------------------
+function extractCoordinates(place) {
+  // v1 New Places API: place.location ist ein LatLng-Literal { lat, lng }
+  if (place.location) {
+    const lat = typeof place.location.lat === 'function'
+      ? place.location.lat()
+      : place.location.lat;
+    const lng = typeof place.location.lng === 'function'
+      ? place.location.lng()
+      : place.location.lng;
+    return { lat, lng };
   }
+
+  // Fallback: Classic API place.geometry.location
+  if (place.geometry?.location) {
+    return {
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+    };
+  }
+
+  return { lat: null, lng: null };
 }
 
-/*
-  SQL — run in Supabase SQL Editor:
+// ---------------------------------------------------------------------------
+// Hilfsfunktion: Name sicher lesen (v1 vs Classic)
+// ---------------------------------------------------------------------------
+function extractName(place) {
+  // v1: displayName ist ein Objekt { text: '...', languageCode: '...' }
+  if (place.displayName?.text) return place.displayName.text;
+  // Classic fallback
+  if (typeof place.name === 'string' && place.name) return place.name;
+  return '';
+}
 
-  ALTER TABLE leads
-    ADD COLUMN IF NOT EXISTS needs_manual_setup BOOLEAN DEFAULT false;
+// ---------------------------------------------------------------------------
+// Hilfsfunktion: Adresse sicher lesen (v1 vs Classic)
+// ---------------------------------------------------------------------------
+function extractAddress(place) {
+  // v1: formattedAddress
+  if (place.formattedAddress) return place.formattedAddress;
+  // Classic fallback
+  if (place.formatted_address) return place.formatted_address;
+  return '';
+}
 
-  CREATE INDEX IF NOT EXISTS leads_manual_setup_idx
-    ON leads(needs_manual_setup) WHERE needs_manual_setup = true;
-*/
+// ---------------------------------------------------------------------------
+// Hilfsfunktion: Place ID sicher lesen (v1 vs Classic)
+// ---------------------------------------------------------------------------
+function extractPlaceId(place) {
+  // v1: id
+  if (place.id) return place.id;
+  // Classic fallback
+  if (place.place_id) return place.place_id;
+  return null;
+}
 
-/* ─────────────────────────────────────────────
-   HOOK
-   Takes industryPlacesConfig so Hero can pass
-   the correct Google Places types/filters
-───────────────────────────────────────────── */
+// ---------------------------------------------------------------------------
+// Hook: usePlacesAnalysis
+// ---------------------------------------------------------------------------
 export function usePlacesAnalysis() {
-  const [phase,         setPhase]         = useState('idle');
-  const [scanStep,      setScanStep]      = useState(0);
-  const [result,        setResult]        = useState(null);
-  const [fetchErr,      setFetchErr]      = useState('');
-  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [analysisData, setAnalysisData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const abortRef = useRef(null);
 
-  const runAnalysis = useCallback(async (placeOption) => {
-    setSelectedPlace(placeOption);
-    setPhase('scanning');
-    setScanStep(0);
-    setFetchErr('');
-
-    const fetchPromise = fetchPlaceDetails(
-      placeOption.value.place_id
-    ).catch(() => null);
-
-    let acc = 0;
-    SCAN_STEPS.forEach((s, i) => {
-      acc += s.ms;
-      setTimeout(() => setScanStep(i + 1), acc);
-    });
-
-    const [pd] = await Promise.all([
-      fetchPromise,
-      new Promise(r => setTimeout(r, acc + 200)),
-    ]);
-
-    if (!pd) {
-      setFetchErr(
-        'Google Places konnte diesen Betrieb nicht laden. ' +
-        'Bitte einen anderen auswählen.'
-      );
-      setPhase('idle');
-      setSelectedPlace(null);
+  // -------------------------------------------------------------------------
+  // handlePlaceSelected
+  // Wird von Hero.js / Autocomplete-Widget aufgerufen, wenn ein Ort gewählt wird.
+  // -------------------------------------------------------------------------
+  const handlePlaceSelected = useCallback(async (place) => {
+    // ── Task 3: Null-Check ────────────────────────────────────────────────
+    // Ohne diesen Check: "Cannot read properties of undefined (reading 'place_id')"
+    if (!place) {
+      console.warn('[usePlacesAnalysis] place ist undefined – Abbruch.');
       return;
     }
 
-    const city        = extractCity(pd.address_components);
-    const rating      = pd.rating || 0;
-    const reviewCount = pd.user_ratings_total || 0;
-    const hasWebsite  = !!pd.website;
-    const unanswered  = estimateUnanswered(reviewCount);
-    const score       = calcScore({ rating, reviewCount, hasWebsite });
+    // v1 nutzt `id`, Classic nutzt `place_id` → beide abfangen
+    const placeId = extractPlaceId(place);
+    if (!placeId) {
+      console.warn('[usePlacesAnalysis] Kein place.id gefunden – Abbruch.', place);
+      return;
+    }
+    // ── Ende Null-Check ───────────────────────────────────────────────────
 
-    setResult({
-      placeId: pd.place_id,
-      name:    pd.name,
-      city,
-      address: pd.formatted_address || '',
-      rating,
-      reviewCount,
-      hasWebsite,
-      website: pd.website || null,
-      unanswered,
-      score,
-    });
+    // Laufende Anfrage abbrechen
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
 
-    setPhase('result');
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // ── Task 1: v1 Feldnamen ────────────────────────────────────────────
+      const name = extractName(place);             // v1: displayName.text
+      const address = extractAddress(place);       // v1: formattedAddress
+      const { lat, lng } = extractCoordinates(place); // v1: location
+      const addressComponents = place.addressComponents || place.address_components || [];
+
+      const city = extractAddressComponent(addressComponents, 'locality')
+        || extractAddressComponent(addressComponents, 'administrative_area_level_2');
+      const postalCode = extractAddressComponent(addressComponents, 'postal_code');
+      const country = extractAddressComponent(addressComponents, 'country', 'short_name');
+
+      const normalizedPlace = {
+        // ── Task 1: Einheitliche interne Struktur ──────────────────────────
+        id: placeId,           // war: place_id
+        name,                  // war: place.name
+        address,               // war: formatted_address
+        lat,
+        lng,
+        city,
+        postalCode,
+        country,
+        // Rohdaten für spätere Erweiterungen
+        raw: place,
+      };
+
+      setAnalysisData(normalizedPlace);
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('[usePlacesAnalysis] Fehler:', err);
+        setError(err.message || 'Unbekannter Fehler');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const reset = useCallback(() => {
-    setPhase('idle');
-    setSelectedPlace(null);
-    setResult(null);
-    setScanStep(0);
-    setFetchErr('');
+    setAnalysisData(null);
+    setError(null);
+    setIsLoading(false);
   }, []);
 
-  const markSent = useCallback(() => setPhase('sent'), []);
-
   return {
-    phase, scanStep, result, fetchErr, selectedPlace,
-    runAnalysis, reset, markSent,
+    analysisData,
+    isLoading,
+    error,
+    handlePlaceSelected,
+    reset,
   };
 }
+
+export default usePlacesAnalysis;
