@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  FileText, Settings, LogOut, Menu, X, Link2
+  FileText, Settings, LogOut, Menu, X, Link2, Users
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
@@ -197,12 +197,23 @@ const Content = styled.div`
 /* ─────────────────────────────────────────────
    NAV CONFIG
 ───────────────────────────────────────────── */
+const SimBadge = styled.span`
+  font-family: var(--font-body); font-size: .6rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  background: rgba(var(--color-accent-rgb), .15);
+  color: var(--color-accent);
+  border: 1px solid rgba(var(--color-accent-rgb), .3);
+  padding: 1px 5px; border-radius: 3px;
+  margin-left: auto; flex-shrink: 0;
+`;
+
 const NAV_ITEMS = [
-  { to: '/dashboard',              icon: LayoutDashboard, label: 'Übersicht',    end: true },
-  { to: '/dashboard/bewertungen',  icon: Star,            label: 'Bewertungen'           },
-  { to: '/dashboard/fotos',        icon: Image,           label: 'Fotos'                 },
-  { to: '/dashboard/reporting',    icon: FileText,        label: 'Reporting'             },
-  { to: '/dashboard/einstellungen',icon: Settings,        label: 'Einstellungen'         },
+  { to: '/dashboard',                  icon: LayoutDashboard, label: 'Übersicht',         end: true },
+  { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen',       badge: 'Simulation' },
+  { to: '/dashboard/fotos',            icon: Image,           label: 'Fotos & Galerie'    },
+  { to: '/dashboard/kunden-gewinnung', icon: Users,           label: 'Kunden-Gewinnung'  },
+  { to: '/dashboard/reporting',        icon: FileText,        label: 'Reporting'          },
+  { to: '/dashboard/einstellungen',    icon: Settings,        label: 'Einstellungen'      },
 ];
 
 /* ─────────────────────────────────────────────
@@ -239,7 +250,7 @@ export default function DashboardLayout() {
         </SidebarTop>
 
         <Nav>
-          {NAV_ITEMS.map(({ to, icon: Icon, label, end }) => (
+          {NAV_ITEMS.map(({ to, icon: Icon, label, end, badge }) => (
             <NavItem
               key={to}
               to={to}
@@ -248,6 +259,7 @@ export default function DashboardLayout() {
             >
               <Icon size={16} />
               {label}
+              {badge && <SimBadge>{badge}</SimBadge>}
             </NavItem>
           ))}
           <NavDivider />
