@@ -29,6 +29,8 @@ import DashboardFotos          from './pages/dashboard/DashboardFotos';
 import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung';
 import Impressum            from './pages/Impressum';
 import NotFound             from './pages/NotFound';
+import Onboarding           from './pages/Onboarding';
+import Admin                from './pages/Admin';
 import Datenschutz          from './pages/Datenschutz';
 import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
 
@@ -117,7 +119,9 @@ function App() {
                 <Placeholder title="404 — Seite nicht gefunden" />
               </PublicLayout>
             } />
-          <Route path="*" element={<NotFound />} />
+          <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/admin" element={<Admin />} />
+        <Route path="*" element={<NotFound />} />
         </Routes>
         </AuthProvider>
       </BrowserRouter>

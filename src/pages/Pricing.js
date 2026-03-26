@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { Link } from 'react-router-dom';
-import { CheckCircle, X, ChevronRight, ArrowRight, Zap } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { CheckCircle, X, ChevronRight, ArrowRight, Zap, Shield, Clock, TrendingUp } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
+import { useAuthContext } from '../context/AuthContext';
+import { useCheckout } from '../hooks/useCheckout';
+import PricingCard from '../components/PricingCard';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const pulse  = keyframes`0%,100%{opacity:1}50%{opacity:.5}`;
@@ -457,7 +460,7 @@ export default function Pricing() {
                 ))}
               </FeatureList>
 
-              <CTABtn to="/register">
+              <CTABtn as="button" onClick={() => handleCheckout({ plan: 'monthly', path: 'optimisation' })} disabled={checkoutLoading}>
                 {pricing.trialCTA} <ArrowRight size={18} />
               </CTABtn>
               <p style={{

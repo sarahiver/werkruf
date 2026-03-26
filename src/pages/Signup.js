@@ -242,7 +242,7 @@ export default function Signup() {
 
     setLoading(false);
     // Supabase sends confirmation email — redirect to a "check your email" state
-    navigate('/dashboard', {
+    navigate('/onboarding', {
       state: { justSignedUp: true, email },
       replace: true,
     });
