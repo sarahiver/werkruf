@@ -25,6 +25,7 @@ import DashboardHome        from './pages/dashboard/DashboardHome';
 import DashboardReporting   from './pages/dashboard/DashboardReporting';
 import DashboardSettings    from './pages/dashboard/DashboardSettings';
 import Impressum            from './pages/Impressum';
+import NotFound             from './pages/NotFound';
 import Datenschutz          from './pages/Datenschutz';
 import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
 
@@ -122,7 +123,8 @@ function App() {
                 <Placeholder title="404 — Seite nicht gefunden" />
               </PublicLayout>
             } />
-          </Routes>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
         </AuthProvider>
       </BrowserRouter>
     </IndustryProvider>

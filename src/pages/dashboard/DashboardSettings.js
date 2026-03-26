@@ -130,13 +130,17 @@ export default function DashboardSettings() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError,   setPortalError]   = useState('');
 
-  const plan           = profile?.plan || 'free';
+  const plan              = profile?.plan || 'free';
   const hasStripeCustomer = !!profile?.stripe_customer_id;
-  const trialEnds      = profile?.trial_ends_at
-    ? new Date(profile.trial_ends_at).toLocaleDateString('de-DE', {
-        day: '2-digit', month: 'long', year: 'numeric'
-      })
+
+  const trialEndsDate = profile?.trial_ends_at ? new Date(profile.trial_ends_at) : null;
+  const trialEnds     = trialEndsDate
+    ? trialEndsDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' })
     : null;
+  const daysLeft = trialEndsDate
+    ? Math.max(0, Math.ceil((trialEndsDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
+  const trialUrgent = daysLeft !== null && daysLeft <= 5;
 
   const planLabels = {
     free:  'Kostenloser Plan',
@@ -169,6 +173,31 @@ export default function DashboardSettings() {
         <CardTitle>Abo & Abrechnung</CardTitle>
         <CardSub>Verwalte dein Abo, ändere den Tarif oder kündige jederzeit.</CardSub>
 
+        {plan === 'trial' && daysLeft !== null && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontFamily: 'var(--font-body)', fontSize: '.72rem',
+              color: 'var(--color-text-muted)', marginBottom: 6,
+            }}>
+              <span>Trial-Fortschritt</span>
+              <span style={{ color: trialUrgent ? '#D93025' : 'var(--color-text-muted)', fontWeight: 700 }}>
+                {daysLeft} von {pricing.trialDays} Tagen übrig
+              </span>
+            </div>
+            <div style={{
+              height: 6, background: 'var(--color-border)',
+              borderRadius: 3, overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.max(4, (daysLeft / pricing.trialDays) * 100)}%`,
+                background: trialUrgent ? '#D93025' : 'var(--color-accent)',
+                borderRadius: 3, transition: 'width .5s ease',
+              }} />
+            </div>
+          </div>
+        )}
         <PlanRow>
           <PlanInfo>
             <PlanBadge $plan={plan}>
@@ -178,8 +207,15 @@ export default function DashboardSettings() {
               {plan === 'pro' ? 'Aktiv' : plan === 'trial' ? 'Test-Phase' : 'Free'}
             </PlanBadge>
             <PlanName>{planLabels[plan] || plan}</PlanName>
-            {trialEnds && plan === 'trial' && (
-              <PlanDetail>Test endet am {trialEnds}</PlanDetail>
+            {plan === 'trial' && trialEnds && (
+              <PlanDetail style={{ color: trialUrgent ? '#D93025' : undefined }}>
+                {daysLeft === 0
+                  ? 'Test ist heute abgelaufen'
+                  : daysLeft <= 5
+                    ? `⚠ Nur noch ${daysLeft} Tag${daysLeft === 1 ? '' : 'e'} — endet am ${trialEnds}`
+                    : `Endet am ${trialEnds} (${daysLeft} Tage)`
+                }
+              </PlanDetail>
             )}
             {plan === 'free' && (
               <PlanDetail>Kein aktives Abo — jetzt upgraden</PlanDetail>
@@ -261,7 +297,7 @@ export default function DashboardSettings() {
         </CardSub>
         <PortalBtn
           style={{ background: 'none', border: '1px solid #D93025', color: '#D93025' }}
-          onClick={() => window.confirm('Wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.') && alert('Bitte kontaktiere uns: hallo@werkruf.de')}
+          onClick={() => window.confirm('Wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.') && alert('Bitte kontaktiere uns: hallo@werkruf.com')}
         >
           Konto löschen
         </PortalBtn>
