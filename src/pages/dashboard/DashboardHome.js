@@ -477,34 +477,51 @@ export default function DashboardHome() {
         hasWebsite:  result.hasWebsite  || false,
       });
 
-      console.log('[handleSave] Saving for user:', userId, result);
+      console.log('[handleSave] Saving for user:', userId);
 
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          google_place_id:     result.placeId     || null,
-          company_name:        result.name        || null,
-          city:                city               || null,
-          google_rating:       result.rating      || null,
-          google_review_count: result.reviewCount || null,
-          visibility_score:    calc,
-        })
-        .eq('id', userId);
+      // Get fresh session token first to avoid lock contention
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Keine Session');
 
-      if (error) {
-        console.error('[handleSave] Supabase error:', error);
-        throw error;
+      // Use fetch directly with Bearer token — bypasses Supabase client lock
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/user_profiles?id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        supabaseKey,
+            'Authorization': `Bearer ${session.access_token}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            google_place_id:     result.placeId     || null,
+            company_name:        result.name        || null,
+            city:                city               || null,
+            google_rating:       result.rating      || null,
+            google_review_count: result.reviewCount || null,
+            visibility_score:    calc,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Update failed: ${res.status} ${errText}`);
       }
 
-      console.log('[handleSave] Saved successfully, refreshing profile...');
-      await new Promise(r => setTimeout(r, 400));
+      console.log('[handleSave] Saved successfully');
+      await new Promise(r => setTimeout(r, 300));
       await refreshProfile();
       console.log('[handleSave] Done');
 
     } catch (err) {
       console.error('[handleSave] Error:', err.message);
     } finally {
-      setSaving(false); // always reset — even on error
+      setSaving(false);
     }
   };
 
