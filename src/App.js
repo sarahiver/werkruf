@@ -23,6 +23,9 @@ import Login     from './pages/Login';
 import DashboardLayout      from './pages/dashboard/DashboardLayout';
 import DashboardHome        from './pages/dashboard/DashboardHome';
 import DashboardReporting   from './pages/dashboard/DashboardReporting';
+import DashboardSettings    from './pages/dashboard/DashboardSettings';
+import Impressum            from './pages/Impressum';
+import Datenschutz          from './pages/Datenschutz';
 import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
 
 /* Placeholder for future pages */
@@ -81,10 +84,10 @@ function App() {
               <PublicLayout><Placeholder title="Passwort zurücksetzen" /></PublicLayout>
             } />
             <Route path="/impressum" element={
-              <PublicLayout><Placeholder title="Impressum" /></PublicLayout>
+              <PublicLayout><Impressum /></PublicLayout>
             } />
             <Route path="/datenschutz" element={
-              <PublicLayout><Placeholder title="Datenschutz" /></PublicLayout>
+              <PublicLayout><Datenschutz /></PublicLayout>
             } />
 
             {/* ── PROTECTED DASHBOARD ── */}
@@ -110,12 +113,7 @@ function App() {
                 />
               } />
               <Route path="reporting" element={<DashboardReporting />} />
-              <Route path="einstellungen" element={
-                <DashboardPlaceholder
-                  title="Einstellungen"
-                  description="Profil, Benachrichtigungen und Abo-Verwaltung."
-                />
-              } />
+              <Route path="einstellungen" element={<DashboardSettings />} />
             </Route>
 
             {/* 404 */}
