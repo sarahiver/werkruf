@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import {
   CheckCircle, Link2, TrendingUp, Star, ArrowRight,
   Search, Loader, MapPin, X, Zap, Clock,
-  PlusCircle, ChevronDown, Ghost, Rocket
+  PlusCircle, ChevronDown, Ghost
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
@@ -14,6 +14,7 @@ import {
 } from '../../hooks/usePlacesAnalysis';
 import supabase from '../../supabaseClient';
 import GhostSetupModal   from '../../components/dashboard/GhostSetupModal';
+import { useCheckout }    from '../../hooks/useCheckout';
 import PlacesSearch      from '../../components/PlacesSearch';
 import PathAPricingModal from '../../components/dashboard/PathAPricingModal';
 
@@ -419,6 +420,19 @@ const CheckoutBannerSub = styled.p`
 ───────────────────────────────────────────── */
 export default function DashboardHome() {
   const { profile, user, refreshProfile } = useAuthContext();
+  const { startCheckout, loading: checkoutLoading, error: checkoutError } = useCheckout();
+
+  // Detect return from Stripe Checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('checkout');
+    if (status === 'success') {
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard');
+      // Refresh profile to get updated plan
+      refreshProfile();
+    }
+  }, [refreshProfile]);
   const { brand, pricing, places, key: industryKey } = useIndustry();
 
   // Search
@@ -534,13 +548,15 @@ export default function DashboardHome() {
   };
 
   /* ── Checkout handler ── */
-  const handleCheckoutStart = ({ metadata, setupFee, totalFirst, priceMonthly, plan }) => {
-    // Store pending checkout — connect to Stripe here
-    setCheckoutPending({ metadata, setupFee, totalFirst, priceMonthly, plan });
+  const handleCheckoutStart = async ({ metadata, setupFee, plan }) => {
     setShowGhostSetup(false);
     setShowPathAPricing(false);
-    console.log('Stripe Checkout Metadata:', metadata);
-    // TODO: Call Supabase Edge Function create-checkout-session with metadata
+    await startCheckout({
+      plan:        metadata.plan_type,
+      path:        metadata.path_type,
+      companyName: metadata.company_name || profile?.company_name || '',
+      industryKey: metadata.industry_key || industryKey,
+    });
   };
 
   return (
@@ -593,18 +609,21 @@ export default function DashboardHome() {
         </ModalOverlay>
       )}
 
-      {/* ── CHECKOUT PENDING BANNER ── */}
-      {checkoutPending && (
+      {/* ── CHECKOUT LOADING / ERROR ── */}
+      {checkoutLoading && (
         <CheckoutBanner>
-          <Rocket size={20} color="var(--color-accent)" style={{ flexShrink: 0 }} />
+          <Loader size={20} color="var(--color-accent)" style={{ flexShrink: 0, animation: 'spin .8s linear infinite' }} />
           <CheckoutBannerText>
-            <CheckoutBannerTitle>
-              Checkout vorbereitet — {checkoutPending.plan === 'monthly' ? 'Monatlich' : checkoutPending.plan === 'quarterly' ? 'Quartal' : 'Jährlich'} · {checkoutPending.totalFirst}€
-            </CheckoutBannerTitle>
-            <CheckoutBannerSub>
-              Stripe-Integration wird in der nächsten Phase aktiviert.
-              Metadata: {JSON.stringify(checkoutPending.metadata)}
-            </CheckoutBannerSub>
+            <CheckoutBannerTitle>Weiterleitung zu Stripe…</CheckoutBannerTitle>
+            <CheckoutBannerSub>Bitte warte kurz — du wirst gleich weitergeleitet.</CheckoutBannerSub>
+          </CheckoutBannerText>
+        </CheckoutBanner>
+      )}
+      {checkoutError && (
+        <CheckoutBanner style={{ borderLeftColor: '#D93025', background: '#FDECEA' }}>
+          <CheckoutBannerText>
+            <CheckoutBannerTitle style={{ color: '#D93025' }}>Checkout fehlgeschlagen</CheckoutBannerTitle>
+            <CheckoutBannerSub>{checkoutError}</CheckoutBannerSub>
           </CheckoutBannerText>
         </CheckoutBanner>
       )}
