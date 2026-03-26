@@ -464,31 +464,48 @@ export default function DashboardHome() {
 
   /* ── Save from search ── */
   const handleSave = async (result) => {
-    if (!result || saving) return; // prevent double-call
+    if (!result || saving) return;
     setSaving(true);
     try {
+      const userId = user?.id;
+      if (!userId) throw new Error('Nicht eingeloggt');
+
       const city = extractCity(result.addressComponents || []);
       const calc = calcScore({
         rating:      result.rating      || 0,
         reviewCount: result.reviewCount || 0,
         hasWebsite:  result.hasWebsite  || false,
       });
-      const { error } = await supabase.from('user_profiles').update({
-        google_place_id:     result.placeId,
-        company_name:        result.name,
-        city,
-        google_rating:       result.rating      || null,
-        google_review_count: result.reviewCount || null,
-        visibility_score:    calc,
-      }).eq('id', user.id);
-      if (error) throw error;
-      // Small delay to avoid Supabase auth-lock contention
-      await new Promise(r => setTimeout(r, 300));
+
+      console.log('[handleSave] Saving for user:', userId, result);
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({
+          google_place_id:     result.placeId     || null,
+          company_name:        result.name        || null,
+          city:                city               || null,
+          google_rating:       result.rating      || null,
+          google_review_count: result.reviewCount || null,
+          visibility_score:    calc,
+        })
+        .eq('id', userId);
+
+      if (error) {
+        console.error('[handleSave] Supabase error:', error);
+        throw error;
+      }
+
+      console.log('[handleSave] Saved successfully, refreshing profile...');
+      await new Promise(r => setTimeout(r, 400));
       await refreshProfile();
+      console.log('[handleSave] Done');
+
     } catch (err) {
-      console.error('handleSave error:', err);
+      console.error('[handleSave] Error:', err.message);
+    } finally {
+      setSaving(false); // always reset — even on error
     }
-    setSaving(false);
   };
 
   /* ── Reset business (linked state) ── */
