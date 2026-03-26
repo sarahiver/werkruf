@@ -147,10 +147,12 @@ export function useAuth() {
     await supabase.auth.signOut();
   }, []);
 
-  const refreshProfile = useCallback(async () => {
-    const { data: { user: u } } = await supabase.auth.getUser();
-    if (u?.id) await fetchProfile(u.id);
-  }, [fetchProfile]);
+  const refreshProfile = useCallback(async (userId) => {
+    // Use provided userId or fall back to current user state
+    // Avoids calling getUser() which can cause auth lock contention
+    const id = userId || (user && user !== undefined ? user.id : null);
+    if (id) await fetchProfile(id);
+  }, [fetchProfile, user]);
 
   return {
     user:            user === undefined ? null : user,

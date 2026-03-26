@@ -465,11 +465,10 @@ export default function DashboardHome() {
   /* ── Save from search ── */
   const handleSave = async (result) => {
     if (!result || saving) return;
+    const userId = user?.id;
+    if (!userId) return;
     setSaving(true);
     try {
-      const userId = user?.id;
-      if (!userId) throw new Error('Nicht eingeloggt');
-
       const city = extractCity(result.addressComponents || []);
       const calc = calcScore({
         rating:      result.rating      || 0,
@@ -477,15 +476,18 @@ export default function DashboardHome() {
         hasWebsite:  result.hasWebsite  || false,
       });
 
-      console.log('[handleSave] Saving for user:', userId);
+      console.log('[handleSave] Updating profile for:', userId);
 
-      // Get fresh session token first to avoid lock contention
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Keine Session');
-
-      // Use fetch directly with Bearer token — bypasses Supabase client lock
+      // Direct REST call — no Supabase client auth lock involved
       const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
       const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+      // Read token from localStorage directly — fastest, no async needed
+      const storageKey = `sb-${supabaseUrl?.split('//')[1]?.split('.')[0]}-auth-token`;
+      const stored = localStorage.getItem(storageKey);
+      const token = stored ? JSON.parse(stored)?.access_token : null;
+
+      if (!token) throw new Error('Kein Auth-Token gefunden');
 
       const res = await fetch(
         `${supabaseUrl}/rest/v1/user_profiles?id=eq.${userId}`,
@@ -494,7 +496,7 @@ export default function DashboardHome() {
           headers: {
             'Content-Type':  'application/json',
             'apikey':        supabaseKey,
-            'Authorization': `Bearer ${session.access_token}`,
+            'Authorization': `Bearer ${token}`,
             'Prefer':        'return=minimal',
           },
           body: JSON.stringify({
@@ -510,12 +512,11 @@ export default function DashboardHome() {
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Update failed: ${res.status} ${errText}`);
+        throw new Error(`HTTP ${res.status}: ${errText}`);
       }
 
-      console.log('[handleSave] Saved successfully');
-      await new Promise(r => setTimeout(r, 300));
-      await refreshProfile();
+      console.log('[handleSave] Saved — refreshing profile');
+      await refreshProfile(userId);
       console.log('[handleSave] Done');
 
     } catch (err) {
