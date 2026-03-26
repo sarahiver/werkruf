@@ -487,14 +487,34 @@ export default function DashboardHome() {
       console.log('[handleSave] Starting save for user:', userId);
       console.log('[handleSave] Data:', { placeId: result.placeId, name: result.name, city, calc });
 
-      // Step 1: Get fresh access token
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session?.access_token) {
-        throw new Error('Session abgelaufen — bitte neu einloggen.');
-      }
-      const token = sessionData.session.access_token;
+      // Step 1: Get token from localStorage directly — no async, no lock
+      const supabaseProjectId = process.env.REACT_APP_SUPABASE_URL
+        ?.replace('https://', '')
+        ?.split('.')[0];
+      const storageKey = `sb-${supabaseProjectId}-auth-token`;
+      let token = null;
 
-      console.log('[handleSave] Got session token, calling REST API...');
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) token = JSON.parse(raw)?.access_token;
+      } catch (_) {}
+
+      // Fallback: try all localStorage keys for Supabase token
+      if (!token) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.includes('-auth-token')) {
+            try {
+              const val = JSON.parse(localStorage.getItem(k));
+              if (val?.access_token) { token = val.access_token; break; }
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (!token) throw new Error('Kein Auth-Token in localStorage gefunden.');
+
+      console.log('[handleSave] Got token from localStorage, calling REST API...');
 
       // Step 2: Direct REST PATCH — no Supabase client lock
       const supabaseUrl  = process.env.REACT_APP_SUPABASE_URL;
