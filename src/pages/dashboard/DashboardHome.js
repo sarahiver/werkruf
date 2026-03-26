@@ -438,6 +438,7 @@ export default function DashboardHome() {
   // Search
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [saving,        setSaving]        = useState(false);
+  const [saveError,     setSaveError]     = useState('');
   const [resetting,     setResetting]     = useState(false);
 
   // Fallback form
@@ -465,9 +466,16 @@ export default function DashboardHome() {
   /* ── Save from search ── */
   const handleSave = async (result) => {
     if (!result || saving) return;
+
     const userId = user?.id;
-    if (!userId) return;
+    if (!userId) {
+      setSaveError('Nicht eingeloggt. Bitte Seite neu laden.');
+      return;
+    }
+
     setSaving(true);
+    setSaveError('');
+
     try {
       const city = extractCity(result.addressComponents || []);
       const calc = calcScore({
@@ -476,55 +484,75 @@ export default function DashboardHome() {
         hasWebsite:  result.hasWebsite  || false,
       });
 
-      console.log('[handleSave] Updating profile for:', userId);
+      console.log('[handleSave] Starting save for user:', userId);
+      console.log('[handleSave] Data:', { placeId: result.placeId, name: result.name, city, calc });
 
-      // Direct REST call — no Supabase client auth lock involved
-      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-      const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+      // Step 1: Get fresh access token
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error('Session abgelaufen — bitte neu einloggen.');
+      }
+      const token = sessionData.session.access_token;
 
-      // Read token from localStorage directly — fastest, no async needed
-      const storageKey = `sb-${supabaseUrl?.split('//')[1]?.split('.')[0]}-auth-token`;
-      const stored = localStorage.getItem(storageKey);
-      const token = stored ? JSON.parse(stored)?.access_token : null;
+      console.log('[handleSave] Got session token, calling REST API...');
 
-      if (!token) throw new Error('Kein Auth-Token gefunden');
+      // Step 2: Direct REST PATCH — no Supabase client lock
+      const supabaseUrl  = process.env.REACT_APP_SUPABASE_URL;
+      const supabaseKey  = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Supabase Env-Variablen fehlen (REACT_APP_SUPABASE_URL / REACT_APP_SUPABASE_ANON_KEY)');
+      }
+
+      const payload = {
+        google_place_id:     result.placeId     || null,
+        company_name:        result.name        || null,
+        city:                city               || null,
+        google_rating:       result.rating      || null,
+        google_review_count: result.reviewCount || null,
+        visibility_score:    calc,
+      };
+
+      console.log('[handleSave] PATCH payload:', payload);
 
       const res = await fetch(
-        `${supabaseUrl}/rest/v1/user_profiles?id=eq.${userId}`,
+        `${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(userId)}`,
         {
-          method: 'PATCH',
+          method:  'PATCH',
           headers: {
             'Content-Type':  'application/json',
             'apikey':        supabaseKey,
             'Authorization': `Bearer ${token}`,
             'Prefer':        'return=minimal',
           },
-          body: JSON.stringify({
-            google_place_id:     result.placeId     || null,
-            company_name:        result.name        || null,
-            city:                city               || null,
-            google_rating:       result.rating      || null,
-            google_review_count: result.reviewCount || null,
-            visibility_score:    calc,
-          }),
+          body: JSON.stringify(payload),
         }
       );
 
+      console.log('[handleSave] Response status:', res.status);
+
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`HTTP ${res.status}: ${errText}`);
+        console.error('[handleSave] REST error:', errText);
+        throw new Error(`Speichern fehlgeschlagen (${res.status}): ${errText}`);
       }
 
-      console.log('[handleSave] Saved — refreshing profile');
-      await refreshProfile(userId);
-      console.log('[handleSave] Done');
+      console.log('[handleSave] Save successful — refreshing profile...');
+
+      // Step 3: Refresh profile in context
+      // Small delay to ensure DB write is committed
+      await new Promise(r => setTimeout(r, 400));
+      await refreshProfile();
+
+      console.log('[handleSave] Profile refreshed — done!');
 
     } catch (err) {
-      console.error('[handleSave] Error:', err.message);
+      console.error('[handleSave] CAUGHT ERROR:', err.message);
+      setSaveError('Fehler beim Speichern. Bitte versuche es erneut.');
     } finally {
       setSaving(false);
     }
-  };
+  }
 
   /* ── Reset business (linked state) ── */
   const handleReset = async () => {
@@ -817,6 +845,16 @@ export default function DashboardHome() {
                     : <>Betrieb speichern <ArrowRight size={14}/></>
                 }
               </button>
+              {saveError && (
+                <p style={{
+                  fontFamily:'var(--font-body)',fontSize:'.78rem',
+                  color:'#D93025',marginTop:8,
+                  padding:'8px 12px',background:'#FDECEA',
+                  borderLeft:'3px solid #D93025',borderRadius:'0 var(--radius-card) var(--radius-card) 0',
+                }}>
+                  {saveError}
+                </p>
+              )}
 
               {/* Fallback */}
               <FallbackTrigger onClick={() => setShowManual(!showManual)}>
