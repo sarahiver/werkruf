@@ -104,18 +104,9 @@ function App() {
               <Route index element={<DashboardHome />} />
 
               {/* Nested routes */}
-              <Route path="bewertungen" element={
-                <DashboardPlaceholder
-                  title="Bewertungen"
-                  description="Alle Google-Rezensionen auf einen Blick — mit KI-Antwort-Assistent."
-                />
-              } />
-              <Route path="fotos" element={
-                <DashboardPlaceholder
-                  title="Fotos"
-                  description="Google-Profilbilder verwalten und optimieren."
-                />
-              } />
+              <Route path="bewertungen" element={<DashboardBewertungen />} />
+              <Route path="fotos" element={<DashboardFotos />} />
+              <Route path="kunden-gewinnung" element={<DashboardKundenGewinnung />} />
               <Route path="reporting" element={<DashboardReporting />} />
               <Route path="einstellungen" element={<DashboardSettings />} />
             </Route>
