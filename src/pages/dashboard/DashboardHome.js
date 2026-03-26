@@ -464,17 +464,16 @@ export default function DashboardHome() {
 
   /* ── Save from search ── */
   const handleSave = async (result) => {
-    if (!result) return;
+    if (!result || saving) return; // prevent double-call
     setSaving(true);
     try {
-      // PlacesSearch already returns normalised data with fetchFields
       const city = extractCity(result.addressComponents || []);
       const calc = calcScore({
         rating:      result.rating      || 0,
         reviewCount: result.reviewCount || 0,
         hasWebsite:  result.hasWebsite  || false,
       });
-      await supabase.from('user_profiles').update({
+      const { error } = await supabase.from('user_profiles').update({
         google_place_id:     result.placeId,
         company_name:        result.name,
         city,
@@ -482,8 +481,13 @@ export default function DashboardHome() {
         google_review_count: result.reviewCount || null,
         visibility_score:    calc,
       }).eq('id', user.id);
+      if (error) throw error;
+      // Small delay to avoid Supabase auth-lock contention
+      await new Promise(r => setTimeout(r, 300));
       await refreshProfile();
-    } catch (err) { console.error('handleSave error:', err); }
+    } catch (err) {
+      console.error('handleSave error:', err);
+    }
     setSaving(false);
   };
 
@@ -743,8 +747,6 @@ export default function DashboardHome() {
                   onSelect={(result) => {
                     if (!result) { setSelectedPlace(null); return; }
                     setSelectedPlace(result);
-                    // Auto-save immediately on selection
-                    handleSave(result);
                   }}
                   onNoResults={() => {
                     setShowManual(true);
