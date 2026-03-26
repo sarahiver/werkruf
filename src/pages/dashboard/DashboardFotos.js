@@ -1,3 +1,4 @@
+import ProGate from '../../components/dashboard/ProGate';
 import React, { useState, useEffect, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Upload, Image, Trash2, Loader, CheckCircle, AlertCircle, CloudUpload } from 'lucide-react';
@@ -326,6 +327,7 @@ export default function DashboardFotos() {
   };
 
   return (
+    <ProGate feature="Fotos & Galerie">
     <Page>
       <PageTitle>Fotos & Galerie</PageTitle>
       <PageSub>Lade Bilder hoch — sie werden automatisch für Google optimiert.</PageSub>
@@ -414,5 +416,6 @@ export default function DashboardFotos() {
         </Grid>
       )}
     </Page>
+    </ProGate>
   );
 }

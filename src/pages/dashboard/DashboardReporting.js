@@ -1,3 +1,4 @@
+import ProGate from '../../components/dashboard/ProGate';
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import { FileText, Download, CheckCircle } from 'lucide-react';
@@ -80,6 +81,7 @@ export default function DashboardReporting() {
   const companyName  = profile?.company_name;
 
   return (
+    <ProGate feature="Reporting">
     <Page>
       <PageTitle>Reporting</PageTitle>
       <PageSub>Dokumente, Berichte und dein persönlicher Fahrplan.</PageSub>
@@ -128,5 +130,6 @@ export default function DashboardReporting() {
       </Card>
 
     </Page>
+    </ProGate>
   );
 }

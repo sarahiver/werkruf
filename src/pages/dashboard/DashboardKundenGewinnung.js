@@ -1,3 +1,4 @@
+import ProGate from '../../components/dashboard/ProGate';
 import React, { useState, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { QRCodeSVG } from 'qrcode.react';
@@ -212,6 +213,7 @@ export default function DashboardKundenGewinnung() {
   }
 
   return (
+    <ProGate feature="Kunden-Gewinnung">
     <Page>
       <PageTitle>Kunden-Gewinnung</PageTitle>
       <PageSub>
@@ -304,5 +306,6 @@ export default function DashboardKundenGewinnung() {
         </TipCard>
       </Grid>
     </Page>
+    </ProGate>
   );
 }

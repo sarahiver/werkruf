@@ -1,3 +1,4 @@
+import ProGate from '../../components/dashboard/ProGate';
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Star, Sparkles, Copy, CheckCheck, AlertCircle, ExternalLink, Loader } from 'lucide-react';
@@ -282,6 +283,7 @@ export default function DashboardBewertungen() {
   };
 
   return (
+    <ProGate feature="Bewertungen & KI-Assistent">
     <Page>
       <PageTitle>Bewertungen</PageTitle>
       <PageSub>Alle Google-Rezensionen auf einen Blick — mit KI-Antwort-Assistent.</PageSub>
@@ -413,5 +415,6 @@ export default function DashboardBewertungen() {
         ))}
       </ReviewList>
     </Page>
+    </ProGate>
   );
 }
