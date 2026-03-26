@@ -61,6 +61,45 @@ export function useAuth() {
 
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) { setProfile(null); return; }
+    try {
+      // Use direct REST fetch to avoid Supabase client auth-lock
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+      // Get token from localStorage without async
+      let token = null;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.includes('-auth-token')) {
+          try {
+            const val = JSON.parse(localStorage.getItem(k));
+            if (val?.access_token) { token = val.access_token; break; }
+          } catch (_) {}
+        }
+      }
+
+      if (token && supabaseUrl && supabaseKey) {
+        const res = await fetch(
+          `${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(userId)}&select=*`,
+          {
+            headers: {
+              'apikey':        supabaseKey,
+              'Authorization': `Bearer ${token}`,
+              'Accept':        'application/json',
+            },
+          }
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          setProfile(rows?.[0] || null);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[fetchProfile] REST fetch failed, falling back:', err.message);
+    }
+
+    // Fallback to Supabase client
     const { data } = await supabase
       .from('user_profiles')
       .select('*')
