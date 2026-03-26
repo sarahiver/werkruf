@@ -458,6 +458,7 @@ export default function DashboardHome() {
 
   const apiKey      = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
   const hasBusiness = !!profile?.google_place_id;
+  const isPro = profile?.plan === 'pro' || profile?.plan === 'trial';
   const isGhost     = profile?.visibility_score === 0
                    && !profile?.google_place_id
                    && !!profile?.company_name;
@@ -776,9 +777,22 @@ export default function DashboardHome() {
               <ScoreSub2>{profile?.company_name} · Jetzt optimieren und mehr Anfragen bekommen.</ScoreSub2>
             </div>
           </ScoreLeft>
-          <OptBtn onClick={() => setShowPathAPricing(true)}>
-            PRO testen — 30 Tage gratis <ArrowRight size={13}/>
-          </OptBtn>
+          {isPro ? (
+            <span style={{
+              background: 'rgba(var(--color-accent-rgb),.15)',
+              border: '1px solid rgba(var(--color-accent-rgb),.3)',
+              color: 'var(--color-accent)',
+              fontFamily: 'var(--font-body)', fontWeight: 700,
+              fontSize: '.75rem', letterSpacing: '.1em', textTransform: 'uppercase',
+              padding: '5px 12px', borderRadius: 'var(--radius-button)',
+            }}>
+              ✓ {profile?.plan === 'trial' ? 'Test-Phase aktiv' : 'PRO aktiv'}
+            </span>
+          ) : (
+            <OptBtn onClick={() => setShowPathAPricing(true)}>
+              PRO testen — 30 Tage gratis <ArrowRight size={13}/>
+            </OptBtn>
+          )}
         </ScoreBanner>
       )}
 
