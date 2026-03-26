@@ -16,13 +16,13 @@ export const ACTIVE_INDUSTRY = 'handwerk';
 export const INDUSTRIES = {
 
   /* ─────────────────────────────────────────────
-     HANDWERK — werkruf.de
+     HANDWERK — werkruf.com
   ───────────────────────────────────────────── */
   handwerk: {
     key: 'handwerk',
 
     /* Domain-Mapping (für automatische Erkennung) */
-    domains: ['werkruf.de', 'www.werkruf.de', 'handwerk.werkruf.de'],
+    domains: ['werkruf.com', 'www.werkruf.com', 'handwerk.werkruf.com'],
 
     /* Brand */
     brand: {
@@ -146,11 +146,11 @@ export const INDUSTRIES = {
       ],
       footer: {
         tagline: 'Digitaler Rückenwind für echtes Handwerk',
-        email:   'hallo@werkruf.de',
+        email:   'hallo@werkruf.com',
         links: [
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
-          { label: 'Kontakt',     href: 'mailto:hallo@werkruf.de' },
+          { label: 'Kontakt',     href: 'mailto:hallo@werkruf.com' },
         ],
       },
     },
@@ -159,7 +159,7 @@ export const INDUSTRIES = {
     comms: {
       expertTitle:   'Handwerk-Experte',
       greeting:      'Moin',
-      emailFrom:     'hallo@werkruf.de',
+      emailFrom:     'hallo@werkruf.com',
       emailSignature:'Dein WERKRUF-Team',
       fahrplanTitle: 'Dein Sichtbarkeits-Fahrplan',
       phases: [
@@ -258,12 +258,12 @@ export const INDUSTRIES = {
   },
 
   /* ─────────────────────────────────────────────
-     GASTRONOMIE — gastroruf.de
+     GASTRONOMIE — gastroruf.com
   ───────────────────────────────────────────── */
   gastro: {
     key: 'gastro',
 
-    domains: ['gastroruf.de', 'www.gastroruf.de', 'gastro.werkruf.de'],
+    domains: ['gastroruf.com', 'www.gastroruf.com', 'gastro.werkruf.com'],
 
     brand: {
       name:    'GASTRORUF',
@@ -379,11 +379,11 @@ export const INDUSTRIES = {
       ],
       footer: {
         tagline: 'Mehr Gäste. Volle Tische. Jeden Abend.',
-        email:   'hallo@gastroruf.de',
+        email:   'hallo@gastroruf.com',
         links: [
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
-          { label: 'Kontakt',     href: 'mailto:hallo@gastroruf.de' },
+          { label: 'Kontakt',     href: 'mailto:hallo@gastroruf.com' },
         ],
       },
     },
@@ -391,7 +391,7 @@ export const INDUSTRIES = {
     comms: {
       expertTitle:   'Gastronomie-Experte',
       greeting:      'Hallo',
-      emailFrom:     'hallo@gastroruf.de',
+      emailFrom:     'hallo@gastroruf.com',
       emailSignature:'Dein GASTRORUF-Team',
       fahrplanTitle: 'Dein Restaurant-Fahrplan',
       phases: [
@@ -464,12 +464,12 @@ export const INDUSTRIES = {
   },
 
   /* ─────────────────────────────────────────────
-     BEAUTY — beautyruf.de (Starter-Template)
+     BEAUTY — beautyruf.com (Starter-Template)
   ───────────────────────────────────────────── */
   beauty: {
     key: 'beauty',
 
-    domains: ['beautyruf.de', 'www.beautyruf.de', 'beauty.werkruf.de'],
+    domains: ['beautyruf.com', 'www.beautyruf.com', 'beauty.werkruf.com'],
 
     brand: {
       name:    'BEAUTYRUF',
@@ -551,11 +551,11 @@ export const INDUSTRIES = {
       ],
       footer: {
         tagline: 'Mehr Buchungen für dein Studio.',
-        email:   'hallo@beautyruf.de',
+        email:   'hallo@beautyruf.com',
         links: [
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
-          { label: 'Kontakt',     href: 'mailto:hallo@beautyruf.de' },
+          { label: 'Kontakt',     href: 'mailto:hallo@beautyruf.com' },
         ],
       },
     },
