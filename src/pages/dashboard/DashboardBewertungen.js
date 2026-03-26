@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Star, Sparkles, Copy, CheckCheck, AlertCircle, ExternalLink, Loader } from 'lucide-react';
+import supabase from '../../supabaseClient';
 import { useAuthContext } from '../../context/AuthContext';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
@@ -247,31 +248,29 @@ export default function DashboardBewertungen() {
   const generateReply = async (review) => {
     setLoading(prev => ({ ...prev, [review.id]: true }));
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model:      'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: `Du bist ein Handwerksmeister und antwortest auf Google-Bewertungen für "${companyName}".
-Dein Tonfall: Ehrlich, direkt, persönlich — kein Marketing-Sprech.
-Bei 4-5 Sternen: Kurz danken, persönliche Note, Wiederkommen einladen.
-Bei 1-3 Sternen: Kritik ernst nehmen, konkrete Lösung anbieten, nach Kontakt fragen.
-Antwort: Max. 3-4 Sätze. Kein generisches "Liebes Team" — direkt mit Namen ansprechen.
-Antworte NUR mit dem Antworttext, keine Erklärungen.`,
-          messages: [{
-            role: 'user',
-            content: `Bewertung von ${review.author} (${review.rating} von 5 Sternen):\n"${review.text}"\n\nSchreibe eine passende Antwort.`,
-          }],
-        }),
+      // Secure: Claude API called server-side via Edge Function
+      // API key never exposed to browser
+      const { data, error } = await supabase.functions.invoke('generate-review-reply', {
+        body: {
+          reviewText:   review.text,
+          reviewerName: review.author,
+          rating:       review.rating,
+          companyName,
+        },
       });
 
-      const data = await res.json();
-      const reply = data.content?.[0]?.text || '';
-      setDrafts(prev => ({ ...prev, [review.id]: reply }));
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+
+      setDrafts(prev => ({ ...prev, [review.id]: data.reply || '' }));
     } catch (err) {
-      console.error('AI error:', err);
-      setDrafts(prev => ({ ...prev, [review.id]: 'Fehler beim Generieren. Bitte nochmal versuchen.' }));
+      console.error('[generateReply] Error:', err.message);
+      setDrafts(prev => ({
+        ...prev,
+        [review.id]: err.message.includes('Rate limit')
+          ? err.message
+          : 'Fehler beim Generieren. Bitte nochmal versuchen.',
+      }));
     }
     setLoading(prev => ({ ...prev, [review.id]: false }));
   };

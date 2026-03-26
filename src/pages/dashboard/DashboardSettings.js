@@ -148,6 +148,35 @@ export default function DashboardSettings() {
     pro:   `${pricing.productName}`,
   };
 
+  /* ── Delete Account (GDPR Right to be Forgotten) ── */
+  const handleDeleteAccount = async () => {
+    const confirmed = window.confirm(
+      'Konto wirklich löschen?\n\n' +
+      '• Alle deine Daten werden gelöscht\n' +
+      '• Dein Abo wird sofort gekündigt\n' +
+      '• Dein Google Business Profil bleibt erhalten\n\n' +
+      'Diese Aktion kann nicht rückgängig gemacht werden.'
+    );
+    if (!confirmed) return;
+
+    // Second confirmation
+    const confirmed2 = window.confirm('Bist du absolut sicher? Alle Daten werden unwiderruflich gelöscht.');
+    if (!confirmed2) return;
+
+    setPortalLoading(true);
+    setPortalError('');
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account');
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      // User is deleted — redirect to homepage
+      window.location.href = '/';
+    } catch (err) {
+      setPortalError('Fehler beim Löschen: ' + err.message);
+      setPortalLoading(false);
+    }
+  };
+
   /* ── Open Stripe Customer Portal ── */
   const handlePortal = async () => {
     setPortalLoading(true);
@@ -297,10 +326,12 @@ export default function DashboardSettings() {
         </CardSub>
         <PortalBtn
           style={{ background: 'none', border: '1px solid #D93025', color: '#D93025' }}
-          onClick={() => window.confirm('Wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.') && alert('Bitte kontaktiere uns: hallo@werkruf.com')}
+          onClick={handleDeleteAccount}
+          disabled={portalLoading}
         >
-          Konto löschen
+          Konto & alle Daten löschen (DSGVO)
         </PortalBtn>
+        {portalError && <ErrorBanner style={{ marginTop: 10 }}>{portalError}</ErrorBanner>}
       </Card>
     </Page>
   );

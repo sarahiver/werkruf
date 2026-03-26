@@ -9,26 +9,36 @@ const spin   = keyframes`to{transform:rotate(360deg)}`;
 const pulse  = keyframes`0%,100%{opacity:1}50%{opacity:.4}`;
 
 /* ─────────────────────────────────────────────
-   CLOUDINARY CONFIG
-   Set these in Vercel env vars:
-   REACT_APP_CLOUDINARY_CLOUD_NAME
-   REACT_APP_CLOUDINARY_UPLOAD_PRESET  (unsigned preset)
+   CLOUDINARY — SIGNED UPLOAD
+   API Secret stays server-side in Edge Function.
+   Client gets a short-lived signature per upload.
 ───────────────────────────────────────────── */
-const CLOUD_NAME    = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
-const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
+async function uploadToCloudinary(file, supabaseClient) {
+  // Step 1: Get signed params from Edge Function (API secret never leaves server)
+  const { data: signData, error: signError } = await supabaseClient.functions.invoke(
+    'cloudinary-sign-upload'
+  );
+  if (signError || !signData) throw new Error('Signatur-Fehler: ' + (signError?.message || 'Unbekannt'));
 
-async function uploadToCloudinary(file, profileId) {
+  const { signature, timestamp, apiKey, cloudName, folder, transformation } = signData;
+
+  // Step 2: Upload directly to Cloudinary with server-signed params
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', UPLOAD_PRESET);
-  formData.append('folder', `werkruf/profiles/${profileId}`);
-  formData.append('transformation', 'f_auto,q_auto');
+  formData.append('file',           file);
+  formData.append('api_key',        apiKey);
+  formData.append('signature',      signature);
+  formData.append('timestamp',      String(timestamp));
+  formData.append('folder',         folder);
+  formData.append('transformation', transformation);
 
   const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
     { method: 'POST', body: formData }
   );
-  if (!res.ok) throw new Error('Cloudinary upload failed');
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Cloudinary upload failed');
+  }
   return res.json();
 }
 
@@ -238,7 +248,7 @@ export default function DashboardFotos() {
   /* ── Handle files ── */
   const handleFiles = useCallback(async (files) => {
     if (!CLOUD_NAME || !UPLOAD_PRESET) {
-      setError('Cloudinary ist noch nicht konfiguriert. REACT_APP_CLOUDINARY_CLOUD_NAME und REACT_APP_CLOUDINARY_UPLOAD_PRESET in Vercel setzen.');
+      setError('Upload-Service nicht verfügbar. Bitte Edge Function cloudinary-sign-upload deployen.');
       return;
     }
 
@@ -267,7 +277,7 @@ export default function DashboardFotos() {
           ));
         }, 200);
 
-        const result = await uploadToCloudinary(item.file, profileId);
+        const result = await uploadToCloudinary(item.file, supabase);
 
         clearInterval(progressInterval);
         setQueue(prev => prev.map(q =>
