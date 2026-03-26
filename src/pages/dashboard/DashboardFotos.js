@@ -248,11 +248,6 @@ export default function DashboardFotos() {
 
   /* ── Handle files ── */
   const handleFiles = useCallback(async (files) => {
-    if (!CLOUD_NAME || !UPLOAD_PRESET) {
-      setError('Upload-Service nicht verfügbar. Bitte Edge Function cloudinary-sign-upload deployen.');
-      return;
-    }
-
     const valid = Array.from(files).filter(f => f.type.startsWith('image/'));
     if (!valid.length) return;
 
