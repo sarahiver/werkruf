@@ -278,6 +278,14 @@ const CtaNote = styled.p`
 ───────────────────────────────────────────── */
 export default function Pricing() {
   const { pricing, brand, design, copy } = useIndustry();
+  const { user } = useAuthContext();
+  const { startCheckout, loading: checkoutLoading } = useCheckout();
+  const navigate = useNavigate();
+
+  const handleCheckout = ({ plan }) => {
+    if (!user) { navigate('/signup'); return; }
+    startCheckout({ plan, path: 'optimisation', companyName: '', industryKey: 'handwerk' });
+  };
   const { roi } = pricing;
 
   const [roiInput, setRoiInput] = useState(roi.sliderDefault);
