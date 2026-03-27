@@ -278,6 +278,7 @@ const CtaNote = styled.p`
 ───────────────────────────────────────────── */
 export default function Pricing() {
   const { pricing, brand, design, copy } = useIndustry();
+  const monthlyPrice = pricing?.pathA?.monthlyPrice ?? 49;
   const { user } = useAuthContext();
   const { startCheckout, loading: checkoutLoading } = useCheckout();
   const navigate = useNavigate();
@@ -292,7 +293,7 @@ export default function Pricing() {
 
   const newUnits     = Math.round(roiInput * roi.upliftFactor);
   const extraRevenue = newUnits * roi.avgOrderValue;
-  const roiPct       = Math.round((extraRevenue - pricing.monthlyPrice) / pricing.monthlyPrice * 100);
+  const roiPct       = Math.round((extraRevenue - monthlyPrice) / monthlyPrice * 100);
   const heroMax      = (roi.maxMonthlyRevenue).toLocaleString('de-DE');
 
   return (
@@ -303,7 +304,7 @@ export default function Pricing() {
         <HeroInner>
           <Eyebrow><PulseDot /> {pricing.productName}</Eyebrow>
           <HeroH1>
-            Investiere {pricing.monthlyPrice}{pricing.currency}.<br />
+            Investiere {monthlyPrice}{pricing.currency}.<br />
             <HeroAccent>Hol dir bis zu {heroMax}{pricing.currency} zurück.</HeroAccent>
           </HeroH1>
           <HeroSub>
@@ -312,7 +313,7 @@ export default function Pricing() {
           </HeroSub>
           <ROIRow>
             <ROIItem>
-              <ROINum>{pricing.monthlyPrice}<ROIAccent>{pricing.currency}</ROIAccent></ROINum>
+              <ROINum>{monthlyPrice}<ROIAccent>{pricing.currency}</ROIAccent></ROINum>
               <ROILabel>pro Monat</ROILabel>
             </ROIItem>
             <ROIItem>
@@ -364,7 +365,7 @@ export default function Pricing() {
             <CalcGrid>
               <CalcBox>
                 <CalcNum>
-                  {pricing.monthlyPrice}
+                  {monthlyPrice}
                   <span style={{ fontSize: '1.2rem', color: 'rgba(255,255,255,.4)' }}>
                     {pricing.currency}
                   </span>
@@ -442,7 +443,7 @@ export default function Pricing() {
               <CardTitle style={{ color: 'var(--color-white)' }}>Volle Sichtbarkeit</CardTitle>
               <Price>
                 <PriceNum $c="var(--color-accent)">
-                  {pricing.monthlyPrice}
+                  {monthlyPrice}
                   <span style={{ fontSize: '1.5rem' }}>{pricing.currency}</span>
                 </PriceNum>
                 <PricePeriod>{pricing.priceLabel}</PricePeriod>
@@ -455,7 +456,7 @@ export default function Pricing() {
                 <Zap size={18} color="var(--color-accent)" style={{ flexShrink: 0 }} />
                 <TrialText>
                   <strong>{pricing.trialDays} Tage kostenlos testen.</strong>
-                  Danach {pricing.monthlyPrice}{pricing.currency} {pricing.priceLabel} — kündbar wann du willst.
+                  Danach {monthlyPrice}{pricing.currency} {pricing.priceLabel} — kündbar wann du willst.
                 </TrialText>
               </TrialBanner>
 
@@ -527,7 +528,7 @@ export default function Pricing() {
             {pricing.trialCTA} <ArrowRight size={20} />
           </CtaBtn>
           <CtaNote>
-            Danach {pricing.monthlyPrice}{pricing.currency} {pricing.priceLabel} · Monatlich kündbar · Keine Einrichtungsgebühr
+            Danach {monthlyPrice}{pricing.currency} {pricing.priceLabel} · Monatlich kündbar · Keine Einrichtungsgebühr
           </CtaNote>
         </CtaInner>
       </CtaBand>
