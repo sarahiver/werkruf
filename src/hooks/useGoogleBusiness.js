@@ -6,12 +6,17 @@ import supabase from '../supabaseClient';
    useGoogleBusiness
 
    Client-Seite der Google-Business-Profile-Anbindung.
-   Der Hook redet ausschliesslich mit unseren Edge Functions —
-   niemals direkt mit Google, niemals mit den Token-Tabellen.
+   Redet ausschliesslich mit unserer Edge Function — niemals direkt
+   mit Google, niemals mit den Token-Tabellen.
 
-   Die bestehende Supabase-Session (useAuth) wird nur gelesen;
-   supabase.functions.invoke hängt das Access-Token automatisch an.
-   Der Login-Flow bleibt unangetastet.
+   Die bestehende Supabase-Session (useAuth) wird nur gelesen; der
+   Login-Flow bleibt unangetastet.
+
+   Warum fetch statt supabase.functions.invoke:
+   Alle fünf Routen liegen in EINER Function und werden über Unterpfade
+   angesprochen (…/google-business/connect). invoke() ist auf einen
+   Function-Namen ohne Pfad ausgelegt — direktes fetch ist hier
+   eindeutiger und macht den Authorization-Header sichtbar.
 
    @typedef {'active'|'needs_reauth'|'revoked'|'disconnected'} ConnectionStatus
    @typedef {Object} PublicConnection
@@ -24,9 +29,10 @@ import supabase from '../supabaseClient';
    @property {boolean} needsAction
 ───────────────────────────────────────────── */
 
-/* Fehlercodes → Texte für den Betrieb. Alles, was hier nicht steht,
-   bekommt die generische Meldung — bewusst, damit interne Codes nicht
-   als Rohtext im Dashboard landen. */
+const FUNCTION_BASE = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business`;
+
+/* Fehlercodes → Texte. Alles, was hier nicht steht, bekommt die
+   generische Meldung — damit interne Codes nicht im Dashboard landen. */
 const ERROR_MESSAGES = {
   oauth_denied:
     'Du hast den Zugriff bei Google abgebrochen. Ohne Freigabe können wir dein Profil nicht verwalten.',
@@ -47,12 +53,38 @@ export function messageForCode(code) {
   return ERROR_MESSAGES[code] || GENERIC_ERROR;
 }
 
+/** Ruft eine Route der Function auf und hängt die aktuelle Session an. */
+async function callFunction(path, { method = 'GET', body } = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Keine aktive Session');
+
+  const response = await fetch(`${FUNCTION_BASE}/${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || GENERIC_ERROR);
+    error.code = payload?.error?.code || 'internal_error';
+    throw error;
+  }
+
+  return payload;
+}
+
 export function useGoogleBusiness() {
   const [connections, setConnections] = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [busy, setBusy]               = useState(false);
-  const [error, setError]             = useState(null);
-  const [notice, setNotice]           = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy]       = useState(false);
+  const [error, setError]     = useState(null);
+  const [notice, setNotice]   = useState(null);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const mountedRef = useRef(true);
@@ -62,18 +94,13 @@ export function useGoogleBusiness() {
   /* ── Status laden ── */
   const loadStatus = useCallback(async () => {
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'google-business-status',
-        { method: 'GET' },
-      );
-      if (fnError) throw fnError;
+      const data = await callFunction('status');
       if (!mountedRef.current) return;
-
       setConnections(data?.connections || []);
       setError(null);
     } catch (err) {
       console.error('[useGoogleBusiness] Status:', err);
-      if (mountedRef.current) setError(GENERIC_ERROR);
+      if (mountedRef.current) setError(messageForCode(err.code));
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -83,8 +110,8 @@ export function useGoogleBusiness() {
 
   /* ── Rückkehr vom Callback auswerten ──
      Der Callback redirectet auf …/dashboard?gbp=connected|error.
-     Wir lesen das Ergebnis und räumen die Parameter sofort aus der URL,
-     damit ein Reload nicht dieselbe Meldung erneut zeigt. */
+     Parameter danach sofort aus der URL räumen, damit ein Reload nicht
+     dieselbe Meldung erneut zeigt. */
   useEffect(() => {
     const result = searchParams.get('gbp');
     if (!result) return;
@@ -105,25 +132,22 @@ export function useGoogleBusiness() {
   }, [searchParams, setSearchParams, loadStatus]);
 
   /* ── Verbinden / neu verbinden ──
-     connectionId gesetzt = Reconnect: Google zeigt dann direkt das
-     richtige Konto an, statt den Kontowähler. */
+     connectionId gesetzt = Reconnect: Google zeigt direkt das richtige
+     Konto statt des Kontowählers. */
   const connect = useCallback(async (connectionId = null) => {
     setBusy(true);
     setError(null);
     setNotice(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'google-business-connect',
-        {
-          body: {
-            returnTo: `${window.location.origin}${window.location.pathname}`,
-            ...(connectionId ? { connectionId } : {}),
-          },
+      const data = await callFunction('connect', {
+        method: 'POST',
+        body: {
+          returnTo: `${window.location.origin}${window.location.pathname}`,
+          ...(connectionId ? { connectionId } : {}),
         },
-      );
+      });
 
-      if (fnError) throw fnError;
       if (!data?.authUrl) throw new Error('Keine Autorisierungs-URL erhalten');
 
       // Volle Navigation, kein Popup: Google blockiert seinen
@@ -132,7 +156,7 @@ export function useGoogleBusiness() {
     } catch (err) {
       console.error('[useGoogleBusiness] Connect:', err);
       if (mountedRef.current) {
-        setError(GENERIC_ERROR);
+        setError(messageForCode(err.code));
         setBusy(false);
       }
     }
@@ -146,11 +170,10 @@ export function useGoogleBusiness() {
     setNotice(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'google-business-disconnect',
-        { body: { connectionId } },
-      );
-      if (fnError) throw fnError;
+      const data = await callFunction('disconnect', {
+        method: 'POST',
+        body: { connectionId },
+      });
 
       setNotice(
         data?.revokedAtGoogle
@@ -160,14 +183,14 @@ export function useGoogleBusiness() {
       await loadStatus();
     } catch (err) {
       console.error('[useGoogleBusiness] Disconnect:', err);
-      if (mountedRef.current) setError(GENERIC_ERROR);
+      if (mountedRef.current) setError(messageForCode(err.code));
     } finally {
       if (mountedRef.current) setBusy(false);
     }
   }, [loadStatus]);
 
-  const activeConnection   = connections.find((c) => c.status === 'active') || null;
-  const brokenConnection   = connections.find((c) => c.needsAction) || null;
+  const activeConnection = connections.find((c) => c.status === 'active') || null;
+  const brokenConnection = connections.find((c) => c.needsAction) || null;
 
   return {
     connections,
