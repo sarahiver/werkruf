@@ -303,6 +303,167 @@ export function Pagination({ page, pageSize, total, onChange, busy }) {
   );
 }
 
+/* ── Statusleiste ──
+   Beantwortet Frage 1 auf einen Blick. Ein Zustand, eine Farbe, ein
+   Satz. Bewusst breit und ganz oben: was hier steht, soll man lesen,
+   ohne zu scrollen — auch auf dem Handy. ── */
+
+export const STATUS_COLORS = {
+  ok:       { fg: '#1E7E34', bg: '#E8F5E9' },
+  warning:  { fg: '#A66A00', bg: '#FFF4E0' },
+  critical: { fg: '#B3261E', bg: '#FDECEA' },
+  setup:    { fg: 'var(--color-accent)', bg: 'rgba(var(--color-accent-rgb), .1)' },
+  error:    { fg: '#B3261E', bg: '#FDECEA' },
+};
+
+const StatusWrap = styled.div`
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px 22px; margin-bottom: 20px;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid ${({ $level }) => (STATUS_COLORS[$level] || STATUS_COLORS.ok).fg};
+  border-radius: var(--radius-card);
+  animation: ${fadeUp} .3s ease both;
+`;
+
+const StatusIconWrap = styled.div`
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: ${({ $level }) => (STATUS_COLORS[$level] || STATUS_COLORS.ok).bg};
+  color: ${({ $level }) => (STATUS_COLORS[$level] || STATUS_COLORS.ok).fg};
+`;
+
+const StatusHeadline = styled.h2`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: 1.15rem; text-transform: var(--text-transform);
+  color: var(--color-primary); line-height: 1.25;
+`;
+
+const StatusDetail = styled.p`
+  font-family: var(--font-body); font-size: .86rem; line-height: 1.6;
+  color: var(--color-text-muted); margin-top: 4px;
+`;
+
+export function StatusBanner({ level, headline, detail, icon, action }) {
+  if (level === 'loading') return <SkeletonBlock $h={84} style={{ marginBottom: 20 }} />;
+
+  return (
+    <StatusWrap $level={level}>
+      <StatusIconWrap $level={level}>{icon}</StatusIconWrap>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <StatusHeadline>{headline}</StatusHeadline>
+        {detail && <StatusDetail>{detail}</StatusDetail>}
+        {action && <div style={{ marginTop: 14 }}>{action}</div>}
+      </div>
+    </StatusWrap>
+  );
+}
+
+/* ── Handlungsposten ──
+   Frage 2. Jede Zeile: was ist los, warum zählt es, ein Knopf.
+   Kein Aufklappen, kein Zwischenschritt — wer hier landet, will
+   handeln, nicht navigieren. ── */
+
+const ActionRow = styled.div`
+  display: flex; align-items: flex-start; gap: 13px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--color-border);
+  &:last-child { border-bottom: none; }
+
+  @media (max-width: 560px) {
+    flex-wrap: wrap;
+  }
+`;
+
+const ActionDot = styled.span`
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  margin-top: 7px;
+  background: ${({ $severity }) => (STATUS_COLORS[$severity] || STATUS_COLORS.warning).fg};
+`;
+
+const ActionBody = styled.div`flex: 1; min-width: 0;`;
+
+const ActionTitle = styled.p`
+  font-family: var(--font-body); font-weight: 700; font-size: .9rem;
+  color: var(--color-primary); line-height: 1.4;
+`;
+
+const ActionDetail = styled.p`
+  font-family: var(--font-body); font-size: .82rem; line-height: 1.55;
+  color: var(--color-text-muted); margin-top: 3px;
+`;
+
+const ActionCta = styled.div`
+  flex-shrink: 0;
+  @media (max-width: 560px) {
+    width: 100%; margin-top: 10px; padding-left: 21px;
+  }
+`;
+
+export function ActionItem({ severity, title, detail, children }) {
+  return (
+    <ActionRow>
+      <ActionDot $severity={severity} />
+      <ActionBody>
+        <ActionTitle>{title}</ActionTitle>
+        {detail && <ActionDetail>{detail}</ActionDetail>}
+      </ActionBody>
+      {children && <ActionCta>{children}</ActionCta>}
+    </ActionRow>
+  );
+}
+
+/* ── Kennzahlenleiste ──
+   Vier Zahlen in einer Zeile statt vier Kacheln übereinander.
+   Kennzahlen sind Hintergrund, keine Handlung — sie bekommen
+   entsprechend wenig Platz. ── */
+
+const StripWrap = styled.div`
+  display: flex; flex-wrap: wrap;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+`;
+
+const StripItem = styled.div`
+  flex: 1 1 118px; padding: 14px 16px;
+  border-right: 1px solid var(--color-border);
+  &:last-child { border-right: none; }
+
+  @media (max-width: 560px) {
+    flex-basis: 50%;
+    &:nth-child(2n) { border-right: none; }
+    &:nth-child(-n+2) { border-bottom: 1px solid var(--color-border); }
+  }
+`;
+
+const StripNum = styled.p`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: 1.3rem; line-height: 1.1;
+  color: ${({ $accent }) => $accent || 'var(--color-primary)'};
+`;
+
+const StripLabel = styled.p`
+  font-family: var(--font-body); font-size: .7rem;
+  color: var(--color-text-muted); text-transform: uppercase;
+  letter-spacing: .07em; margin-top: 3px;
+`;
+
+export function MetricStrip({ items, loading }) {
+  if (loading) return <SkeletonBlock $h={66} />;
+  return (
+    <StripWrap>
+      {items.map((item) => (
+        <StripItem key={item.label}>
+          <StripNum $accent={item.accent}>{item.value}</StripNum>
+          <StripLabel>{item.label}</StripLabel>
+        </StripItem>
+      ))}
+    </StripWrap>
+  );
+}
+
 /* ── Formatierung ── */
 
 export const formatDate = (value) =>

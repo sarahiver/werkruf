@@ -9,6 +9,7 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
+import BusinessLinkCard from '../../components/dashboard/BusinessLinkCard';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -173,6 +174,14 @@ export default function DashboardGoogleBusiness() {
           und Sichtbarkeit auswerten kann.
         </PageSub>
         <GoogleBusinessConnect />
+
+      {/* Betriebs-Verknüpfung über Google Places.
+          Lag früher auf der Startseite und hat sie überladen. Setzt
+          user_profiles.google_place_id und speist den Sichtbarkeits-
+          Score — etwas anderes als die OAuth-Verbindung darüber, die
+          Schreibzugriff erlaubt. Beides kann unabhängig bestehen,
+          deshalb stehen beide Karten nebeneinander. */}
+      <BusinessLinkCard />
 
       {/* Standortauswahl — erst ab zwei Standorten sinnvoll */}
       {locations.length > 1 && (
