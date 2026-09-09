@@ -59,85 +59,84 @@ export function useAuth() {
   // loading = true until we know if user is logged in or not
   const loading = user === undefined;
 
+  /*
+   * Profil laden — über den regulären Supabase-Client.
+   *
+   * Hier stand vorher ein direkter REST-Aufruf, für den das
+   * Access-Token per Schleife aus dem localStorage gesucht wurde. Der
+   * Kommentar nannte als Grund "auth lock contention", und das Symptom
+   * war echt: Aufrufe hingen.
+   *
+   * Die Ursache war aber eine andere. supabase-js hält während des
+   * onAuthStateChange-Callbacks eine Sperre auf den Auth-Zustand. Wer
+   * darin einen weiteren Client-Aufruf abwartet, wartet auf eine
+   * Sperre, die er selbst hält. Nicht der Client war das Problem,
+   * sondern der Ort des Aufrufs.
+   *
+   * Deshalb liegt der Aufruf jetzt in einem eigenen Effekt, der auf
+   * die User-ID reagiert — ausserhalb des Callbacks, ohne Sperre,
+   * ohne localStorage-Suche.
+   */
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) { setProfile(null); return; }
-    try {
-      // Use direct REST fetch to avoid Supabase client auth-lock
-      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-      const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
-      // Get token from localStorage without async
-      let token = null;
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.includes('-auth-token')) {
-          try {
-            const val = JSON.parse(localStorage.getItem(k));
-            if (val?.access_token) { token = val.access_token; break; }
-          } catch (_) {}
-        }
-      }
-
-      if (token && supabaseUrl && supabaseKey) {
-        const res = await fetch(
-          `${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(userId)}&select=*`,
-          {
-            headers: {
-              'apikey':        supabaseKey,
-              'Authorization': `Bearer ${token}`,
-              'Accept':        'application/json',
-            },
-          }
-        );
-        if (res.ok) {
-          const rows = await res.json();
-          setProfile(rows?.[0] || null);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('[fetchProfile] REST fetch failed, falling back:', err.message);
-    }
-
-    // Fallback to Supabase client
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', userId)
-      .single();
-    setProfile(data || null);
+      // maybeSingle statt single: ein fehlendes Profil ist kein
+      // Fehler, sondern der Normalfall direkt nach der Registrierung,
+      // bevor der handle_new_user-Trigger durch ist.
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[useAuth] Profil nicht ladbar:', error.message);
+      setProfile(null);
+      return;
+    }
+    setProfile(data ?? null);
   }, []);
 
+  /*
+   * Auth-Zustand beobachten.
+   *
+   * Der Callback bleibt bewusst SYNCHRON. Jede await-Anweisung darin
+   * hält die Auth-Sperre von supabase-js offen und blockiert alle
+   * weiteren Client-Aufrufe — genau das Verhalten, das der frühere
+   * localStorage-Umweg umschiffen sollte.
+   *
+   * Deshalb: hier nur Zustand setzen, alles Weitere in den Effekten
+   * darunter.
+   */
   useEffect(() => {
-    // onAuthStateChange fires reliably for ALL cases:
-    // - INITIAL_SESSION (page load, OAuth redirect return)
-    // - SIGNED_IN (email/password login)
-    // - SIGNED_OUT
-    // getSession() is only needed as a faster initial check
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        const u = session?.user ?? null;
-
-        // Resolve user immediately — this unblocks the loading state
-        setUser(u);
-
-        if (u) {
-          // Fire lead sync in background — do NOT await here
-          if (!syncedRef.current) {
-            syncedRef.current = true;
-            syncLeadToProfile(u.id, u.email); // intentionally not awaited
-          }
-          // Fetch profile (fast — just a single row read)
-          await fetchProfile(u.id);
-        } else {
+      (_event, session) => {
+        setUser(session?.user ?? null);
+        if (!session?.user) {
           setProfile(null);
           syncedRef.current = false;
         }
-      }
+      },
     );
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile]);
+  }, []);
+
+  /* Profil laden, sobald die User-ID feststeht. */
+  useEffect(() => {
+    if (user === undefined || user === null) return;
+    fetchProfile(user.id);
+  }, [user?.id, user, fetchProfile]);
+
+  /* Lead-Daten einmalig ins Profil übernehmen. Bewusst ohne await
+     im Auth-Callback und ohne den Rest zu blockieren. */
+  useEffect(() => {
+    if (user === undefined || user === null || syncedRef.current) return;
+    syncedRef.current = true;
+    syncLeadToProfile(user.id, user.email)
+      .then(() => fetchProfile(user.id))
+      .catch((err) => console.warn('[useAuth] Lead-Sync:', err?.message));
+  }, [user?.id, user, fetchProfile]);
 
   /* ─────────────────────────────────────────────
      GOOGLE OAuth
@@ -187,9 +186,9 @@ export function useAuth() {
   }, []);
 
   const refreshProfile = useCallback(async (userId) => {
-    // Use provided userId or fall back to current user state
-    // Avoids calling getUser() which can cause auth lock contention
-    const id = userId || (user && user !== undefined ? user.id : null);
+    // getUser() ist hier unnötig: der Auth-Listener hält den
+    // User-Zustand ohnehin aktuell.
+    const id = userId || (user ? user.id : null);
     if (id) await fetchProfile(id);
   }, [fetchProfile, user]);
 

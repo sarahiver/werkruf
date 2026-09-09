@@ -12,7 +12,7 @@ import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConn
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
-  StarRating, ratingColor, Badge, GhostBtn, Spinner,
+  StarRating, ratingColor, Badge, GhostBtn, Spinner, Select, Toolbar,
   formatDate, formatRelative,
 } from '../../components/dashboard/gb/GbUi';
 
@@ -131,6 +131,12 @@ export default function DashboardGoogleBusiness() {
 
   const [syncError, setSyncError] = React.useState(null);
 
+  /* Standortauswahl.
+     'all' fasst zusammen — richtig bei mehreren Filialen desselben
+     Betriebs, irreführend bei zwei verschiedenen Betrieben unter
+     einem Google-Konto. Deshalb die Auswahl. */
+  const [selectedLocation, setSelectedLocation] = React.useState('all');
+
   /*
    * Abgleich anstossen.
    *
@@ -167,6 +173,21 @@ export default function DashboardGoogleBusiness() {
           und Sichtbarkeit auswerten kann.
         </PageSub>
         <GoogleBusinessConnect />
+
+      {/* Standortauswahl — erst ab zwei Standorten sinnvoll */}
+      {locations.length > 1 && (
+        <Toolbar>
+          <Select
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+          >
+            <option value="all">Alle Standorte ({locations.length})</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
+            ))}
+          </Select>
+        </Toolbar>
+      )}
       </Page>
     );
   }
@@ -174,6 +195,26 @@ export default function DashboardGoogleBusiness() {
   /* 'never' als eigener Zustand: vorher stand bei einem frisch
      verbundenen Konto "Daten sind aktuell / Zuletzt abgeglichen noch
      nie" — beides gleichzeitig, und das eine widerlegt das andere. */
+  const visibleLocations = selectedLocation === 'all'
+    ? locations
+    : locations.filter((l) => l.id === selectedLocation);
+
+  /* Kennzahlen des gewählten Standorts. Bei 'all' bleiben die
+     Gesamtwerte aus dem Hook. */
+  const scopedStats = selectedLocation === 'all' ? stats : (() => {
+    const location = locations.find((l) => l.id === selectedLocation);
+    if (!location) return stats;
+    return {
+      ...stats,
+      totalReviews:  location.review_count,
+      averageRating: location.average_rating,
+      // Unbeantwortete je Standort liegen im Hook nicht vor —
+      // dafür bräuchte es eine eigene Abfrage. Bis dahin ehrlich
+      // ausblenden statt eine falsche Zahl zeigen.
+      unanswered:    null,
+    };
+  })();
+
   const syncState = lastFailedJob ? 'error'
     : runningJob ? 'running'
     : lastSyncedAt ? 'ok'
@@ -194,29 +235,31 @@ export default function DashboardGoogleBusiness() {
           <StatsRow>
             <StatCard
               loading={loading}
-              value={locations.length}
+              value={selectedLocation === 'all' ? locations.length : 1}
               label="Standorte"
               accent="var(--color-accent)"
             />
             <StatCard
               loading={loading}
-              value={stats?.totalReviews ?? 0}
+              value={scopedStats?.totalReviews ?? 0}
               label="Bewertungen"
               accent="#4A6FA5"
             />
             <StatCard
               loading={loading}
-              value={stats?.averageRating ?? '—'}
-              unit={stats?.averageRating ? '/ 5' : undefined}
+              value={scopedStats?.averageRating ?? '—'}
+              unit={scopedStats?.averageRating ? '/ 5' : undefined}
               label="Durchschnitt"
-              accent={stats?.averageRating ? ratingColor(Math.round(stats.averageRating)) : undefined}
+              accent={scopedStats?.averageRating
+                ? ratingColor(Math.round(scopedStats.averageRating)) : undefined}
             />
             <StatCard
               loading={loading}
-              value={stats?.unanswered ?? 0}
+              value={scopedStats?.unanswered ?? '—'}
               label="Unbeantwortet"
-              accent={stats?.unanswered > 0 ? '#D48A00' : '#1E7E34'}
-              hint={stats?.unanswered > 0 ? 'Warten auf eine Antwort' : 'Alles beantwortet'}
+              accent={scopedStats?.unanswered > 0 ? '#D48A00' : '#1E7E34'}
+              hint={scopedStats?.unanswered === null ? 'Nur über alle Standorte'
+                : scopedStats?.unanswered > 0 ? 'Warten auf eine Antwort' : 'Alles beantwortet'}
             />
           </StatsRow>
 
@@ -294,7 +337,7 @@ export default function DashboardGoogleBusiness() {
           <SectionTitle><MapPin size={15} /> Standorte</SectionTitle>
 
           {loading ? <SkeletonList count={2} height={140} />
-            : locations.length === 0 ? (
+            : visibleLocations.length === 0 ? (
               <EmptyState
                 title="Noch keine Standorte"
                 text="Die Standorte werden beim ersten Abgleich aus deinem Google-Profil übernommen. Das kann einen Moment dauern."
@@ -306,7 +349,7 @@ export default function DashboardGoogleBusiness() {
               />
             ) : (
               <LocationGrid>
-                {locations.map((location) => (
+                {visibleLocations.map((location) => (
                   <LocationCard key={location.id} $primary={location.is_primary}>
                     <LocationHead>
                       <div>
