@@ -166,7 +166,7 @@ export const INDUSTRIES = {
       greeting:      'Moin',
       emailFrom:     'hallo@werkruf.com',
       emailSignature:'Dein WERKRUF-Team',
-      fahrplanTitle: 'Dein Profil-Befund',
+      fahrplanTitle: 'Dein Profil-Befund',  // Dateiname und Deckblatt
 
       /* Die Phasen beschrieben früher einen Dienstleistungsablauf:
          "wir optimieren", "wir erledigen den Rest". Jetzt beschreiben
@@ -407,7 +407,7 @@ export const INDUSTRIES = {
       greeting:      'Hallo',
       emailFrom:     'hallo@gastroruf.com',
       emailSignature:'Dein GASTRORUF-Team',
-      fahrplanTitle: 'Dein Profil-Befund',
+      fahrplanTitle: 'Dein Profil-Befund',  // Dateiname und Deckblatt
       phases: [
         {
           num: '01', title: 'Verbinden',

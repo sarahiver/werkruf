@@ -88,7 +88,7 @@ export default function DashboardReporting() {
 
       {/* Fahrplan Download */}
       <Card $d="0s" style={{ borderTop: '4px solid var(--color-accent)' }}>
-        <CardTitle>Sichtbarkeits-Fahrplan</CardTitle>
+        <CardTitle>Profil-Befund</CardTitle>
         <CardSub>
           Der aktuelle Stand deines Profils als PDF — was steht, was fehlt, was als Nächstes dran ist.
         </CardSub>
@@ -97,7 +97,7 @@ export default function DashboardReporting() {
           <DocIcon><FileText size={18} /></DocIcon>
           <DocInfo>
             <DocTitle>
-              Fahrplan_{companyName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Betrieb'}.pdf
+              Profil-Befund_{companyName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Betrieb'}.pdf
             </DocTitle>
             <DocDesc>
               Deckblatt · 3 Phasen · Checkliste · Dein Score: {profile?.visibility_score ?? '—'}/100

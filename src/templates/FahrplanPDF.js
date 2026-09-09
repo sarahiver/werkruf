@@ -120,38 +120,6 @@ function FahrplanDocument({ industry, profile }) {
     },
 
     /* Phase cards */
-    phaseRow: {
-      flexDirection: 'row',
-      gap: 10,
-      marginBottom: 10,
-    },
-    phaseCard: {
-      flex: 1,
-      backgroundColor: '#ffffff',
-      padding: '14 14',
-      borderLeftWidth: 3,
-      borderLeftColor: colors.accent,
-      borderLeftStyle: 'solid',
-    },
-    phaseNum: {
-      fontSize: 18,
-      fontWeight: 900,
-      color: colors.accent,
-      marginBottom: 4,
-    },
-    phaseTitle: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: colors.primary,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
-      marginBottom: 6,
-    },
-    phaseText: {
-      fontSize: 9,
-      color: '#5A6A7A',
-      lineHeight: 1.6,
-    },
 
     /* Checklist */
     checklistItem: {
@@ -198,6 +166,38 @@ function FahrplanDocument({ industry, profile }) {
     },
 
     /* Footer */
+    /* Neu: Statuszeilen für Verbindung / Automatisierung */
+    statusRow: {
+      flexDirection: 'row', alignItems: 'center',
+      marginBottom: 6, paddingBottom: 6,
+      borderBottomWidth: 0.5, borderBottomColor: '#E3E6EA',
+    },
+    statusDot: {
+      width: 7, height: 7, borderRadius: 4, marginRight: 8, marginTop: 3,
+    },
+    statusLabel: {
+      fontSize: 9.5, color: '#1A1A1A', flex: 1,
+    },
+    statusValue: {
+      fontSize: 9.5, fontWeight: 700, color: colors.primary,
+    },
+    metricRow: {
+      flexDirection: 'row', marginBottom: 12,
+    },
+    metricBox: {
+      flex: 1, paddingVertical: 10, paddingHorizontal: 12,
+      backgroundColor: '#F6F7F9', borderRadius: 4, marginRight: 8,
+    },
+    metricNum: {
+      fontSize: 17, fontWeight: 700, color: colors.primary,
+    },
+    metricLabel: {
+      fontSize: 7.5, color: '#6B7280', textTransform: 'uppercase',
+      letterSpacing: 0.5, marginTop: 2,
+    },
+    hint: {
+      fontSize: 8.5, color: '#6B7280', lineHeight: 1.5, marginTop: 4, marginBottom: 10,
+    },
     footer: {
       position: 'absolute',
       bottom: 20,
@@ -221,8 +221,38 @@ function FahrplanDocument({ industry, profile }) {
     day: '2-digit', month: 'long', year: 'numeric'
   });
 
+  /* ── Ableitungen aus den vorhandenen Profildaten ──
+     Bewusst nichts erfunden: alles hier steht so im Profil. */
+  const isConnected = !!profile?.google_place_id;
+  const rating      = profile?.google_rating;
+  const reviewCount = profile?.google_review_count ?? 0;
+
+  const verdict =
+    score >= 70 ? { label: 'Gut',         color: '#1E7E34' } :
+    score >= 45 ? { label: 'Ausbaufähig', color: '#A66A00' } :
+                  { label: 'Kritisch',    color: '#B3261E' };
+
+  /* Was WERKRUF am Profil erkannt hat. Jede Zeile hat eine Bedingung —
+     ein Befund, der immer gleich aussieht, ist keiner. */
+  const findings = [
+    !isConnected && 'Profil noch nicht mit ' + brand.name + ' verbunden',
+    reviewCount === 0 && 'Noch keine Bewertungen vorhanden',
+    reviewCount > 0 && rating && rating < 4.0 &&
+      `Durchschnitt bei ${rating.toFixed(1)} von 5 — jede beantwortete Bewertung hilft`,
+    score < 70 && 'Profilangaben unvollständig: Öffnungszeiten, Leistungen oder Fotos fehlen',
+    score < 45 && 'Profil wird bei Suchanfragen kaum ausgespielt',
+  ].filter(Boolean);
+
+  /* Was nach dem Verbinden ohne Zutun läuft. */
+  const automation = [
+    ['Profil-Abgleich mit Google',       isConnected ? 'Aktiv' : 'Nach dem Verbinden'],
+    ['Neue Bewertungen erkennen',        isConnected ? 'Aktiv' : 'Nach dem Verbinden'],
+    ['KI-Antwortvorschlag je Bewertung', isConnected ? 'Aktiv' : 'Nach dem Verbinden'],
+    ['Meldung bei Problemen',            isConnected ? 'Aktiv' : 'Nach dem Verbinden'],
+  ];
+
   return (
-    <Document title={`Fahrplan_${companyName}`}>
+    <Document title={`Profil-Befund_${companyName}`}>
       <Page size="A4" style={styles.page}>
 
         {/* COVER */}
@@ -251,40 +281,102 @@ function FahrplanDocument({ industry, profile }) {
         {/* BODY */}
         <View style={styles.body}>
 
-          {/* Phases */}
-          <Text style={styles.sectionTitle}>So arbeitet {brand.name}</Text>
-          <View style={styles.phaseRow}>
-            {comms.phases.map((phase, i) => (
-              <View key={i} style={styles.phaseCard}>
-                <Text style={styles.phaseNum}>{phase.num}</Text>
-                <Text style={styles.phaseTitle}>{phase.title}</Text>
-                <Text style={styles.phaseText}>{phase.text}</Text>
-              </View>
-            ))}
+          {/* ── 1. VERBINDUNG ──
+              Der Report beginnt mit dem Zustand, nicht mit einem Plan.
+              Vorher stand hier ein Dienstleistungsablauf. */}
+          <Text style={styles.sectionTitle}>1 · Verbindung</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, {
+              backgroundColor: isConnected ? '#1E7E34' : '#D48A00',
+            }]} />
+            <Text style={styles.statusLabel}>Google-Unternehmensprofil</Text>
+            <Text style={styles.statusValue}>
+              {isConnected ? 'Verbunden' : 'Noch nicht verbunden'}
+            </Text>
           </View>
+          <Text style={styles.hint}>
+            {isConnected
+              ? `${brand.name} arbeitet in deinem Google-Konto. Eine einzige Berechtigung — Unternehmensprofil verwalten — jederzeit widerrufbar.`
+              : `Einmal verbinden, dann läuft alles Weitere automatisch. Zwei Minuten, eine Berechtigung, jederzeit widerrufbar.`}
+          </Text>
 
-          {/* Checklist */}
-          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>
-            {comms.checklistTitle || 'Was dein Profil noch braucht'}
+          {/* ── 2. PROFIL-GESUNDHEIT ── */}
+          <Text style={styles.sectionTitle}>2 · Profil-Gesundheit</Text>
+          <View style={styles.metricRow}>
+            <View style={styles.metricBox}>
+              <Text style={[styles.metricNum, { color: verdict.color }]}>{score}</Text>
+              <Text style={styles.metricLabel}>von 100 · {verdict.label}</Text>
+            </View>
+            <View style={styles.metricBox}>
+              <Text style={styles.metricNum}>{rating ? rating.toFixed(1) : '—'}</Text>
+              <Text style={styles.metricLabel}>Bewertung</Text>
+            </View>
+            <View style={[styles.metricBox, { marginRight: 0 }]}>
+              <Text style={styles.metricNum}>{reviewCount}</Text>
+              <Text style={styles.metricLabel}>Bewertungen</Text>
+            </View>
+          </View>
+          <Text style={styles.hint}>
+            Der Wert setzt sich aus Bewertungen, Aktualität und Vollständigkeit
+            zusammen — den Punkten, nach denen Google entscheidet, wer bei einer
+            Suche oben steht.
+          </Text>
+
+          {/* ── 3. WAS AUFGEFALLEN IST ── */}
+          <Text style={styles.sectionTitle}>3 · Was aufgefallen ist</Text>
+          {findings.length > 0 ? findings.map((item, i) => (
+            <View key={i} style={styles.checklistItem}>
+              <Text style={[styles.checkMark, { color: '#D48A00' }]}>!</Text>
+              <Text style={styles.checkText}>{item}</Text>
+            </View>
+          )) : (
+            <Text style={styles.hint}>
+              Keine Auffälligkeiten. Dein Profil ist vollständig und aktuell.
+            </Text>
+          )}
+
+          {/* ── 4. WAS DEIN PROFIL NOCH BRAUCHT ──
+              Aus "Was wir von dir brauchen" wurde eine Bestandsaufnahme.
+              Der Betrieb ist nicht mehr Zulieferer, sondern Entscheider. */}
+          <Text style={[styles.sectionTitle, { marginTop: 14 }]}>
+            4 · {comms.checklistTitle || 'Was dein Profil noch braucht'}
           </Text>
           {comms.checklist.map((item, i) => (
             <View key={i} style={styles.checklistItem}>
-              <Text style={styles.checkMark}>✓</Text>
+              <Text style={styles.checkMark}>-</Text>
               <Text style={styles.checkText}>{item}</Text>
             </View>
           ))}
-
           {comms.checklistNote && (
-            <Text style={styles.checkText}>{comms.checklistNote}</Text>
+            <Text style={styles.hint}>{comms.checklistNote}</Text>
           )}
 
-          {/* Ownership */}
+          {/* ── 5. WAS AUTOMATISCH LÄUFT ── */}
+          <Text style={[styles.sectionTitle, { marginTop: 14 }]}>
+            5 · Was automatisch läuft
+          </Text>
+          {automation.map(([label, state], i) => (
+            <View key={i} style={styles.statusRow}>
+              <View style={[styles.statusDot, {
+                backgroundColor: state === 'Aktiv' ? '#1E7E34' : '#C7CBD1',
+              }]} />
+              <Text style={styles.statusLabel}>{label}</Text>
+              <Text style={styles.statusValue}>{state}</Text>
+            </View>
+          ))}
+          <Text style={styles.hint}>
+            Veröffentlicht wird nichts ohne deine Freigabe. {brand.name} schlägt
+            vor, du entscheidest.
+          </Text>
+
+          {/* ── 6. EIGENTUM ── */}
           <View style={styles.ownershipBox}>
             <Text style={styles.ownershipTitle}>Dein Profil bleibt deins</Text>
             <Text style={styles.ownershipText}>
-              {brand.name} arbeitet in deinem Google-Konto, nicht in einem fremden. Du erteilst genau
-              eine Berechtigung — dein Unternehmensprofil verwalten — und kannst sie jederzeit
-              widerrufen. Kündigst du, bleibt alles bestehen: Profil, Bewertungen, Fotos.
+              {brand.name} arbeitet in deinem Google-Konto, nicht in einem fremden.
+              Du erteilst genau eine Berechtigung — dein Unternehmensprofil
+              verwalten — und kannst sie jederzeit widerrufen. Kündigst du, bleibt
+              alles bestehen: Profil, Bewertungen, Fotos.
             </Text>
           </View>
         </View>
@@ -306,7 +398,7 @@ function FahrplanDocument({ industry, profile }) {
 ───────────────────────────────────────────── */
 export function FahrplanDownloadButton({ industry, profile, style }) {
   const companyName = profile?.company_name || 'Betrieb';
-  const fileName    = `Fahrplan_${companyName.replace(/[^a-zA-Z0-9äöüÄÖÜ]/g, '_')}.pdf`;
+  const fileName    = `Profil-Befund_${companyName.replace(/[^a-zA-Z0-9äöüÄÖÜ]/g, '_')}.pdf`;
 
   return (
     <PDFDownloadLink
@@ -331,7 +423,7 @@ export function FahrplanDownloadButton({ industry, profile, style }) {
         ...style,
       }}
     >
-      {({ loading }) => loading ? 'PDF wird erstellt…' : `📄 Fahrplan herunterladen`}
+      {({ loading }) => loading ? 'PDF wird erstellt…' : 'Befund als PDF laden'}
     </PDFDownloadLink>
   );
 }

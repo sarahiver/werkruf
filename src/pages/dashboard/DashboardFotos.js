@@ -325,7 +325,7 @@ export default function DashboardFotos() {
     <ProGate feature="Fotos & Galerie">
     <Page>
       <PageTitle>Fotos & Galerie</PageTitle>
-      <PageSub>Lade Bilder hoch — sie werden automatisch für Google optimiert.</PageSub>
+      <PageSub>Lade Bilder hoch. WERKRUF bringt sie ins richtige Format für dein Google-Profil.</PageSub>
 
       {error && <ErrorBanner>{error}</ErrorBanner>}
 

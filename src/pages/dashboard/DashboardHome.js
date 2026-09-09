@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import {
-  CheckCircle, Star, ArrowRight,
-  Search, Loader, MapPin,
-  PlusCircle, ChevronDown, Ghost
+  CheckCircle, Star, ArrowRight, Search, Loader, MapPin,
+  PlusCircle, ChevronDown, Ghost,
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
@@ -541,13 +540,13 @@ export default function DashboardHome() {
     setManualSaving(false);
   };
 
-  /* ── Checkout handler ── */
-  const handleCheckoutStart = async ({ metadata, setupFee, plan }) => {
-    setShowGhostSetup(false);
+  /* ── Checkout ──
+     setShowGhostSetup und der path-Parameter sind mit Path B
+     entfallen — es gibt nur noch einen Weg zum Abo. */
+  const handleCheckoutStart = async ({ metadata }) => {
     setShowPathAPricing(false);
     await startCheckout({
       plan:        metadata.plan_type,
-      path:        metadata.path_type,
       companyName: metadata.company_name || profile?.company_name || '',
       industryKey: metadata.industry_key || industryKey,
     });

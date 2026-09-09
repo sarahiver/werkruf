@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { CheckCircle, Zap, Star, ArrowRight, } from 'lucide-react';
+import { CheckCircle, ArrowRight } from 'lucide-react';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
