@@ -17,6 +17,7 @@ import GhostSetupModal   from '../../components/dashboard/GhostSetupModal';
 import { useCheckout }    from '../../hooks/useCheckout';
 import PlacesSearch      from '../../components/PlacesSearch';
 import PathAPricingModal from '../../components/dashboard/PathAPricingModal';
+import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
@@ -72,6 +73,8 @@ const SuggSec  = styled.p`font-family:var(--font-body);font-size:.78rem;color:va
 /* ─────────────────────────────────────────────
    METRICS
 ───────────────────────────────────────────── */
+
+
 const Grid = styled.div`
   display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
   gap:14px;margin-bottom:22px;
@@ -795,7 +798,7 @@ export default function DashboardHome() {
           )}
         </ScoreBanner>
       )}
-
+<GoogleBusinessConnect />
       {/* ── METRICS ── */}
       {hasBusiness && !isGhost && (
         <Grid>
