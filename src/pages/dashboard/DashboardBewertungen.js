@@ -1,420 +1,412 @@
-import ProGate from '../../components/dashboard/ProGate';
-import React, { useState } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { Star, Sparkles, Copy, CheckCheck, AlertCircle, ExternalLink, Loader } from 'lucide-react';
-import supabase from '../../supabaseClient';
+import React, { useState, useEffect } from 'react';
+import styled from 'styled-components';
+import {
+  Search, Sparkles, Send, Check, AlertTriangle, X,
+  Copy, RotateCcw, Filter, ShieldAlert,
+} from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
-
-const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
-const spin   = keyframes`to{transform:rotate(360deg)}`;
-
-/* ─────────────────────────────────────────────
-   MOCK REVIEWS
-───────────────────────────────────────────── */
-const MOCK_REVIEWS = [
-  {
-    id: '1',
-    author:   'Thomas K.',
-    avatar:   'TK',
-    rating:   5,
-    date:     '2026-03-10',
-    text:     'Absolut top! Die Heizung wurde schnell und sauber repariert. Sehr freundlich und pünktlich. Kann ich nur weiterempfehlen!',
-    replied:  false,
-  },
-  {
-    id: '2',
-    author:   'Sandra M.',
-    avatar:   'SM',
-    rating:   4,
-    date:     '2026-03-05',
-    text:     'Gute Arbeit, alles funktioniert einwandfrei. Kleiner Abzug weil der Termin sich etwas verzögert hat, aber das Ergebnis stimmt.',
-    replied:  false,
-  },
-  {
-    id: '3',
-    author:   'Bernd W.',
-    avatar:   'BW',
-    rating:   2,
-    date:     '2026-02-28',
-    text:     'Leider war ich nicht zufrieden. Die Reparatur hat nicht lange gehalten und ich musste nochmal jemanden anrufen. Schade.',
-    replied:  false,
-  },
-  {
-    id: '4',
-    author:   'Julia F.',
-    avatar:   'JF',
-    rating:   5,
-    date:     '2026-02-20',
-    text:     'Notfallreparatur am Wochenende — innerhalb von 2 Stunden war jemand da! Sehr professionell und der Preis war fair. Danke!',
-    replied:  true,
-    reply:    'Vielen Dank Julia! Notfälle sind uns immer wichtig — froh dass wir helfen konnten.',
-  },
-  {
-    id: '5',
-    author:   'Klaus H.',
-    avatar:   'KH',
-    rating:   3,
-    date:     '2026-02-12',
-    text:     'Handwerk war in Ordnung, aber die Kommunikation könnte besser sein. Mehrfach angerufen bis jemand zurückgerufen hat.',
-    replied:  false,
-  },
-];
+import { useIndustry } from '../../context/IndustryContext';
+import { useReviews } from '../../hooks/useReviews';
+import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
+import {
+  Page, PageTitle, PageSub, Card,
+  Toolbar, SearchWrap, SearchInput, Select,
+  SkeletonList, ErrorState, EmptyState, Pagination,
+  StarRating, ratingColor, Badge, GhostBtn, PrimaryBtn, Spinner,
+  formatDate, fadeUp,
+} from '../../components/dashboard/gb/GbUi';
 
 /* ─────────────────────────────────────────────
-   STYLED
+   DashboardBewertungen
+
+   Läuft jetzt auf echten Daten aus google_reviews statt auf Mocks.
+   Suche, Filter und Blättern passieren serverseitig — bei einem
+   Betrieb mit 2.000 Bewertungen wäre alles andere unbrauchbar.
+
+   Der Antwort-Ablauf: KI-Entwurf erzeugen → bearbeiten → freigeben.
+   Veröffentlicht wird über einen Hintergrund-Job, nicht hier.
 ───────────────────────────────────────────── */
-const Page = styled.div`animation: ${fadeUp} .4s ease both;`;
 
-const SimBanner = styled.div`
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px; margin-bottom: 24px;
-  background: rgba(var(--color-accent-rgb), .08);
-  border: 1px solid rgba(var(--color-accent-rgb), .25);
-  border-left: 4px solid var(--color-accent);
-  border-radius: var(--radius-card);
-`;
-const SimText = styled.p`
-  font-family: var(--font-body); font-size: .85rem;
-  color: var(--color-text); line-height: 1.5;
-  strong { color: var(--color-accent); }
+const ReviewCard = styled(Card)`
+  border-left: 3px solid ${({ $rating }) => ratingColor($rating)};
+  margin-bottom: 14px;
+  animation: ${fadeUp} .3s ease both;
 `;
 
-const PageTitle = styled.h1`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.4rem; text-transform: var(--text-transform);
-  color: var(--color-primary); margin-bottom: 4px;
-`;
-const PageSub = styled.p`
-  font-family: var(--font-body); font-size: .85rem;
-  color: var(--color-text-muted); margin-bottom: 24px;
+const Head = styled.div`
+  display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px;
 `;
 
-const StatsRow = styled.div`
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 12px; margin-bottom: 24px;
-`;
-const StatCard = styled.div`
-  background: var(--color-white); border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); padding: 16px;
-  animation: ${fadeUp} .4s ease ${({ $d }) => $d || '0s'} both;
-`;
-const StatNum = styled.p`
-  font-family: var(--font-display); font-weight: 900;
-  font-size: 1.8rem; color: ${({ $c }) => $c || 'var(--color-primary)'};
-  line-height: 1;
-`;
-const StatLabel = styled.p`
-  font-family: var(--font-body); font-size: .72rem;
-  color: var(--color-text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .08em;
-`;
-
-const ReviewList = styled.div`display: flex; flex-direction: column; gap: 14px;`;
-
-const ReviewCard = styled.div`
-  background: var(--color-white); border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); padding: 20px;
-  border-left: 4px solid ${({ $rating }) =>
-    $rating >= 4 ? '#1E7E34' : $rating === 3 ? '#D48A00' : '#D93025'};
-  animation: ${fadeUp} .4s ease ${({ $d }) => $d || '0s'} both;
-`;
-
-const ReviewTop = styled.div`
-  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;
-`;
 const Avatar = styled.div`
-  width: 40px; height: 40px; border-radius: 50%;
-  background: var(--color-primary); color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-body); font-weight: 700; font-size: .8rem;
-  flex-shrink: 0;
-`;
-const ReviewMeta = styled.div`flex: 1;`;
-const AuthorName = styled.p`
-  font-family: var(--font-body); font-weight: 700;
-  font-size: .92rem; color: var(--color-primary);
-`;
-const ReviewDate = styled.p`
-  font-family: var(--font-body); font-size: .75rem;
-  color: var(--color-text-muted); margin-top: 2px;
+  width: 38px; height: 38px; flex-shrink: 0; border-radius: 50%;
+  background: ${({ $rating }) => ratingColor($rating)};
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: var(--heading-weight); font-size: .88rem;
 `;
 
-const Stars = styled.div`
-  display: flex; gap: 2px;
-`;
-const StarIcon = styled.span`
-  color: ${({ $filled }) => $filled ? '#F4B400' : '#D0D8E0'};
-  font-size: 15px;
+const Meta = styled.div`flex: 1; min-width: 0;`;
+
+const MetaTop = styled.div`
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
 `;
 
-const ReviewText = styled.p`
-  font-family: var(--font-body); font-size: .88rem;
-  color: var(--color-text); line-height: 1.65; margin-bottom: 14px;
+const Author = styled.p`
+  font-family: var(--font-body); font-weight: 700; font-size: .89rem;
+  color: var(--color-primary);
 `;
 
-const ReplyBox = styled.div`
-  background: var(--color-bg);
-  border-left: 3px solid #1E7E34;
-  border-radius: 0 var(--radius-card) var(--radius-card) 0;
-  padding: 10px 14px; margin-bottom: 12px;
-`;
-const ReplyLabel = styled.p`
-  font-family: var(--font-body); font-size: .7rem;
-  font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
-  color: #1E7E34; margin-bottom: 4px;
-`;
-const ReplyText = styled.p`
-  font-family: var(--font-body); font-size: .85rem;
-  color: var(--color-text); line-height: 1.55;
+const DateText = styled.span`
+  font-family: var(--font-body); font-size: .76rem; color: var(--color-text-muted);
 `;
 
-const AISection = styled.div`margin-top: 12px;`;
-
-const GenerateBtn = styled.button`
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 16px;
-  background: var(--color-primary); color: white;
-  font-family: var(--font-body); font-weight: 700;
-  font-size: .82rem; border: none; border-radius: var(--radius-button);
-  cursor: pointer; transition: filter .2s;
-  &:hover:not(:disabled) { filter: brightness(1.15); }
-  &:disabled { opacity: .5; cursor: not-allowed; }
-  .spin { animation: ${spin} .8s linear infinite; }
+const Body = styled.p`
+  font-family: var(--font-body); font-size: .88rem; line-height: 1.65;
+  color: var(--color-text); margin-top: 8px;
+  white-space: pre-wrap; word-break: break-word;
 `;
 
-const DraftArea = styled.div`margin-top: 12px; animation: ${fadeUp} .3s ease both;`;
+const NoText = styled(Body)`font-style: italic; color: var(--color-text-muted);`;
 
-const DraftLabel = styled.p`
-  font-family: var(--font-body); font-size: .72rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .08em;
-  color: var(--color-text-muted); margin-bottom: 6px;
+const PublishedBox = styled.div`
+  margin-top: 12px; padding: 12px 14px;
+  background: var(--color-bg); border-radius: var(--radius-card);
+  border-left: 2px solid #1E7E34;
+`;
+
+const BoxLabel = styled.p`
   display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-weight: 700; font-size: .74rem;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--color-text-muted); margin-bottom: 6px;
 `;
 
-const DraftTextarea = styled.textarea`
-  width: 100%; box-sizing: border-box;
+const BoxText = styled.p`
+  font-family: var(--font-body); font-size: .85rem; line-height: 1.6;
+  color: var(--color-text); white-space: pre-wrap;
+`;
+
+const DraftArea = styled.div`margin-top: 12px; animation: ${fadeUp} .25s ease both;`;
+
+const Textarea = styled.textarea`
+  width: 100%; min-height: 120px; resize: vertical;
   padding: 12px 14px;
-  font-family: var(--font-body); font-size: .88rem;
-  color: var(--color-text); line-height: 1.6;
-  background: var(--color-bg);
-  border: 2px solid var(--color-border);
+  border: 1px solid ${({ $warn }) => ($warn ? '#D93025' : 'var(--color-border)')};
   border-radius: var(--radius-card);
-  resize: vertical; min-height: 90px;
-  outline: none;
-  &:focus { border-color: var(--color-primary); background: var(--color-white); }
+  background: var(--color-white); color: var(--color-text);
+  font-family: var(--font-body); font-size: .87rem; line-height: 1.6;
+  &:focus { outline: none; border-color: var(--color-accent); }
+  &:disabled { background: var(--color-bg); color: var(--color-text-muted); }
 `;
 
-const DraftActions = styled.div`
-  display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap;
+const DraftFoot = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 9px; flex-wrap: wrap;
 `;
 
-const CopyBtn = styled.button`
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px;
-  background: var(--color-accent); color: white;
-  font-family: var(--font-body); font-weight: 700; font-size: .8rem;
-  border: none; border-radius: var(--radius-button); cursor: pointer;
-  transition: filter .2s;
-  &:hover { filter: brightness(.9); }
+const CharCount = styled.span`
+  font-family: var(--font-body); font-size: .74rem;
+  color: ${({ $over }) => ($over ? '#D93025' : 'var(--color-text-muted)')};
 `;
 
-const PublishHint = styled.div`
+const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap;`;
+
+const ReviewNotice = styled.div`
   display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px;
-  background: rgba(var(--color-accent-rgb), .06);
-  border: 1px solid rgba(var(--color-accent-rgb), .2);
-  border-radius: var(--radius-card);
-  font-family: var(--font-body); font-size: .78rem;
-  color: var(--color-text); line-height: 1.5;
+  margin-top: 10px; padding: 10px 12px;
+  background: #FFF4E0; border-radius: var(--radius-card);
+  font-family: var(--font-body); font-size: .8rem; line-height: 1.5; color: #8A5A00;
+  svg { flex-shrink: 0; margin-top: 1px; }
 `;
 
-/* ─────────────────────────────────────────────
-   COMPONENT
-───────────────────────────────────────────── */
+const Banner = styled.div`
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  padding: 11px 14px; margin-bottom: 14px;
+  background: #FDECEA; color: #B3261E; border-radius: var(--radius-card);
+  font-family: var(--font-body); font-size: .83rem;
+  button { background: none; border: none; cursor: pointer; color: inherit; padding: 2px; }
+`;
+
+/* Googles Limit für Antworttexte. */
+const MAX_REPLY_CHARS = 4096;
+
 export default function DashboardBewertungen() {
   const { profile } = useAuthContext();
-  const [drafts,   setDrafts]   = useState({});
-  const [loading,  setLoading]  = useState({});
-  const [copied,   setCopied]   = useState({});
-  const [reviews,  setReviews]  = useState(MOCK_REVIEWS);
+  const { brand } = useIndustry();
+  const { locations } = useGoogleBusinessData();
 
-  const avgRating  = (MOCK_REVIEWS.reduce((s, r) => s + r.rating, 0) / MOCK_REVIEWS.length).toFixed(1);
-  const unreplied  = MOCK_REVIEWS.filter(r => !r.replied).length;
-  const companyName = profile?.company_name || 'dein Betrieb';
+  const {
+    reviews, replies, total, page, pageSize,
+    loading, error, busy, actionError,
+    search, setSearch, rating, setRating,
+    answered, setAnswered, locationId, setLocationId,
+    sort, setSort, hasFilters, resetFilters,
+    setPage, reload,
+    generateReply, saveDraft, approveReply, dismissActionError,
+  } = useReviews();
 
-  const formatDate = (d) => new Date(d).toLocaleDateString('de-DE', {
-    day: '2-digit', month: 'short', year: 'numeric'
-  });
+  // Lokale Textstände, damit Tippen nicht bei jedem Anschlag speichert.
+  const [edits, setEdits] = useState({});
+  const [copied, setCopied] = useState({});
 
-  /* ── Generate AI reply via Claude API ── */
-  const generateReply = async (review) => {
-    setLoading(prev => ({ ...prev, [review.id]: true }));
-    try {
-      // Secure: Claude API called server-side via Edge Function
-      // API key never exposed to browser
-      const { data, error } = await supabase.functions.invoke('generate-review-reply', {
-        body: {
-          reviewText:   review.text,
-          reviewerName: review.author,
-          rating:       review.rating,
-          companyName,
-        },
-      });
+  // Beim Seitenwechsel verwerfen — sonst hängt der Text der alten
+  // Bewertung an der neuen.
+  useEffect(() => { setEdits({}); }, [page]);
 
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
-
-      setDrafts(prev => ({ ...prev, [review.id]: data.reply || '' }));
-    } catch (err) {
-      console.error('[generateReply] Error:', err.message);
-      setDrafts(prev => ({
-        ...prev,
-        [review.id]: err.message.includes('Rate limit')
-          ? err.message
-          : 'Fehler beim Generieren. Bitte nochmal versuchen.',
-      }));
-    }
-    setLoading(prev => ({ ...prev, [review.id]: false }));
+  const facts = {
+    companyName:  profile?.company_name || brand.name,
+    industry:     profile?.trade || undefined,
+    contactEmail: profile?.email || undefined,
+    contactPhone: profile?.phone || undefined,
   };
 
-  const copyToClipboard = (id, text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(prev => ({ ...prev, [id]: true }));
-    setTimeout(() => setCopied(prev => ({ ...prev, [id]: false })), 2500);
+  const bodyFor = (review) =>
+    edits[review.id] ?? replies[review.id]?.body ?? '';
+
+  const handleGenerate = async (review) => {
+    try {
+      const data = await generateReply(review, facts);
+      setEdits((prev) => ({ ...prev, [review.id]: data.reply }));
+    } catch { /* Meldung steckt in actionError */ }
+  };
+
+  const handleApprove = async (review) => {
+    const reply = replies[review.id];
+    if (!reply) return;
+
+    const edited = edits[review.id];
+    try {
+      // Erst speichern, wenn der Text verändert wurde — danach ist er
+      // nicht mehr bearbeitbar.
+      if (edited !== undefined && edited !== reply.body) {
+        await saveDraft(review.id, reply.id, edited);
+      }
+      await approveReply(review.id, reply.id);
+    } catch { /* Meldung steckt in actionError */ }
+  };
+
+  const copy = (review) => {
+    navigator.clipboard.writeText(bodyFor(review));
+    setCopied((prev) => ({ ...prev, [review.id]: true }));
+    setTimeout(() => setCopied((prev) => ({ ...prev, [review.id]: false })), 2200);
   };
 
   return (
-    <ProGate feature="Bewertungen & KI-Assistent">
     <Page>
       <PageTitle>Bewertungen</PageTitle>
-      <PageSub>Alle Google-Rezensionen auf einen Blick — mit KI-Antwort-Assistent.</PageSub>
+      <PageSub>
+        Alle Google-Bewertungen deiner Standorte. Antworten schlägt {brand.name} vor —
+        veröffentlicht wird erst nach deiner Freigabe.
+      </PageSub>
 
-      {/* Simulation Banner */}
-      <SimBanner>
-        <AlertCircle size={18} color="var(--color-accent)" style={{ flexShrink: 0 }} />
-        <SimText>
-          <strong>Simulation aktiv</strong> — Diese Bewertungen sind Beispieldaten.
-          Echte Google-Rezensionen werden nach Verknüpfung deines Google Business Profils geladen.
-          Der KI-Assistent funktioniert bereits vollständig.
-        </SimText>
-      </SimBanner>
+      {actionError && (
+        <Banner>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={15} />{actionError}
+          </span>
+          <button onClick={dismissActionError} aria-label="Schliessen"><X size={15} /></button>
+        </Banner>
+      )}
 
-      {/* Stats */}
-      <StatsRow>
-        <StatCard $d="0s">
-          <StatNum $c="#F4B400">{avgRating}</StatNum>
-          <StatLabel>Ø Bewertung</StatLabel>
-        </StatCard>
-        <StatCard $d=".05s">
-          <StatNum>{MOCK_REVIEWS.length}</StatNum>
-          <StatLabel>Rezensionen</StatLabel>
-        </StatCard>
-        <StatCard $d=".1s">
-          <StatNum $c={unreplied > 0 ? '#D93025' : '#1E7E34'}>{unreplied}</StatNum>
-          <StatLabel>Unbeantwortet</StatLabel>
-        </StatCard>
-        <StatCard $d=".15s">
-          <StatNum $c="#1E7E34">
-            {MOCK_REVIEWS.filter(r => r.rating >= 4).length}
-          </StatNum>
-          <StatLabel>Positiv (4-5★)</StatLabel>
-        </StatCard>
-      </StatsRow>
+      {/* ── FILTER ── */}
+      <Toolbar>
+        <SearchWrap>
+          <Search size={15} />
+          <SearchInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="In Bewertungen suchen…"
+          />
+        </SearchWrap>
 
-      {/* Review List */}
-      <ReviewList>
-        {reviews.map((review, idx) => (
-          <ReviewCard key={review.id} $rating={review.rating} $d={`${idx * .05}s`}>
-            <ReviewTop>
-              <Avatar>{review.avatar}</Avatar>
-              <ReviewMeta>
-                <AuthorName>{review.author}</AuthorName>
-                <ReviewDate>{formatDate(review.date)}</ReviewDate>
-              </ReviewMeta>
-              <Stars>
-                {[1,2,3,4,5].map(s => (
-                  <StarIcon key={s} $filled={s <= review.rating}>★</StarIcon>
-                ))}
-              </Stars>
-            </ReviewTop>
+        <Select value={rating} onChange={(e) => setRating(e.target.value)}>
+          <option value="all">Alle Sterne</option>
+          {[5, 4, 3, 2, 1].map((s) => (
+            <option key={s} value={s}>{s} {s === 1 ? 'Stern' : 'Sterne'}</option>
+          ))}
+        </Select>
 
-            <ReviewText>{review.text}</ReviewText>
+        <Select value={answered} onChange={(e) => setAnswered(e.target.value)}>
+          <option value="all">Alle</option>
+          <option value="open">Unbeantwortet</option>
+          <option value="done">Beantwortet</option>
+        </Select>
 
-            {/* Existing reply */}
-            {review.replied && review.reply && (
-              <ReplyBox>
-                <ReplyLabel>Deine Antwort</ReplyLabel>
-                <ReplyText>{review.reply}</ReplyText>
-              </ReplyBox>
-            )}
+        {locations.length > 1 && (
+          <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+            <option value="all">Alle Standorte</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
+            ))}
+          </Select>
+        )}
 
-            {/* AI Section */}
-            {!review.replied && (
-              <AISection>
-                {!drafts[review.id] ? (
-                  <GenerateBtn
-                    onClick={() => generateReply(review)}
-                    disabled={loading[review.id]}
-                  >
-                    {loading[review.id]
-                      ? <><Loader size={14} className="spin" /> KI denkt…</>
-                      : <><Sparkles size={14} /> Antwort-Vorschlag mit Claude generieren</>
-                    }
-                  </GenerateBtn>
-                ) : (
-                  <DraftArea>
-                    <DraftLabel>
-                      <Sparkles size={12} color="var(--color-accent)" />
-                      KI-Entwurf — bearbeite nach Bedarf:
-                    </DraftLabel>
-                    <DraftTextarea
-                      value={drafts[review.id]}
-                      onChange={e => setDrafts(prev => ({ ...prev, [review.id]: e.target.value }))}
-                    />
-                    <DraftActions>
-                      <CopyBtn onClick={() => copyToClipboard(review.id, drafts[review.id])}>
-                        {copied[review.id]
-                          ? <><CheckCheck size={14} /> Kopiert!</>
-                          : <><Copy size={14} /> Text kopieren</>
-                        }
-                      </CopyBtn>
-                      <GenerateBtn
-                        onClick={() => generateReply(review)}
-                        disabled={loading[review.id]}
-                        style={{ background: 'var(--color-bg)', color: 'var(--color-text-muted)',
-                          border: '1px solid var(--color-border)' }}
-                      >
-                        {loading[review.id]
-                          ? <Loader size={13} className="spin" />
-                          : '↻ Neu generieren'
-                        }
-                      </GenerateBtn>
-                    </DraftActions>
+        <Select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="newest">Neueste zuerst</option>
+          <option value="oldest">Älteste zuerst</option>
+          <option value="rating_low">Schlechteste zuerst</option>
+          <option value="rating_high">Beste zuerst</option>
+        </Select>
 
-                    <PublishHint style={{ marginTop: 10 }}>
-                      <ExternalLink size={14} color="var(--color-accent)" style={{ flexShrink: 0, marginTop: 1 }} />
-                      <span>
-                        <strong>Jetzt kopieren & bei Google einfügen.</strong>{' '}
-                        Automatische Veröffentlichung folgt nach Google Business Profil-Verknüpfung.{' '}
-                        {profile?.google_place_id && (
-                          <a
-                            href={`https://business.google.com/`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: 'var(--color-accent)' }}
-                          >
-                            Google Business öffnen →
-                          </a>
+        {hasFilters && (
+          <GhostBtn onClick={resetFilters}>
+            <RotateCcw size={13} /> Zurücksetzen
+          </GhostBtn>
+        )}
+      </Toolbar>
+
+      {/* ── LISTE ── */}
+      {loading ? <SkeletonList count={4} height={150} />
+        : error ? <ErrorState message={error} onRetry={reload} />
+        : reviews.length === 0 ? (
+          <EmptyState
+            title={hasFilters ? 'Keine Treffer' : 'Noch keine Bewertungen'}
+            text={hasFilters
+              ? 'Zu diesen Filtern gibt es nichts. Versuch es mit weniger Einschränkungen.'
+              : 'Sobald der erste Abgleich mit Google gelaufen ist, erscheinen die Bewertungen hier.'}
+            action={hasFilters
+              ? <GhostBtn onClick={resetFilters}><Filter size={13} /> Filter zurücksetzen</GhostBtn>
+              : undefined}
+          />
+        ) : (
+          <>
+            {reviews.map((review) => {
+              const reply = replies[review.id];
+              const text = bodyFor(review);
+              const isPublished = reply?.status === 'published';
+              const isPending = reply?.status === 'approved' || reply?.status === 'publishing';
+              const isEditable = reply?.status === 'draft' || reply?.status === 'failed';
+              const state = busy[review.id];
+              const tooLong = text.length > MAX_REPLY_CHARS;
+
+              return (
+                <ReviewCard key={review.id} $rating={review.star_rating}>
+                  <Head>
+                    <Avatar $rating={review.star_rating}>
+                      {(review.reviewer_display_name || '?').charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Meta>
+                      <MetaTop>
+                        <Author>{review.reviewer_display_name || 'Anonym'}</Author>
+                        <StarRating value={review.star_rating} size={13} />
+                        <DateText>{formatDate(review.google_created_at)}</DateText>
+                        {isPublished && <Badge $variant="success"><Check size={9} />beantwortet</Badge>}
+                        {isPending && <Badge $variant="info"><Send size={9} />wird veröffentlicht</Badge>}
+                        {reply?.status === 'failed' && (
+                          <Badge $variant="danger"><AlertTriangle size={9} />fehlgeschlagen</Badge>
                         )}
-                      </span>
-                    </PublishHint>
-                  </DraftArea>
-                )}
-              </AISection>
-            )}
-          </ReviewCard>
-        ))}
-      </ReviewList>
+                      </MetaTop>
+
+                      {review.comment
+                        ? <Body>{review.comment}</Body>
+                        : <NoText>Nur Sterne, kein Text</NoText>}
+                    </Meta>
+                  </Head>
+
+                  {/* Veröffentlicht — nur noch lesen */}
+                  {isPublished && (
+                    <PublishedBox>
+                      <BoxLabel><Check size={11} />Deine Antwort</BoxLabel>
+                      <BoxText>{reply.body}</BoxText>
+                    </PublishedBox>
+                  )}
+
+                  {/* In Veröffentlichung */}
+                  {isPending && (
+                    <PublishedBox style={{ borderLeftColor: 'var(--color-accent)' }}>
+                      <BoxLabel><Send size={11} />Wird an Google übertragen</BoxLabel>
+                      <BoxText>{reply.body}</BoxText>
+                    </PublishedBox>
+                  )}
+
+                  {/* Kein Entwurf vorhanden */}
+                  {!reply && (
+                    <PrimaryBtn
+                      onClick={() => handleGenerate(review)}
+                      disabled={state === 'generating'}
+                    >
+                      {state === 'generating' ? <Spinner size={14} /> : <Sparkles size={14} />}
+                      {state === 'generating' ? 'Wird geschrieben…' : 'Antwort vorschlagen'}
+                    </PrimaryBtn>
+                  )}
+
+                  {/* Entwurf bearbeitbar */}
+                  {isEditable && (
+                    <DraftArea>
+                      <BoxLabel>
+                        <Sparkles size={11} />
+                        {reply.source === 'ai' ? 'KI-Vorschlag' : 'Dein Entwurf'}
+                      </BoxLabel>
+
+                      <Textarea
+                        value={text}
+                        $warn={tooLong}
+                        onChange={(e) =>
+                          setEdits((prev) => ({ ...prev, [review.id]: e.target.value }))}
+                        disabled={!!state}
+                      />
+
+                      {reply.requiresHumanReview && (
+                        <ReviewNotice>
+                          <ShieldAlert size={14} />
+                          <span>
+                            Bitte vor dem Veröffentlichen genau lesen.
+                            {reply.detectedIssues?.length > 0 &&
+                              ` Auffällig: ${reply.detectedIssues.join(', ')}.`}
+                          </span>
+                        </ReviewNotice>
+                      )}
+
+                      {reply.status === 'failed' && reply.error_code && (
+                        <ReviewNotice style={{ background: '#FDECEA', color: '#B3261E' }}>
+                          <AlertTriangle size={14} />
+                          <span>Die Veröffentlichung ist gescheitert. Du kannst es erneut versuchen.</span>
+                        </ReviewNotice>
+                      )}
+
+                      <DraftFoot>
+                        <CharCount $over={tooLong}>
+                          {text.length} / {MAX_REPLY_CHARS} Zeichen
+                        </CharCount>
+
+                        <Actions>
+                          <GhostBtn onClick={() => copy(review)} disabled={!text}>
+                            {copied[review.id] ? <Check size={13} /> : <Copy size={13} />}
+                            {copied[review.id] ? 'Kopiert' : 'Kopieren'}
+                          </GhostBtn>
+
+                          <GhostBtn
+                            onClick={() => handleGenerate(review)}
+                            disabled={!!state}
+                          >
+                            {state === 'generating' ? <Spinner size={13} /> : <RotateCcw size={13} />}
+                            Neu vorschlagen
+                          </GhostBtn>
+
+                          <PrimaryBtn
+                            onClick={() => handleApprove(review)}
+                            disabled={!!state || !text.trim() || tooLong}
+                          >
+                            {state === 'publishing' || state === 'saving'
+                              ? <Spinner size={14} /> : <Send size={14} />}
+                            Freigeben & veröffentlichen
+                          </PrimaryBtn>
+                        </Actions>
+                      </DraftFoot>
+                    </DraftArea>
+                  )}
+                </ReviewCard>
+              );
+            })}
+
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              onChange={setPage}
+              busy={loading}
+            />
+          </>
+        )}
     </Page>
-    </ProGate>
   );
 }

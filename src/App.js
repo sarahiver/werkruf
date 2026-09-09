@@ -25,6 +25,7 @@ import DashboardHome        from './pages/dashboard/DashboardHome';
 import DashboardReporting   from './pages/dashboard/DashboardReporting';
 import DashboardSettings       from './pages/dashboard/DashboardSettings';
 import DashboardBewertungen    from './pages/dashboard/DashboardBewertungen';
+import DashboardGoogleBusiness from './pages/dashboard/DashboardGoogleBusiness';
 import DashboardFotos          from './pages/dashboard/DashboardFotos';
 import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung';
 import Impressum            from './pages/Impressum';
@@ -106,6 +107,7 @@ function App() {
               <Route index element={<DashboardHome />} />
 
               {/* Nested routes */}
+              <Route path="google" element={<DashboardGoogleBusiness />} />
               <Route path="bewertungen" element={<DashboardBewertungen />} />
               <Route path="fotos" element={<DashboardFotos />} />
               <Route path="kunden-gewinnung" element={<DashboardKundenGewinnung />} />

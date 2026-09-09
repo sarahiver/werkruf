@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  FileText, Settings, LogOut, Menu, X, Link2, Users
+  FileText, Settings, LogOut, Menu, X, Link2, Users, MapPin
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
@@ -209,7 +209,9 @@ const SimBadge = styled.span`
 
 const NAV_ITEMS = [
   { to: '/dashboard',                  icon: LayoutDashboard, label: 'Übersicht',         end: true },
-  { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen',       badge: 'Simulation' },
+  { to: '/dashboard/google',           icon: MapPin,          label: 'Google-Profil'      },
+  // Badge entfernt: die Seite läuft nicht mehr auf Mock-Daten.
+  { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen'        },
   { to: '/dashboard/fotos',            icon: Image,           label: 'Fotos & Galerie'    },
   { to: '/dashboard/kunden-gewinnung', icon: Users,           label: 'Kunden-Gewinnung'  },
   { to: '/dashboard/reporting',        icon: FileText,        label: 'Reporting'          },
