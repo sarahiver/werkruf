@@ -114,8 +114,10 @@ export function useGoogleBusinessData() {
   useEffect(() => { load(); }, [load]);
 
   /* ── Sync anstossen ──
-     Reiht nur einen Job ein; das Ergebnis kommt beim nächsten Laden. */
-  const triggerSync = useCallback(async (locationId, force = false) => {
+     Reiht nur einen Job ein; das Ergebnis kommt beim nächsten Laden.
+     locationId = null löst den Standort-Sync aus statt des
+     Bewertungs-Syncs — der Fall beim allerersten Abgleich. */
+  const triggerSync = useCallback(async (locationId = null, force = false) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Keine aktive Session');
 
@@ -128,7 +130,7 @@ export function useGoogleBusinessData() {
           apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ locationId, force }),
+        body: JSON.stringify({ ...(locationId ? { locationId } : {}), force }),
       },
     );
 

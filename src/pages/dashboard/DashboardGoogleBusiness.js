@@ -58,7 +58,9 @@ const SyncBar = styled(Card)`
   display: flex; align-items: center; justify-content: space-between;
   gap: 14px; flex-wrap: wrap;
   border-left: 3px solid ${({ $state }) =>
-    $state === 'error' ? '#D93025' : $state === 'running' ? 'var(--color-accent)' : '#1E7E34'};
+    $state === 'error'   ? '#D93025' :
+    $state === 'running' ? 'var(--color-accent)' :
+    $state === 'never'   ? '#D48A00' : '#1E7E34'};
 `;
 
 const SyncInfo = styled.div`display: flex; align-items: center; gap: 11px;`;
@@ -127,13 +129,29 @@ export default function DashboardGoogleBusiness() {
 
   const [syncing, setSyncing] = React.useState(false);
 
+  const [syncError, setSyncError] = React.useState(null);
+
+  /*
+   * Abgleich anstossen.
+   *
+   * Ohne Standorte wird der Standort-Sync ausgelöst, sonst der
+   * Bewertungs-Sync je Standort. Vorher war der Knopf genau dann
+   * ausgegraut, wenn man ihn am dringendsten braucht: frisch
+   * verbunden, noch keine Standorte da.
+   */
   const handleSyncAll = async () => {
     setSyncing(true);
+    setSyncError(null);
     try {
-      await Promise.all(locations.map((l) => triggerSync(l.id)));
+      if (locations.length === 0) {
+        await triggerSync(null);
+      } else {
+        await Promise.all(locations.map((l) => triggerSync(l.id)));
+      }
       await reload();
     } catch (err) {
       console.error('[DashboardGoogleBusiness] Sync:', err);
+      setSyncError('Der Abgleich konnte nicht gestartet werden.');
     } finally {
       setSyncing(false);
     }
@@ -153,7 +171,13 @@ export default function DashboardGoogleBusiness() {
     );
   }
 
-  const syncState = lastFailedJob ? 'error' : runningJob ? 'running' : 'ok';
+  /* 'never' als eigener Zustand: vorher stand bei einem frisch
+     verbundenen Konto "Daten sind aktuell / Zuletzt abgeglichen noch
+     nie" — beides gleichzeitig, und das eine widerlegt das andere. */
+  const syncState = lastFailedJob ? 'error'
+    : runningJob ? 'running'
+    : lastSyncedAt ? 'ok'
+    : 'never';
 
   return (
     <Page>
@@ -228,27 +252,39 @@ export default function DashboardGoogleBusiness() {
           {/* ── SYNC-STATUS ── */}
           <SectionTitle><RefreshCw size={15} /> Synchronisation</SectionTitle>
 
+          {syncError && (
+            <Card style={{ borderLeft: '3px solid #D93025', marginBottom: 12 }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: '.84rem', color: '#B3261E' }}>
+                {syncError}
+              </p>
+            </Card>
+          )}
+
           {loading ? <SkeletonList count={1} height={72} /> : (
             <SyncBar $state={syncState}>
               <SyncInfo>
                 {syncState === 'error'   ? <AlertTriangle size={19} color="#D93025" />
                   : syncState === 'running' ? <Spinner size={19} color="var(--color-accent)" />
+                  : syncState === 'never'   ? <Clock size={19} color="#D48A00" />
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
                     {syncState === 'error'   ? 'Letzter Abgleich fehlgeschlagen'
                       : syncState === 'running' ? 'Abgleich läuft'
+                      : syncState === 'never'   ? 'Noch kein Abgleich gelaufen'
                       : 'Daten sind aktuell'}
                   </p>
                   <p>
                     {syncState === 'error'
                       ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
-                      : `Zuletzt abgeglichen ${formatRelative(lastSyncedAt)}`}
+                      : syncState === 'never'
+                        ? 'Starte den ersten Abgleich, um Standorte und Bewertungen zu laden.'
+                        : `Zuletzt abgeglichen ${formatRelative(lastSyncedAt)}`}
                   </p>
                 </SyncText>
               </SyncInfo>
 
-              <GhostBtn onClick={handleSyncAll} disabled={syncing || locations.length === 0}>
+              <GhostBtn onClick={handleSyncAll} disabled={syncing}>
                 {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
               </GhostBtn>
             </SyncBar>
