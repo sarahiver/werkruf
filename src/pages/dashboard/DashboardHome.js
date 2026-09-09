@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import {
-  CheckCircle, Link2, TrendingUp, Star, ArrowRight,
-  Search, Loader, MapPin, X, Zap, Clock,
+  CheckCircle, Star, ArrowRight,
+  Search, Loader, MapPin,
   PlusCircle, ChevronDown, Ghost
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
@@ -25,8 +25,6 @@ import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConn
 const fadeUp    = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const fadeIn    = keyframes`from{opacity:0}to{opacity:1}`;
 const spin      = keyframes`to{transform:rotate(360deg)}`;
-const pulse     = keyframes`0%,100%{opacity:1}50%{opacity:.4}`;
-const scaleIn   = keyframes`from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}`;
 const slideDown = keyframes`from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}`;
 
 /* ─────────────────────────────────────────────
@@ -73,8 +71,6 @@ const SuggSec  = styled.p`font-family:var(--font-body);font-size:.78rem;color:va
 /* ─────────────────────────────────────────────
    METRICS
 ───────────────────────────────────────────── */
-
-
 const Grid = styled.div`
   display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
   gap:14px;margin-bottom:22px;
@@ -315,89 +311,6 @@ const GhostResetBtn = styled.button`
   &:disabled { opacity: .4; cursor: not-allowed; }
 `;
 
-/* ─────────────────────────────────────────────
-   GMB CARD
-───────────────────────────────────────────── */
-const GMBCard  = styled(SCard)`background:var(--color-primary);border:none;`;
-const GMBBadge = styled.div`
-  display:inline-flex;align-items:center;gap:6px;
-  background:rgba(var(--color-accent-rgb),.15);border:1px solid rgba(var(--color-accent-rgb),.3);
-  color:var(--color-accent);font-family:var(--font-body);font-weight:700;
-  font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
-  padding:3px 10px;border-radius:var(--radius-button);margin-bottom:10px;
-`;
-const PulseDot = styled.span`
-  width:6px;height:6px;background:var(--color-accent);border-radius:50%;display:inline-block;
-  animation:${pulse} 1.5s ease infinite;
-`;
-const GMBTitle = styled.h3`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.1rem;text-transform:var(--text-transform);color:var(--color-white);margin-bottom:6px;
-`;
-const GMBSub   = styled.p`
-  font-family:var(--font-body);font-size:.83rem;
-  color:rgba(255,255,255,.6);margin-bottom:18px;line-height:1.55;
-`;
-const GMBBtn   = styled.button`
-  display:inline-flex;align-items:center;gap:8px;padding:11px 22px;
-  background:var(--color-accent);color:white;
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:.92rem;letter-spacing:.07em;text-transform:var(--text-transform);
-  border:none;border-radius:var(--radius-button);cursor:pointer;
-  box-shadow:0 4px 16px rgba(var(--color-accent-rgb),.4);
-  transition:filter .2s,transform .1s;
-  &:hover{filter:brightness(.9);transform:translateY(-1px);}
-`;
-
-/* GMB Modal */
-const ModalOverlay = styled.div`
-  position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);
-  display:flex;align-items:center;justify-content:center;padding:24px;
-  animation:${fadeIn} .2s ease both;
-`;
-const Modal      = styled.div`
-  background:var(--color-white);border-radius:var(--radius-card);
-  border-top:5px solid var(--color-accent);padding:36px 32px;
-  max-width:480px;width:100%;position:relative;animation:${scaleIn} .25s ease both;
-`;
-const ModalClose = styled.button`
-  position:absolute;top:14px;right:14px;background:none;border:none;
-  cursor:pointer;color:var(--color-text-muted);padding:4px;
-  border-radius:var(--radius-button);&:hover{background:var(--color-bg);}
-`;
-const ModalIcon    = styled.div`
-  width:56px;height:56px;border-radius:50%;
-  background:rgba(var(--color-accent-rgb),.1);
-  display:flex;align-items:center;justify-content:center;
-  color:var(--color-accent);margin-bottom:18px;
-`;
-const ModalTitle   = styled.h3`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.3rem;text-transform:var(--text-transform);
-  color:var(--color-primary);margin-bottom:10px;
-`;
-const ModalText    = styled.p`
-  font-family:var(--font-body);font-size:.88rem;
-  color:var(--color-text-muted);line-height:1.65;margin-bottom:20px;
-`;
-const ModalFeatures = styled.ul`list-style:none;display:flex;flex-direction:column;gap:8px;margin-bottom:24px;`;
-const ModalFeature  = styled.li`
-  display:flex;align-items:center;gap:10px;
-  font-family:var(--font-body);font-size:.85rem;color:#1A1A1A;
-  svg{color:var(--color-accent);flex-shrink:0;}
-`;
-const ModalCTA  = styled.button`
-  width:100%;padding:13px;background:var(--color-accent);color:white;
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1rem;letter-spacing:.07em;text-transform:var(--text-transform);
-  border:none;border-radius:var(--radius-button);cursor:pointer;
-  transition:filter .2s;&:hover{filter:brightness(.9);}
-`;
-const ModalNote = styled.p`
-  font-family:var(--font-body);font-size:.72rem;color:#A0ADB8;
-  text-align:center;margin-top:10px;
-`;
-
 /* Checkout pending banner */
 const CheckoutBanner = styled.div`
   background: rgba(var(--color-accent-rgb),.1);
@@ -454,7 +367,6 @@ export default function DashboardHome() {
   const [manualDone,   setManualDone]   = useState(false);
 
   // Modals
-  const [showGMBModal,     setShowGMBModal]     = useState(false);
   const [showGhostSetup,   setShowGhostSetup]   = useState(false);
   const [showPathAPricing, setShowPathAPricing] = useState(false);
   const [checkoutPending,  setCheckoutPending]  = useState(null);
@@ -675,31 +587,6 @@ export default function DashboardHome() {
         />
       )}
 
-      {/* ── GMB MODAL ── */}
-      {showGMBModal && (
-        <ModalOverlay onClick={() => setShowGMBModal(false)}>
-          <Modal onClick={e => e.stopPropagation()}>
-            <ModalClose onClick={() => setShowGMBModal(false)}><X size={18}/></ModalClose>
-            <ModalIcon><Link2 size={26}/></ModalIcon>
-            <ModalTitle>In Kürze verfügbar</ModalTitle>
-            <ModalText>
-              Die vollautomatische Verbindung mit deinem Google Business Profil
-              wird in der nächsten Phase aktiviert.
-            </ModalText>
-            <ModalFeatures>
-              <ModalFeature><Zap size={15}/>Profil-Updates vollautomatisch</ModalFeature>
-              <ModalFeature><Star size={15}/>Bewertungsanfragen nach Auftrag</ModalFeature>
-              <ModalFeature><TrendingUp size={15}/>Keyword-Optimierung in Echtzeit</ModalFeature>
-              <ModalFeature><Clock size={15}/>Öffnungszeiten immer aktuell</ModalFeature>
-            </ModalFeatures>
-            <ModalCTA onClick={() => setShowGMBModal(false)}>
-              Verstanden — ich warte auf Phase 2
-            </ModalCTA>
-            <ModalNote>Wir benachrichtigen dich per E-Mail sobald es losgeht.</ModalNote>
-          </Modal>
-        </ModalOverlay>
-      )}
-
       {/* ── CHECKOUT LOADING / ERROR ── */}
       {checkoutLoading && (
         <CheckoutBanner>
@@ -798,7 +685,7 @@ export default function DashboardHome() {
           )}
         </ScoreBanner>
       )}
-<GoogleBusinessConnect />
+
       {/* ── METRICS ── */}
       {hasBusiness && !isGhost && (
         <Grid>
@@ -974,23 +861,14 @@ export default function DashboardHome() {
         </SCard>
       )}
 
-      {/* ── GMB BRIDGE ── */}
-      {!isGhost && (
-        <GMBCard $d={hasBusiness?'.25s':'.1s'}>
-          <GMBBadge><PulseDot/> Vorbereitung</GMBBadge>
-          <GMBTitle>Google Business Profil verknüpfen</GMBTitle>
-          <GMBSub>
-            Verknüpfe deinen Google Business Account, damit {brand.name} dein
-            Profil direkt optimieren, Bewertungen verwalten und Beiträge posten kann.
-          </GMBSub>
-          <GMBBtn onClick={() => setShowGMBModal(true)}>
-            <Link2 size={15}/> Google Business Profil verknüpfen
-          </GMBBtn>
-          <p style={{fontFamily:'var(--font-body)',fontSize:'.7rem',color:'rgba(255,255,255,.3)',marginTop:10}}>
-            Wird in Phase 2 via Google Business Profile API aktiviert.
-          </p>
-        </GMBCard>
-      )}
+      {/* ── GOOGLE BUSINESS PROFILE ──
+           Ersetzt die frühere "In Kürze verfügbar"-Bridge.
+           Die Komponente lädt ihren Status selbst und zeigt je nach
+           Lage: verbinden / verbunden / neu verbinden.
+
+           Für Ghost-Profile (kein Google-Eintrag vorhanden) weiterhin
+           ausgeblendet — dort gibt es noch nichts zu verknüpfen. */}
+      {!isGhost && <GoogleBusinessConnect />}
     </>
   );
 }
