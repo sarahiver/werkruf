@@ -242,7 +242,7 @@ const LeadForm = () => {
           <Eyebrow>Kostenloser Einstieg</Eyebrow>
           <Title>Dein <TitleAccent>Sichtbarkeits-</TitleAccent>Check</Title>
           <InfoText>
-            Wir schauen uns an, wie dein Betrieb gerade online aufgestellt ist —
+            Der Check liest die öffentlichen Google-Daten deines Betriebs —
             und sagen dir ehrlich, was du verpasst. Kein Pitch, kein Druck.
           </InfoText>
           <ProcessList>
@@ -250,7 +250,7 @@ const LeadForm = () => {
               <ProcessText><ProcessStrong>Formular ausfüllen</ProcessStrong>Dauert 60 Sekunden.</ProcessText>
             </ProcessItem>
             <ProcessItem>
-              <ProcessText><ProcessStrong>Wir analysieren</ProcessStrong>Innerhalb von 48h schauen wir uns deinen Auftritt an.</ProcessText>
+              <ProcessText><ProcessStrong>Automatische Prüfung</ProcessStrong>Der Befund entsteht sofort aus deinen öffentlichen Google-Daten.</ProcessText>
             </ProcessItem>
             <ProcessItem>
               <ProcessText><ProcessStrong>Klartext-Gespräch</ProcessStrong>Du kriegst ein konkretes Ergebnis — ohne Marketing-Sprech.</ProcessText>
@@ -267,7 +267,7 @@ const LeadForm = () => {
               <StatusBox $type="success">
                 <CheckCircle size={48} />
                 <StatusTitle>Alles klar!</StatusTitle>
-                <StatusText>Deine Anfrage ist bei uns angekommen. Wir melden uns in 48h.</StatusText>
+                <StatusText>Der Befund ist unterwegs — schau in dein Postfach.</StatusText>
               </StatusBox>
             ) : status === 'error' ? (
               <StatusBox $type="error">

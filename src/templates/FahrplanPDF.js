@@ -252,7 +252,7 @@ function FahrplanDocument({ industry, profile }) {
         <View style={styles.body}>
 
           {/* Phases */}
-          <Text style={styles.sectionTitle}>Dein 3-Phasen-Plan</Text>
+          <Text style={styles.sectionTitle}>So arbeitet {brand.name}</Text>
           <View style={styles.phaseRow}>
             {comms.phases.map((phase, i) => (
               <View key={i} style={styles.phaseCard}>
@@ -264,7 +264,9 @@ function FahrplanDocument({ industry, profile }) {
           </View>
 
           {/* Checklist */}
-          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Was wir von dir brauchen</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>
+            {comms.checklistTitle || 'Was dein Profil noch braucht'}
+          </Text>
           {comms.checklist.map((item, i) => (
             <View key={i} style={styles.checklistItem}>
               <Text style={styles.checkMark}>✓</Text>
@@ -272,12 +274,17 @@ function FahrplanDocument({ industry, profile }) {
             </View>
           ))}
 
+          {comms.checklistNote && (
+            <Text style={styles.checkText}>{comms.checklistNote}</Text>
+          )}
+
           {/* Ownership */}
           <View style={styles.ownershipBox}>
-            <Text style={styles.ownershipTitle}>Dein dauerhafter Wert</Text>
+            <Text style={styles.ownershipTitle}>Dein Profil bleibt deins</Text>
             <Text style={styles.ownershipText}>
-              Dein Google Business Profil bleibt nach der Einrichtung dauerhaft dein Eigentum —
-              auch wenn du das Abo einmal kündigst. Es ist ein bleibender digitaler Vermögenswert für deinen Betrieb.
+              {brand.name} arbeitet in deinem Google-Konto, nicht in einem fremden. Du erteilst genau
+              eine Berechtigung — dein Unternehmensprofil verwalten — und kannst sie jederzeit
+              widerrufen. Kündigst du, bleibt alles bestehen: Profil, Bewertungen, Fotos.
             </Text>
           </View>
         </View>

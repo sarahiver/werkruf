@@ -90,7 +90,7 @@ export default function DashboardReporting() {
       <Card $d="0s" style={{ borderTop: '4px solid var(--color-accent)' }}>
         <CardTitle>Sichtbarkeits-Fahrplan</CardTitle>
         <CardSub>
-          Dein persönlicher 3-Phasen-Plan als PDF — was passiert wann und was wir von dir brauchen.
+          Der aktuelle Stand deines Profils als PDF — was steht, was fehlt, was als Nächstes dran ist.
         </CardSub>
 
         <DocumentRow>

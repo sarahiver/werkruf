@@ -588,7 +588,7 @@ export default function SmartCheck() {
                       <Div />
                       <LTit>Dein vollständiger 4-seitiger Report</LTit>
                       <LSub>
-                        Wohin sollen wir deinen persönlichen Sichtbarkeits-Report (PDF) schicken?
+                        An welche Adresse soll der Befund gehen?
                         Inkl. Wettbewerber-Analyse, Umsatzpotenzial und konkreten Maßnahmen.
                       </LSub>
                       <ERow>
@@ -617,8 +617,7 @@ export default function SmartCheck() {
                         <CheckCircle size={26} color="#1E7E34" style={{flexShrink:0,marginTop:2}} />
                         <OkTxt>
                           <strong>Report wird vorbereitet!</strong>
-                          Wir schicken deinen Sichtbarkeits-Report für <em>{result.name}</em> in
-                          48h an {email}.
+                          Der Befund für <em>{result.name}</em> ist unterwegs an {email}.
                         </OkTxt>
                       </OkBox>
                     </>
@@ -645,7 +644,7 @@ export default function SmartCheck() {
         <Trust>
           <TItem><CheckCircle size={11}/>Kostenlos & unverbindlich</TItem>
           <TItem><CheckCircle size={11}/>Echte Google-Daten</TItem>
-          <TItem><CheckCircle size={11}/>Report in 48h</TItem>
+          <TItem><CheckCircle size={11}/>Befund sofort</TItem>
         </Trust>
       </Inner>
     </Section>

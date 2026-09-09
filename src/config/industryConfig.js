@@ -86,62 +86,67 @@ export const INDUSTRIES = {
     copy: {
       hero: {
         eyebrow:     'Für Handwerk & Gewerbe',
-        headline:    'Volle Auftragsbücher?',
-        headlineAccent: 'Pick dir die Rosinen.',
-        subline:     'Schluss damit, jeden Auftrag annehmen zu müssen.',
+        headline:    'Deine Arbeit ist besser,',
+        headlineAccent: 'als dein Profil vermuten lässt.',
+        subline:     'WERKRUF verbindet sich mit deinem Google-Profil, behält es im Blick und schlägt dir vor, was zu tun ist. Veröffentlicht wird nur, was du freigibst.',
         checks: [
-          'Echte Google-Daten — kein Schätzwert',
-          'Sichtbarkeits-Score in Sekunden',
-          'Kostenloser 4-seitiger PDF-Report',
+          'Einmal verbinden — dein Profil bleibt deins',
+          'Antwortvorschläge auf Knopfdruck freigeben',
+          'Meldung, sobald etwas nicht stimmt',
         ],
       },
       check: {
         eyebrow:       'Kostenloser Sofort-Check',
         title:         'Wie sichtbar bist du',
         titleAccent:   'gerade wirklich?',
-        subline:       'Betrieb suchen — in Sekunden siehst du, was dir gerade entgeht.',
-        cardTitle:     'Kostenloser Sichtbarkeits-Check',
-        cardSub:       'Betrieb eingeben — wir zeigen dir sofort, was dir gerade entgeht.',
+        subline:       'Betrieb suchen — in Sekunden siehst du, was an deinem Profil gerade fehlt.',
+        cardTitle:     'Kostenloser Profil-Check',
+        cardSub:       'Betrieb eingeben. Der Check liest deine öffentlichen Google-Daten und zeigt sofort, wo Lücken sind.',
       },
       analysis: {
         eyebrow:       'Dein Analyse-Ergebnis',
         title:         'Dein',
         titleAccent:   'Sichtbarkeits-Score',
         successGreeting: 'Moin!',
-        successSub:    'Wir schicken deinen Sichtbarkeits-Report in 48h an',
-        upsellTitle:   'Direkt loslegen statt warten?',
-        upsellText:    'Mit WERKRUF PRO startest du sofort — keine Wartezeit, kein PDF. Profil-Optimierung, Bewertungs-Autopilot und monatliche Reports.',
+        successSub:    'Dein Profil-Befund ist unterwegs an',
+        upsellTitle:   'Nicht nur sehen, sondern ändern?',
+        upsellText:    'Verbinde dein Google-Profil mit WERKRUF. Ab dann siehst du Lücken nicht nur — du schliesst sie mit einem Klick.',
       },
+      /* Drei Versprechen statt sechs Funktionen.
+         Vorher standen hier sechs Kacheln, von denen vier dasselbe
+         sagten ("du wirst besser gefunden"). Jede Kachel beantwortet
+         jetzt eine andere Frage — und jede endet bei einer Handlung,
+         die der Betrieb selbst auslöst. */
       features: [
         {
-          num: '01', title: 'A-Kunden Magnet',
-          body: 'Dein Profil zieht genau die Auftraggeber an, die zahlen können und wollen. Keine Preisdiskussionen.',
-          tag: 'Qualität statt Quantität',
+          num: '01', title: 'Es fällt auf, bevor es dir auffällt',
+          body: 'WERKRUF prüft dein Profil laufend und meldet sich, wenn etwas nicht stimmt: eine neue Bewertung, veraltete Öffnungszeiten, eine abgerissene Verbindung. Du erfährst es nicht vom Kunden am Telefon.',
+          tag: 'Laufende Überwachung',
         },
         {
-          num: '02', title: 'Mitarbeiter-Magnet',
-          body: 'Gute Leute suchen gute Betriebe. Mit einem starken Auftritt findest du Fachkräfte, bevor die Konkurrenz sie bekommt.',
-          tag: 'Fachkräfte gewinnen',
+          num: '02', title: 'Es ist beantwortet, bevor du dran denkst',
+          body: 'Zu jeder neuen Bewertung liegt ein Antwortvorschlag bereit — im Ton deines Betriebs. Du liest ihn, änderst was du willst, gibst frei. Veröffentlicht wird nichts ohne dein Ja.',
+          tag: 'KI schlägt vor, du entscheidest',
         },
         {
-          num: '03', title: 'Zeit zurückgewinnen',
-          body: 'Kein Rumtelefonieren mehr mit Interessenten, die eh nix kaufen. Deine Zeit gehört den Projekten.',
-          tag: 'Weniger Stress',
+          num: '03', title: 'Es stimmt, auch wenn du nicht dran denkst',
+          body: 'Öffnungszeiten, Leistungen, Fotos: WERKRUF zeigt dir, was fehlt oder veraltet ist, und überträgt deine Änderungen direkt in dein Google-Profil.',
+          tag: 'Profil aktuell halten',
         },
         {
-          num: '04', title: 'Besser gefunden werden',
-          body: 'Google, Maps, Branchenportale — wir sorgen dafür, dass dich die Richtigen finden.',
-          tag: 'SEO & Sichtbarkeit',
+          num: '04', title: 'Dein Profil bleibt deins',
+          body: 'WERKRUF arbeitet in deinem Google-Konto, nicht in einem fremden. Kündigst du, bleibt alles bestehen — Profil, Bewertungen, Fotos.',
+          tag: 'Kein Lock-in',
         },
         {
-          num: '05', title: 'Dein Ruf, geschützt',
-          body: 'Bewertungen sind heute alles. Wir helfen dir, aktiv gute Rezensionen zu sammeln.',
-          tag: 'Reputation',
+          num: '05', title: 'Eine einzige Berechtigung',
+          body: 'WERKRUF fragt genau ein Recht ab: dein Unternehmensprofil verwalten. Kein Zugriff auf E-Mails, Kontakte oder Dateien. Jederzeit widerrufbar.',
+          tag: 'Nachprüfbar',
         },
         {
-          num: '06', title: 'Schnell live',
-          body: 'Kein monatelanges Hin-und-her. Dein Auftritt steht in 48 Stunden.',
-          tag: 'Sofortstart',
+          num: '06', title: 'Zwei Minuten pro Woche',
+          body: 'Mehr Zeit kostet es dich nicht. Der Rest läuft im Hintergrund, während du auf der Baustelle bist.',
+          tag: 'Kein zusätzlicher Aufwand',
         },
       ],
       footer: {
@@ -161,31 +166,42 @@ export const INDUSTRIES = {
       greeting:      'Moin',
       emailFrom:     'hallo@werkruf.com',
       emailSignature:'Dein WERKRUF-Team',
-      fahrplanTitle: 'Dein Sichtbarkeits-Fahrplan',
+      fahrplanTitle: 'Dein Profil-Befund',
+
+      /* Die Phasen beschrieben früher einen Dienstleistungsablauf:
+         "wir optimieren", "wir erledigen den Rest". Jetzt beschreiben
+         sie, wie die Software arbeitet — und an welcher Stelle der
+         Betrieb entscheidet. */
       phases: [
         {
-          num: '01', title: 'Analyse & Optimierung',
-          text: 'Wir optimieren deine Google-Kategorien, Leistungen und Keywords — damit Handwerker-Anfragen bei dir landen.',
-          icon: '🔍',
+          num: '01', title: 'Verbinden',
+          text: 'Du verbindest dein Google-Profil einmal mit WERKRUF. Eine Berechtigung, zwei Minuten, jederzeit widerrufbar. Das Profil bleibt deins.',
+          icon: '🔗',
         },
         {
-          num: '02', title: 'Verifizierung',
-          text: 'Achte auf die Google-Postkarte! Sobald sie da ist, brauchst du nur kurz deinen Code eingeben — wir erledigen den Rest.',
-          icon: '📬',
+          num: '02', title: 'Überwachen',
+          text: 'WERKRUF liest dein Profil regelmässig aus, erkennt Lücken und neue Bewertungen und meldet sich, wenn etwas deine Entscheidung braucht.',
+          icon: '📡',
         },
         {
-          num: '03', title: 'Go-Live & KI-Monitoring',
-          text: 'Dein Profil ist sichtbar. Ab jetzt überwacht unsere KI Bewertungen, Sichtbarkeit und Mitbewerber — du arbeitest, wir beobachten.',
-          icon: '🚀',
+          num: '03', title: 'Freigeben',
+          text: 'Zu jedem Punkt liegt ein Vorschlag bereit — Antwort, Öffnungszeit, fehlende Angabe. Du gibst frei, WERKRUF überträgt es zu Google.',
+          icon: '✓',
         },
       ],
+
+      /* Aus einer Bringschuld ("Was wir von dir brauchen") wird eine
+         Bestandsaufnahme ("Was dein Profil noch braucht"). Dieselben
+         Punkte, aber der Betrieb steht nicht mehr als Zulieferer da. */
+      checklistTitle: 'Was dein Profil noch braucht',
       checklist: [
-        '5 Fotos (Außenansicht, Werkzeug, Team, Arbeitsergebnisse)',
-        'Öffnungszeiten (inkl. Sonderzeiten)',
-        'Deine Top-3-Leistungen (z.B. Sanitär, Heizung, Reparaturen)',
-        'Telefonnummer und Website (falls vorhanden)',
-        'Firmenanschrift mit PLZ',
+        'Fotos: Außenansicht, Team, fertige Arbeiten',
+        'Öffnungszeiten inklusive Sonderzeiten',
+        'Deine Leistungen, benannt wie Kunden danach suchen',
+        'Telefonnummer und Website',
+        'Vollständige Anschrift mit PLZ',
       ],
+      checklistNote: 'WERKRUF zeigt dir im Dashboard, was davon fehlt — und überträgt deine Angaben direkt in dein Google-Profil.',
     },
 
     /* Pricing */
@@ -196,39 +212,25 @@ export const INDUSTRIES = {
       priceLabel:      '/ Monat (netto)',
       trialCTA:        'Jetzt 30 Tage gratis testen',
 
-      /* Ab-Preis für alle Stellen, die nur EINE Zahl brauchen
-         (Signup, Report-Mail). Handwerk hatte diese Felder als
-         einzige Vertikale nicht, weil das Pricing hier auf pathA/pathB
-         aufgeteilt ist — Signup zeigte dadurch "undefined€ / Monat".
-         Muss mit pathA/pathB.monthlyPrice übereinstimmen. */
+      /* EIN Preis, kein Pfad.
+         Bis September 2026 gab es zwei Wege: Pfad A für Betriebe mit
+         Google-Profil, Pfad B mit 149 € Einrichtungsgebühr für die
+         ohne. Pfad B war eine Dienstleistung — jemand legte das Profil
+         von Hand an und begleitete die Verifizierung.
+
+         Das passt nicht mehr: WERKRUF ist Software, die der Betrieb
+         selbst bedient. Wer noch kein Profil hat, legt es bei Google
+         in zehn Minuten kostenlos an und verbindet es danach. Dafür
+         eine Gebühr zu nehmen wäre schwer zu begründen.
+
+         monthlyPrice und annualPrice liegen bewusst flach: Signup und
+         Report-Mail lesen genau diese Felder. Unter pathA vergraben
+         zeigte das Signup "undefined€ / Monat". */
       monthlyPrice:    49,
-      annualPrice:     449,
+      quarterPrice:    129,   // ~12% günstiger
+      annualPrice:     449,   // ~24% günstiger
+      setupFee:        0,
 
-      /* Pfad A: GMB vorhanden → Optimierung */
-      pathA: {
-        setupFee:      0,
-        monthlyPrice:  49,
-        quarterPrice:  129,   // ~12% Ersparnis
-        annualPrice:   449,   // ~24% Ersparnis
-        label:         'Optimierung',
-        description:   'Dein Profil existiert — wir machen es unschlagbar.',
-      },
-
-      /* Pfad B: kein GMB → Setup + Software */
-      pathB: {
-        setupFee:      149,   // einmalig für GMB-Erstellung
-        monthlyPrice:  49,
-        quarterPrice:  129,
-        annualPrice:   449,
-        label:         'Setup + Optimierung',
-        description:   'Wir erstellen dein Google-Profil und optimieren es vollständig.',
-        setupIncludes: [
-          'Google Business Profil anlegen & verifizieren',
-          'Vollständige Erstoptimierung (Keywords, Beschreibung, Fotos)',
-          '30 Tage kostenlose Software-Nutzung',
-          'Das Profil bleibt für immer dein Eigentum',
-        ],
-      },
       roi: {
         avgOrderValue:     400,    // EUR
         upliftFactor:      0.30,   // +30% mehr qualif. Anfragen
@@ -248,19 +250,23 @@ export const INDUSTRIES = {
         'Bewertungs-Autopilot (SMS + E-Mail)',
         'Monatliches PDF-Reporting',
         'KI-Antwort-Assistent für Rezensionen',
-        'Einrichtung in 48 Stunden',
+        'Verbunden in zwei Minuten',
         'Monatlich kündbar — kein Jahresvertrag',
       ],
       comparison: [
-        { feature: 'Sichtbarkeits-Check',         free: true,  pro: true  },
-        { feature: 'PDF-Report (4 Seiten)',         free: true,  pro: true  },
-        { feature: 'Google-Profil Optimierung',     free: false, pro: true  },
-        { feature: 'Keyword-Optimierung',           free: false, pro: true  },
-        { feature: 'Bewertungs-Autopilot',          free: false, pro: true  },
-        { feature: 'KI-Antwort-Assistent',          free: false, pro: true  },
-        { feature: 'Monatliches PDF-Reporting',     free: false, pro: true  },
-        { feature: 'Wettbewerber-Monitoring',       free: false, pro: true  },
-        { feature: 'Persönlicher Ansprechpartner',  free: false, pro: true  },
+        /* Zeilen beschreiben jetzt Ergebnisse statt Werkzeugnamen.
+           "Bewertungs-Autopilot" und "KI-Antwort-Assistent" waren
+           zwei Namen für dieselbe Sache — zusammengeführt.
+           "Persönlicher Ansprechpartner" ist raus: das klang nach
+           Agentur und ist keine Funktion, sondern Support. */
+        { feature: 'Profil-Check ohne Anmeldung',        free: true,  pro: true  },
+        { feature: 'Befund als PDF',                     free: true,  pro: true  },
+        { feature: 'Google-Profil verbinden',            free: false, pro: true  },
+        { feature: 'Laufende Überwachung',               free: false, pro: true  },
+        { feature: 'Bewertungen im Dashboard',           free: false, pro: true  },
+        { feature: 'KI-Antwortvorschläge zum Freigeben', free: false, pro: true  },
+        { feature: 'Profil-Angaben direkt ändern',       free: false, pro: true  },
+        { feature: 'Meldung bei Problemen',              free: false, pro: true  },
       ],
     },
   },
@@ -328,7 +334,7 @@ export const INDUSTRIES = {
       hero: {
         eyebrow:        'Für Restaurants & Cafés',
         headline:       'Leere Tische?',
-        headlineAccent: 'Nicht mit uns.',
+        headlineAccent: 'Nicht mit vollem Profil.',
         subline:        'Mehr Reservierungen, bessere Bewertungen, volle Abende — automatisch.',
         checks: [
           'Echte Google-Daten in Sekunden',
@@ -349,7 +355,7 @@ export const INDUSTRIES = {
         title:           'Dein',
         titleAccent:     'Gäste-Score',
         successGreeting: 'Sehr gerne!',
-        successSub:      'Wir schicken deinen Restaurant-Report in 48h an',
+        successSub:      'Dein Profil-Befund ist unterwegs an',
         upsellTitle:     'Sofort mehr Reservierungen?',
         upsellText:      'Mit GASTRORUF PRO optimieren wir dein Profil, automatisieren Bewertungsanfragen und füllen deine Tische.',
       },
@@ -401,31 +407,33 @@ export const INDUSTRIES = {
       greeting:      'Hallo',
       emailFrom:     'hallo@gastroruf.com',
       emailSignature:'Dein GASTRORUF-Team',
-      fahrplanTitle: 'Dein Restaurant-Fahrplan',
+      fahrplanTitle: 'Dein Profil-Befund',
       phases: [
         {
-          num: '01', title: 'Profil-Optimierung',
-          text: 'Wir optimieren dein Restaurant-Profil: Küchenstil, Spezialitäten, Atmosphäre — damit hungrige Gäste dich finden.',
-          icon: '🍽️',
+          num: '01', title: 'Verbinden',
+          text: 'Du verbindest dein Google-Profil einmal mit GASTRORUF. Eine Berechtigung, zwei Minuten, jederzeit widerrufbar. Das Profil bleibt deins.',
+          icon: '🔗',
         },
         {
-          num: '02', title: 'Verifizierung',
-          text: 'Achte auf die Google-Postkarte! Sobald sie da ist, gibst du kurz deinen Code ein — wir erledigen den Rest.',
-          icon: '📬',
+          num: '02', title: 'Überwachen',
+          text: 'GASTRORUF liest dein Profil regelmässig aus, erkennt Lücken und neue Gästebewertungen und meldet sich, wenn etwas deine Entscheidung braucht.',
+          icon: '📡',
         },
         {
-          num: '03', title: 'Go-Live & KI-Monitoring',
-          text: 'Dein Profil ist sichtbar. Ab jetzt monitoren wir Bewertungen und Reservierungs-Trends automatisch.',
-          icon: '🚀',
+          num: '03', title: 'Freigeben',
+          text: 'Zu jedem Punkt liegt ein Vorschlag bereit — Antwort, Öffnungszeit, fehlende Angabe. Du gibst frei, GASTRORUF überträgt es zu Google.',
+          icon: '✓',
         },
       ],
+      checklistTitle: 'Was dein Profil noch braucht',
       checklist: [
-        '5 Fotos (Außenansicht, Innenraum, Speisen, Team)',
+        'Fotos: Außenansicht, Innenraum, Speisen, Team',
         'Öffnungszeiten und Ruhetage',
-        'Speisekarte-Link oder Top-Gerichte',
+        'Speisekarte oder deine bekanntesten Gerichte',
         'Telefonnummer für Reservierungen',
-        'Firmenanschrift mit PLZ',
+        'Vollständige Anschrift mit PLZ',
       ],
+      checklistNote: 'GASTRORUF zeigt dir im Dashboard, was davon fehlt — und überträgt deine Angaben direkt in dein Google-Profil.',
     },
 
     pricing: {
@@ -545,7 +553,7 @@ export const INDUSTRIES = {
         title:           'Dein',
         titleAccent:     'Buchungs-Score',
         successGreeting: 'Perfekt!',
-        successSub:      'Wir schicken deinen Studio-Report in 48h an',
+        successSub:      'Dein Profil-Befund ist unterwegs an',
         upsellTitle:     'Sofort mehr Buchungen?',
         upsellText:      'Mit BEAUTYRUF PRO füllen wir deinen Kalender — automatisch.',
       },

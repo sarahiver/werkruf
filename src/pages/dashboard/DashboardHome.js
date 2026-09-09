@@ -13,7 +13,6 @@ import {
   scoreColor, scoreBg, scoreLabel, saveManualLead
 } from '../../hooks/usePlacesAnalysis';
 import supabase from '../../supabaseClient';
-import GhostSetupModal   from '../../components/dashboard/GhostSetupModal';
 import { useCheckout }    from '../../hooks/useCheckout';
 import PlacesSearch      from '../../components/PlacesSearch';
 import PathAPricingModal from '../../components/dashboard/PathAPricingModal';
@@ -269,13 +268,6 @@ const GhostText   = styled.p`
   font-family:var(--font-body);font-size:.9rem;
   color:rgba(255,255,255,.65);line-height:1.65;margin-bottom:24px;max-width:520px;
 `;
-const GhostScore  = styled.div`display:inline-flex;align-items:baseline;gap:6px;margin-bottom:20px;`;
-const GhostScoreNum = styled.span`
-  font-family:var(--font-display);font-weight:900;font-size:3.5rem;color:#ff6b6b;line-height:1;
-`;
-const GhostScoreLabel = styled.span`
-  font-family:var(--font-body);font-size:.88rem;color:rgba(255,255,255,.45);
-`;
 const GhostSteps = styled.div`
   display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;
   @media(max-width:600px){grid-template-columns:1fr;}
@@ -367,7 +359,6 @@ export default function DashboardHome() {
   const [manualDone,   setManualDone]   = useState(false);
 
   // Modals
-  const [showGhostSetup,   setShowGhostSetup]   = useState(false);
   const [showPathAPricing, setShowPathAPricing] = useState(false);
   const [checkoutPending,  setCheckoutPending]  = useState(null);
 
@@ -564,17 +555,6 @@ export default function DashboardHome() {
 
   return (
     <>
-      {/* ── GHOST SETUP MODAL (Path B) ── */}
-      {showGhostSetup && (
-        <GhostSetupModal
-          onClose={() => setShowGhostSetup(false)}
-          onCheckoutStart={handleCheckoutStart}
-          companyName={profile?.company_name || ''}
-          userId={user?.id}
-          industryKey={industryKey}
-        />
-      )}
-
       {/* ── PATH A PRICING MODAL ── */}
       {showPathAPricing && (
         <PathAPricingModal
@@ -606,53 +586,68 @@ export default function DashboardHome() {
         </CheckoutBanner>
       )}
 
-      {/* ── GHOST TOWN STATE (Path B) ── */}
+      {/* ── KEIN GOOGLE-PROFIL ──
+           Hier stand die "Digitale Geisterstadt" mit einem
+           149-€-Setup-Angebot. Das war Dienstleistung: jemand legte
+           das Profil von Hand an.
+
+           Jetzt eine Anleitung. Ein Google-Profil anzulegen ist bei
+           Google kostenlos und dauert zehn Minuten — dafür Geld zu
+           nehmen liesse sich nicht begründen, wenn das Produkt
+           Software ist. WERKRUF setzt danach an. */}
       {isGhost && (
         <GhostCard>
           <GhostGrid />
-          <GhostBadge><Ghost size={12}/> Digitale Geisterstadt</GhostBadge>
-          <GhostScore>
-            <GhostScoreNum>0</GhostScoreNum>
-            <GhostScoreLabel>/ 100 Sichtbarkeits-Score</GhostScoreLabel>
-          </GhostScore>
+          <GhostBadge><Ghost size={12}/> Noch kein Google-Profil</GhostBadge>
           <GhostTitle>
-            Digitale Geisterstadt?<br/>
-            <GhostAccent>Wir holen dich auf die Karte.</GhostAccent>
+            Dein Betrieb fehlt bei Google.<br/>
+            <GhostAccent>Das änderst du in zehn Minuten.</GhostAccent>
           </GhostTitle>
           <GhostText>
-            Da dein Betrieb bei Google nicht existiert, ist dein digitales
-            Umsatzpotenzial aktuell bei{' '}
-            <strong style={{ color: '#ff8080' }}>0 €</strong>.
-            Jeder Kunde, der online sucht, findet deine Konkurrenz.
-            Wir ändern das — in 3 Schritten.
+            Wer online nach deiner Leistung sucht, findet gerade nur deine
+            Konkurrenz. Ein Google-Unternehmensprofil ist kostenlos — du legst
+            es direkt bei Google an, danach übernimmt {brand.name}.
           </GhostText>
           <GhostSteps>
             <GhostStep>
               <GhostStepNum>01</GhostStepNum>
-              <GhostStepText>Google Business Profil anlegen — kostenlos, dauert 10 Min.</GhostStepText>
+              <GhostStepText>
+                Profil bei Google anlegen — kostenlos, etwa zehn Minuten.
+              </GhostStepText>
             </GhostStep>
             <GhostStep>
               <GhostStepNum>02</GhostStepNum>
-              <GhostStepText>Verifizierung begleiten — per Postkarte oder Telefon.</GhostStepText>
+              <GhostStepText>
+                Verifizieren. Google schickt dir einen Code, meist per Postkarte
+                oder Telefon. Das dauert ein paar Tage.
+              </GhostStepText>
             </GhostStep>
             <GhostStep>
               <GhostStepNum>03</GhostStepNum>
-              <GhostStepText>{brand.name} übernimmt die komplette Optimierung.</GhostStepText>
+              <GhostStepText>
+                Profil mit {brand.name} verbinden. Ab dann läuft die Überwachung,
+                und zu jeder Bewertung liegt ein Antwortvorschlag bereit.
+              </GhostStepText>
             </GhostStep>
           </GhostSteps>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
-            <GhostCTABtn onClick={() => setShowGhostSetup(true)}>
-              Sichtbarkeit buchen — 149€ Setup <ArrowRight size={16}/>
+            <GhostCTABtn
+              as="a"
+              href="https://business.google.com/create"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Bei Google anlegen <ArrowRight size={16}/>
             </GhostCTABtn>
             <GhostResetBtn onClick={handleGhostReset} disabled={resetting}>
-              {resetting ? 'Wird zurückgesetzt…' : 'Versehentlich eingetragen? Zurücksetzen'}
+              {resetting ? 'Wird zurückgesetzt…' : 'Betrieb existiert doch? Zurücksetzen'}
             </GhostResetBtn>
           </div>
           <p style={{
             fontFamily:'var(--font-body)',fontSize:'.72rem',
             color:'rgba(255,255,255,.3)',marginTop:14,
           }}>
-            Einmalige Setup-Fee · 30 Tage Software gratis · danach 49€/Monat
+            Das Profil gehört danach dir — {brand.name} arbeitet darin, besitzt es nicht.
           </p>
         </GhostCard>
       )}
@@ -833,7 +828,7 @@ export default function DashboardHome() {
                 <ManualSuccessBox>
                   <CheckCircle size={18} color="#1E7E34" style={{flexShrink:0,marginTop:1}}/>
                   <ManualSuccessText>
-                    <strong>Eingetragen! Unser Team meldet sich in 48h.</strong>{' '}
+                    <strong>Eingetragen.</strong>{' '}
                     Wir legen dein Google Business Profil an und optimieren es vollständig.
                   </ManualSuccessText>
                 </ManualSuccessBox>

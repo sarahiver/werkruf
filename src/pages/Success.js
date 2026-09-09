@@ -228,7 +228,7 @@ export default function Success() {
 
         {/* Email confirmation */}
         <SubText>
-          Wir schicken ihn in den nächsten 48 Stunden an:
+          Er ist unterwegs an:
         </SubText>
 
         <EmailConfirm>
@@ -259,7 +259,7 @@ export default function Success() {
                 Du verlierst aktuell schätzungsweise{' '}
                 <LossNumber>~{monthlyLoss.toLocaleString('de-DE')} €</LossNumber>{' '}
                 Umsatz pro Monat — weil potenzielle Kunden dein Profil sehen
-                und zur Konkurrenz wechseln. Das lässt sich in 48h beheben.
+                und zur Konkurrenz wechseln. Das lässt sich heute noch ändern.
               </UrgencyText>
             </div>
           </UrgencyRow>

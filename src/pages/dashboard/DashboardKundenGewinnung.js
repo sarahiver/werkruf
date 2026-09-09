@@ -205,7 +205,7 @@ export default function DashboardKundenGewinnung() {
           <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem',
             color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
             Verknüpfe zuerst deinen Google Business Eintrag in der Übersicht,<br/>
-            dann generieren wir deinen persönlichen Bewertungslink.
+            dann steht dein Bewertungslink bereit.
           </p>
         </NoBusiness>
       </Page>
@@ -279,7 +279,7 @@ export default function DashboardKundenGewinnung() {
 
           <p style={{ fontFamily: 'var(--font-body)', fontSize: '.75rem',
             color: 'var(--color-text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
-            Für Druckqualität empfehlen wir min. 300 DPI.
+            Für den Druck mindestens 300 DPI.
           </p>
         </Card>
 

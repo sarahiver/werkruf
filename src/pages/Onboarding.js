@@ -221,7 +221,7 @@ export default function Onboarding() {
             <Title>Willkommen,{'\n'}{firstName}!</Title>
             <Sub>
               In 2 Minuten siehst du wie gut dein Betrieb bei Google dasteht —
-              und was wir verbessern können.
+              und wo Lücken sind.
             </Sub>
 
             <FeatureList>
@@ -260,7 +260,7 @@ export default function Onboarding() {
             <StepBadge>Schritt 2 von 3</StepBadge>
             <Title>Welches ist dein Betrieb?</Title>
             <Sub>
-              Suche deinen Google Business Eintrag — wir analysieren
+              Suche deinen Google-Eintrag — WERKRUF prüft
               deinen aktuellen Stand in Sekunden.
             </Sub>
 
@@ -276,7 +276,7 @@ export default function Onboarding() {
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '.82rem',
                   color: 'var(--color-text-muted)', marginBottom: 10 }}>
                   Noch kein Google Business Profil? Kein Problem —
-                  wir richten es für dich ein.
+                  WERKRUF führt dich durch die Einrichtung.
                 </p>
                 <NextBtn onClick={goToDashboard} $ghost>
                   Trotzdem weiter zum Dashboard
@@ -304,8 +304,8 @@ export default function Onboarding() {
               <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem',
                 color: 'var(--color-text)', marginTop: 12, lineHeight: 1.6 }}>
                 <strong>{selected.name}</strong>
-                {score < 70 && ' — hier lassen wir Kunden liegen. Wir können das ändern.'}
-                {score >= 70 && ' — guter Start! Wir können noch mehr rausholen.'}
+                {score < 70 && ' — da gehen Anfragen verloren. Das lässt sich ändern.'}
+                {score >= 70 && ' — guter Stand. Da geht trotzdem noch mehr.'}
               </p>
             </ScorePreview>
 

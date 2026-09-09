@@ -278,7 +278,7 @@ const CtaNote = styled.p`
 ───────────────────────────────────────────── */
 export default function Pricing() {
   const { pricing, brand, design, copy } = useIndustry();
-  const monthlyPrice = pricing?.pathA?.monthlyPrice ?? 49;
+  const monthlyPrice = pricing?.monthlyPrice ?? 49;
   const { user } = useAuthContext();
   const { startCheckout, loading: checkoutLoading } = useCheckout();
   const navigate = useNavigate();

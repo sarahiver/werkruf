@@ -120,13 +120,13 @@ export default function PathAPricingModal({
                   {companyName} — Score: {scoreLabel}
                 </ScoreLabel>
                 <ScoreSub>
-                  Mit WERKRUF PRO optimieren wir dein Profil auf 85+ Punkte.
+                  Mit WERKRUF PRO siehst du jede Lücke — und schliesst sie mit einem Klick.
                 </ScoreSub>
               </ScoreText>
             </ScoreHighlight>
           )}
           <PricingCard
-            path="optimisation"
+            
             onCheckout={handleCheckout}
             loading={loading}
             companyName={companyName}

@@ -159,7 +159,7 @@ export default function ProGate({ children, feature }) {
           }
         </CTABtn>
         <Note>
-          Danach {pricing?.pathA?.monthlyPrice || 49}€/Monat · monatlich kündbar · kein Jahresvertrag
+          Danach {pricing?.monthlyPrice || 49}€/Monat · monatlich kündbar · kein Jahresvertrag
         </Note>
       </Card>
     </Overlay>

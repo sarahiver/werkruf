@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { CheckCircle, Zap, Star, ArrowRight, Shield } from 'lucide-react';
+import { CheckCircle, Zap, Star, ArrowRight, } from 'lucide-react';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -59,57 +59,18 @@ const SaveBadge = styled.span`
 
 const Cards = styled.div`
   display: grid;
-  grid-template-columns: ${({ $hasSetup }) => $hasSetup ? '1fr 1.1fr' : '1fr'};
+  grid-template-columns: 1fr;
   gap: 12px;
   @media(max-width:640px){ grid-template-columns: 1fr; }
 `;
 
-/* Setup fee card (Path B only) */
-const SetupCard = styled.div`
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  padding: 20px;
-`;
 
-const SetupLabel = styled.p`
-  font-family: var(--font-body); font-weight: 700; font-size: .72rem;
-  letter-spacing: .1em; text-transform: uppercase;
-  color: var(--color-text-muted); margin-bottom: 8px;
-`;
 
-const SetupPrice = styled.p`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 2rem; color: var(--color-primary); line-height: 1;
-  margin-bottom: 4px;
-`;
 
-const SetupNote = styled.p`
-  font-family: var(--font-body); font-size: .78rem;
-  color: var(--color-text-muted); margin-bottom: 14px; line-height: 1.4;
-`;
 
-const SetupFeatures = styled.ul`list-style: none; display: flex; flex-direction: column; gap: 7px;`;
 
-const SetupFeature = styled.li`
-  display: flex; align-items: flex-start; gap: 8px;
-  font-family: var(--font-body); font-size: .82rem; color: var(--color-text);
-  svg { color: #1E7E34; flex-shrink: 0; margin-top: 1px; }
-`;
 
-const OwnershipBox = styled.div`
-  background: rgba(var(--color-accent-rgb), .08);
-  border: 1px solid rgba(var(--color-accent-rgb), .2);
-  border-radius: var(--radius-card);
-  padding: 10px 12px; margin-top: 14px;
-  display: flex; align-items: flex-start; gap: 8px;
-`;
 
-const OwnershipText = styled.p`
-  font-family: var(--font-body); font-size: .78rem;
-  color: var(--color-text); line-height: 1.45;
-  strong { color: var(--color-accent); font-weight: 700; }
-`;
 
 /* Subscription card */
 const SubCard = styled.div`
@@ -212,33 +173,29 @@ const SUB_FEATURES = [
   'Monatlich kündbar',
 ];
 
-const SETUP_FEATURES = [
-  'Google Business Profil anlegen',
-  'Verifizierung begleiten',
-  'Vollständige Erstoptimierung',
-  '30 Tage Software gratis',
-];
-
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
+/*
+ * Ein Tarif, kein Pfad.
+ * Die Variante 'setup' mit 149 € Einrichtungsgebühr ist entfallen —
+ * sie war eine Dienstleistung, keine Software. Die Prop bleibt für
+ * bestehende Aufrufer bestehen, wird aber ignoriert.
+ */
 export default function PricingCard({
-  path = 'optimisation',  // 'optimisation' | 'setup'
   onCheckout,             // (metadata) => void
   loading = false,
   companyName = '',
 }) {
   const [selected, setSelected] = useState('quarterly');
   const plan = PLANS.find(p => p.key === selected);
-  const isSetup = path === 'setup';
 
   const handleCTA = () => {
     if (onCheckout) {
       onCheckout({
         plan:        selected,
-        path:        isSetup ? 'setup' : 'optimisation',
-        setupFee:    isSetup ? 149 : 0,
-        totalFirst:  isSetup ? 149 + plan.total : plan.total,
+        setupFee:    0,
+        totalFirst:  plan.total,
         priceMonthly: plan.price,
         companyName,
       });
@@ -263,36 +220,10 @@ export default function PricingCard({
         ))}
       </Toggle>
 
-      <Cards $hasSetup={isSetup}>
-        {/* Setup Fee Card — Path B only */}
-        {isSetup && (
-          <SetupCard>
-            <SetupLabel>Einmalige Setup-Fee</SetupLabel>
-            <SetupPrice>149€</SetupPrice>
-            <SetupNote>Einmalig · Kein Abo · Sofort starten</SetupNote>
-            <SetupFeatures>
-              {SETUP_FEATURES.map((f, i) => (
-                <SetupFeature key={i}>
-                  <CheckCircle size={14} />
-                  {f}
-                </SetupFeature>
-              ))}
-            </SetupFeatures>
-            <OwnershipBox>
-              <Shield size={15} color="var(--color-accent)" style={{ flexShrink: 0, marginTop: 1 }} />
-              <OwnershipText>
-                <strong>Dein Eigentum, für immer.</strong>{' '}
-                Das Google Business Profil bleibt nach der Einrichtung dauerhaft dir — auch wenn du das Abo kündigst.
-              </OwnershipText>
-            </OwnershipBox>
-          </SetupCard>
-        )}
-
+      <Cards>
         {/* Subscription Card */}
         <SubCard>
-          <SubLabel>
-            {isSetup ? 'Danach: Software-Abo' : 'WERKRUF PRO'}
-          </SubLabel>
+          <SubLabel>WERKRUF PRO</SubLabel>
           <PriceRow>
             <PriceNum>{plan.price}€</PriceNum>
             <PricePer>{plan.period}</PricePer>
@@ -317,20 +248,14 @@ export default function PricingCard({
           <CTABtn onClick={handleCTA} disabled={loading}>
             {loading ? 'Wird verarbeitet…' : (
               <>
-                {isSetup
-                  ? `Jetzt für ${149 + plan.total}€ starten`
-                  : `30 Tage gratis testen`
-                }
+                30 Tage gratis testen
                 <ArrowRight size={16} />
               </>
             )}
           </CTABtn>
 
           <TrialNote>
-            {isSetup
-              ? `149€ Setup-Fee + ${plan.total}€ ${plan.label} · 30 Tage Software gratis inklusive`
-              : `30 Tage kostenlos · dann ${plan.total}€ ${plan.label.toLowerCase()} · jederzeit kündbar`
-            }
+            {`30 Tage kostenlos · dann ${plan.total}€ ${plan.label.toLowerCase()} · jederzeit kündbar`}
           </TrialNote>
         </SubCard>
       </Cards>
