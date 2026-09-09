@@ -1,20 +1,25 @@
 import React from 'react';
 import {
   Document, Page, Text, View, StyleSheet,
-  Font, PDFDownloadLink, pdf,
+  PDFDownloadLink, pdf,
 } from '@react-pdf/renderer';
 
 /* ─────────────────────────────────────────────
-   FONTS
+   SCHRIFT
+
+   Hier stand eine Font.register()-Registrierung von Barlow mit
+   .woff2-Dateien von fonts.gstatic.com. Genau daran scheiterte der
+   Download: @react-pdf/renderer 3.x unterstützt ausschliesslich TTF
+   und WOFF — WOFF2 nicht. Der Renderer brach mit "Unknown font
+   format" ab, und es entstand nie eine Datei.
+
+   Statt auf TTF-URLs auszuweichen bleibt es jetzt bei Helvetica, das
+   im PDF-Standard eingebaut ist. Das nimmt gleich zwei Fehlerquellen
+   heraus: keine Abhängigkeit von einem fremden CDN zur Laufzeit, und
+   keine Wartezeit beim Nachladen. Für ein zweiseitiges Dokument ist
+   der optische Unterschied gering; wer Barlow zwingend will, legt
+   eine .ttf unter public/fonts ab und registriert die von dort.
 ───────────────────────────────────────────── */
-Font.register({
-  family: 'Barlow',
-  fonts: [
-    { src: 'https://fonts.gstatic.com/s/barlow/v12/7cHpv4kjgoGqM7E3_-gc4FAtlT47dw.woff2', fontWeight: 400 },
-    { src: 'https://fonts.gstatic.com/s/barlow/v12/7cHqv4kjgoGqM7E3b8s8yn4hn4YuFQ.woff2', fontWeight: 700 },
-    { src: 'https://fonts.gstatic.com/s/barlow/v12/7cHqv4kjgoGqM7E3b8s8yn4hn4YuFQ.woff2', fontWeight: 900 },
-  ],
-});
 
 /* ─────────────────────────────────────────────
    PDF DOCUMENT
@@ -26,7 +31,7 @@ function FahrplanDocument({ industry, profile }) {
 
   const styles = StyleSheet.create({
     page: {
-      fontFamily: 'Barlow',
+      fontFamily: 'Helvetica',
       backgroundColor: '#F2F2F2',
       padding: 0,
     },
