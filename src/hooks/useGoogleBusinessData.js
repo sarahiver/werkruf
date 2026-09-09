@@ -42,7 +42,10 @@ export function useGoogleBusinessData() {
     try {
       /* Alles parallel. Die Abfragen hängen nicht voneinander ab, und
          seriell wären es vier Roundtrips statt einem. */
-      const [locationsResult, reviewsResult, jobsResult, repliesResult] = await Promise.all([
+      const [
+        locationsResult, reviewsResult, jobsResult, repliesResult,
+        newestResult, photoResult,
+      ] = await Promise.all([
         supabase
           .from('google_locations')
           .select('id, title, locality, place_id, review_count, average_rating, last_synced_at, is_primary')
@@ -67,11 +70,29 @@ export function useGoogleBusinessData() {
           .from('review_replies')
           .select('status')
           .is('deleted_at', null),
+
+        /* Neueste Bewertung — für den Aktualitätsfaktor im
+           Gesundheitswert. Nur ein Feld, eine Zeile. */
+        supabase
+          .from('google_reviews')
+          .select('google_created_at')
+          .eq('status', 'active')
+          .order('google_created_at', { ascending: false })
+          .limit(1),
+
+        /* Fotoanzahl. head + count überträgt keine Zeilen, nur die
+           Zahl im Content-Range-Header. */
+        supabase
+          .from('business_photos')
+          .select('id', { count: 'exact', head: true }),
       ]);
 
       for (const result of [locationsResult, reviewsResult, jobsResult, repliesResult]) {
         if (result.error) throw result.error;
       }
+      /* newestResult und photoResult bewusst ohne Abbruch: fehlen sie,
+         fällt nur ein Faktor des Gesundheitswerts weg. Der Rest der
+         Seite soll deswegen nicht leer bleiben. */
 
       if (!mountedRef.current) return;
 
@@ -92,6 +113,8 @@ export function useGoogleBusinessData() {
           acc[star] = reviews.filter((r) => r.star_rating === star).length;
           return acc;
         }, {}),
+        newestReviewAt: newestResult?.data?.[0]?.google_created_at ?? null,
+        photoCount: photoResult?.count ?? 0,
       });
 
       const counts = { draft: 0, approved: 0, published: 0, failed: 0 };

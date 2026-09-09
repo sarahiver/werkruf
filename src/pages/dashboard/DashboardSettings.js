@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
+import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
@@ -318,6 +319,10 @@ export default function DashboardSettings() {
       </Card>
 
       {/* ── DANGER ZONE ── */}
+      {/* Benachrichtigungen — die Gegenseite zum proaktiven Melden.
+          Steht vor dem Löschbereich, weil sie öfter gebraucht wird. */}
+      <NotificationSettings />
+
       <Card $d=".16s" style={{ borderColor: '#FFCDD2' }}>
         <CardTitle style={{ color: '#D93025' }}>Konto löschen</CardTitle>
         <CardSub>

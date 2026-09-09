@@ -413,6 +413,210 @@ export function ActionItem({ severity, title, detail, children }) {
   );
 }
 
+/* ── Gesundheitswert ──
+   Zahl plus Aufschlüsselung. Ein Wert ohne Begründung ist eine
+   Behauptung; mit Begründung ist er nachvollziehbar — und der Nutzer
+   sieht, welcher Hebel der größte ist. ── */
+
+const HealthWrap = styled(Card)`
+  padding: 0; overflow: hidden;
+`;
+
+const HealthTop = styled.div`
+  display: flex; align-items: center; gap: 18px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--color-border);
+  @media (max-width: 480px) { flex-direction: column; align-items: flex-start; gap: 12px; }
+`;
+
+const HealthRing = styled.div`
+  width: 66px; height: 66px; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  /* conic-gradient statt SVG: ein Ring ohne zusätzliche Abhängigkeit,
+     und der Anteil ist direkt ablesbar. */
+  background: conic-gradient(
+    ${({ $color }) => $color} ${({ $pct }) => $pct}%,
+    var(--color-bg) ${({ $pct }) => $pct}%
+  );
+  position: relative;
+  &::after {
+    content: ''; position: absolute; inset: 6px;
+    background: var(--color-white); border-radius: 50%;
+  }
+`;
+
+const HealthNum = styled.span`
+  position: relative; z-index: 1;
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: 1.25rem; color: ${({ $color }) => $color};
+`;
+
+const HealthHeadline = styled.p`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: 1rem; text-transform: var(--text-transform);
+  color: var(--color-primary); line-height: 1.3;
+`;
+
+const HealthSummary = styled.p`
+  font-family: var(--font-body); font-size: .84rem; line-height: 1.6;
+  color: var(--color-text-muted); margin-top: 5px;
+`;
+
+const FactorRow = styled.div`
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--color-border);
+  &:last-child { border-bottom: none; }
+`;
+
+const FactorBar = styled.div`
+  width: 44px; height: 5px; flex-shrink: 0; margin-top: 6px;
+  border-radius: 3px; background: var(--color-bg); overflow: hidden;
+  span {
+    display: block; height: 100%; border-radius: 3px;
+    width: ${({ $pct }) => $pct}%;
+    background: ${({ $pct }) => ($pct >= 80 ? '#1E7E34' : $pct >= 40 ? '#D48A00' : '#D93025')};
+  }
+`;
+
+const FactorLabel = styled.p`
+  font-family: var(--font-body); font-weight: 700; font-size: .84rem;
+  color: var(--color-primary);
+`;
+
+const FactorVerdict = styled.p`
+  font-family: var(--font-body); font-size: .8rem; line-height: 1.55;
+  color: var(--color-text-muted); margin-top: 2px;
+`;
+
+const HEALTH_COLORS = { good: '#1E7E34', ok: '#D48A00', weak: '#D93025' };
+
+export function HealthCard({ score, level, headline, summary, factors, loading }) {
+  if (loading || score === null) return <SkeletonBlock $h={240} />;
+  const color = HEALTH_COLORS[level] || HEALTH_COLORS.ok;
+
+  return (
+    <HealthWrap>
+      <HealthTop>
+        <HealthRing $pct={score} $color={color}>
+          <HealthNum $color={color}>{score}</HealthNum>
+        </HealthRing>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <HealthHeadline>{headline}</HealthHeadline>
+          <HealthSummary>{summary}</HealthSummary>
+        </div>
+      </HealthTop>
+
+      {factors.map((factor) => (
+        <FactorRow key={factor.id}>
+          <FactorBar $pct={factor.max ? Math.round((factor.points / factor.max) * 100) : 0}>
+            <span />
+          </FactorBar>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <FactorLabel>{factor.label}</FactorLabel>
+            <FactorVerdict>{factor.verdict}</FactorVerdict>
+          </div>
+        </FactorRow>
+      ))}
+    </HealthWrap>
+  );
+}
+
+/* ── Empfehlung ──
+   Beantwortet vier Fragen in einer Karte: was ist passiert, warum
+   zählt es, was bringt es, wie lange dauert es. Fehlt eine Antwort,
+   gehört die Karte nicht aufs Dashboard. ── */
+
+const RecoWrap = styled.div`
+  display: flex; align-items: flex-start; gap: 13px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-border);
+  &:last-child { border-bottom: none; }
+`;
+
+const RecoDot = styled.span`
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 7px;
+  background: ${({ $severity }) => (STATUS_COLORS[$severity] || STATUS_COLORS.warning).fg};
+`;
+
+const RecoTitle = styled.p`
+  font-family: var(--font-body); font-weight: 700; font-size: .9rem;
+  color: var(--color-primary); line-height: 1.4;
+`;
+
+const RecoDetail = styled.p`
+  font-family: var(--font-body); font-size: .82rem; line-height: 1.55;
+  color: var(--color-text-muted); margin-top: 3px;
+`;
+
+const RecoMeta = styled.div`
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px;
+`;
+
+const MetaChip = styled.span`
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-body); font-size: .72rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg); padding: 3px 9px;
+  border-radius: var(--radius-button);
+  svg { flex-shrink: 0; }
+`;
+
+const RecoFoot = styled.div`
+  margin-top: 12px;
+  @media (max-width: 560px) { width: 100%; }
+`;
+
+export function Recommendation({ severity, title, detail, benefit, effort, benefitIcon, effortIcon, children }) {
+  return (
+    <RecoWrap>
+      <RecoDot $severity={severity} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <RecoTitle>{title}</RecoTitle>
+        {detail && <RecoDetail>{detail}</RecoDetail>}
+        {(benefit || effort) && (
+          <RecoMeta>
+            {benefit && <MetaChip>{benefitIcon}{benefit}</MetaChip>}
+            {effort  && <MetaChip>{effortIcon}{effort}</MetaChip>}
+          </RecoMeta>
+        )}
+        {children && <RecoFoot>{children}</RecoFoot>}
+      </div>
+    </RecoWrap>
+  );
+}
+
+/* ── Kennzahl mit Deutung ──
+   Eine Zahl ohne Satz daneben ist eine Aufgabe für den Leser. ── */
+
+const InsightWrap = styled.div`
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+  &:last-child { border-bottom: none; }
+`;
+
+const InsightNum = styled.span`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: 1.05rem; color: ${({ $accent }) => $accent || 'var(--color-primary)'};
+  flex-shrink: 0; min-width: 46px;
+`;
+
+const InsightText = styled.p`
+  font-family: var(--font-body); font-size: .84rem; line-height: 1.55;
+  color: var(--color-text);
+  strong { color: var(--color-primary); }
+`;
+
+export function Insight({ value, text, accent }) {
+  return (
+    <InsightWrap>
+      <InsightNum $accent={accent}>{value}</InsightNum>
+      <InsightText>{text}</InsightText>
+    </InsightWrap>
+  );
+}
+
 /* ── Kennzahlenleiste ──
    Vier Zahlen in einer Zeile statt vier Kacheln übereinander.
    Kennzahlen sind Hintergrund, keine Handlung — sie bekommen
