@@ -196,6 +196,14 @@ export const INDUSTRIES = {
       priceLabel:      '/ Monat (netto)',
       trialCTA:        'Jetzt 30 Tage gratis testen',
 
+      /* Ab-Preis für alle Stellen, die nur EINE Zahl brauchen
+         (Signup, Report-Mail). Handwerk hatte diese Felder als
+         einzige Vertikale nicht, weil das Pricing hier auf pathA/pathB
+         aufgeteilt ist — Signup zeigte dadurch "undefined€ / Monat".
+         Muss mit pathA/pathB.monthlyPrice übereinstimmen. */
+      monthlyPrice:    49,
+      annualPrice:     449,
+
       /* Pfad A: GMB vorhanden → Optimierung */
       pathA: {
         setupFee:      0,

@@ -55,6 +55,12 @@ const P = styled.p`
   margin-bottom: 8px;
 `;
 
+const Code = styled.code`
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .85em; background: var(--color-bg);
+  padding: 1px 5px; border-radius: 3px;
+`;
+
 const A = styled.a`
   color: var(--color-accent); text-decoration: none;
   &:hover { text-decoration: underline; }
@@ -286,6 +292,75 @@ export default function Datenschutz() {
           </A>
         </P>
 
+        <H3>Google Business Profile (Profilverwaltung)</H3>
+        <P>
+          Wenn Sie in Ihrem Kundenkonto Ihr Google Unternehmensprofil verknüpfen, verarbeiten wir
+          die dafür notwendigen Daten Ihres Google-Kontos. Anbieter ist Google Ireland Limited,
+          Gordon House, Barrow Street, Dublin 4, Irland.
+        </P>
+        <P>
+          <strong>Zweck und Umfang:</strong> Die Verknüpfung erfolgt über das Verfahren OAuth 2.0.
+          Wir fordern ausschliesslich die Berechtigung „Google Unternehmensprofil verwalten"
+          (<Code>business.manage</Code>) an. Damit können wir in Ihrem Auftrag Profilangaben wie
+          Öffnungszeiten, Leistungen und Beschreibungen pflegen, Bewertungen abrufen und
+          beantworten sowie Sichtbarkeitskennzahlen auslesen. Ein Zugriff auf Ihre E-Mails,
+          Kontakte, Kalender oder Dateien findet nicht statt und ist mit dieser Berechtigung
+          technisch auch nicht möglich.
+        </P>
+        <P>
+          <strong>Gespeicherte Daten:</strong> Wir speichern Ihre Google-Konto-Kennung, die
+          E-Mail-Adresse des verknüpften Kontos, die erteilten Berechtigungen sowie
+          Zugriffs- und Aktualisierungstoken (Access- und Refresh-Token). Die Token werden vor
+          der Speicherung mit AES-256-GCM verschlüsselt; der Schlüssel wird getrennt von der
+          Datenbank vorgehalten. Zusätzlich speichern wir die aus Ihrem Unternehmensprofil
+          abgerufenen Daten, soweit dies zur Erbringung der Leistung erforderlich ist.
+        </P>
+        <P>
+          <strong>Rechtsgrundlage:</strong> Die Verarbeitung erfolgt zur Erfüllung des mit Ihnen
+          geschlossenen Vertrages gemäss Art. 6 Abs. 1 lit. b DSGVO. Die Verknüpfung ist
+          freiwillig; ohne sie stehen die profilbezogenen Funktionen nicht zur Verfügung.
+        </P>
+        <P>
+          <strong>Speicherdauer und Widerruf:</strong> Wir speichern die Token, solange die
+          Verknüpfung besteht. Sie können sie jederzeit im Dashboard unter „Trennen" beenden —
+          die Token werden dann bei Google widerrufen und bei uns gelöscht. Ebenso können Sie den
+          Zugriff direkt in Ihrem Google-Konto unter{' '}
+          <A href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">
+            https://myaccount.google.com/permissions
+          </A>{' '}
+          entziehen.
+        </P>
+        <P>
+          <strong>Verwendung von Google-Nutzerdaten:</strong> Die Nutzung und Weitergabe der über
+          die Google-APIs erhaltenen Daten durch WERKRUF erfolgt im Einklang mit der{' '}
+          <A href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">
+            Google API Services User Data Policy
+          </A>{' '}
+          einschliesslich der Anforderungen zur eingeschränkten Verwendung (Limited Use). Wir
+          verwenden diese Daten ausschliesslich zur Bereitstellung der von Ihnen beauftragten
+          Funktionen. Eine Weitergabe an Dritte, eine Nutzung für Werbezwecke sowie ein Einsatz
+          zum Training allgemeiner KI-Modelle finden nicht statt. Menschliche Einsichtnahme
+          erfolgt nur mit Ihrer ausdrücklichen Einwilligung, zu Sicherheitszwecken, zur Erfüllung
+          gesetzlicher Pflichten oder in aggregierter, anonymisierter Form.
+        </P>
+        <P>
+          Weitere Informationen zum Datenschutz bei Google:{' '}
+          <A href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">
+            https://policies.google.com/privacy
+          </A>
+        </P>
+
+        <H3>Cloudinary (Bildverarbeitung)</H3>
+        <P>
+          Für das Hochladen, Speichern und Ausliefern von Bildern nutzen wir Cloudinary. Anbieter
+          ist Cloudinary Ltd., 111 W Evelyn Ave, Sunnyvale, CA 94086, USA. Übertragen werden die
+          von Ihnen hochgeladenen Bilddateien sowie technische Metadaten. Rechtsgrundlage ist
+          Art. 6 Abs. 1 lit. b DSGVO. Weitere Informationen:{' '}
+          <A href="https://cloudinary.com/privacy" target="_blank" rel="noopener noreferrer">
+            https://cloudinary.com/privacy
+          </A>
+        </P>
+
         <H3>Brevo (E-Mail-Versand)</H3>
         <P>
           Wir nutzen Brevo (ehemals Sendinblue) für den transaktionalen E-Mail-Versand. Anbieter
@@ -297,7 +372,7 @@ export default function Datenschutz() {
       </Section>
 
       <P style={{ color: 'var(--color-text-muted)', fontSize: '.8rem', marginTop: 40 }}>
-        Stand: März 2026
+        Stand: September 2026
       </P>
     </Wrap>
   );

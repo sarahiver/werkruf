@@ -113,16 +113,17 @@ function App() {
               <Route path="einstellungen" element={<DashboardSettings />} />
             </Route>
 
-            {/* 404 */}
-            <Route path="*" element={
-              <PublicLayout>
-                <Placeholder title="404 — Seite nicht gefunden" />
-              </PublicLayout>
-            } />
-          <Route path="/onboarding" element={<Onboarding />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="*" element={<NotFound />} />
-        </Routes>
+            {/* ── STANDALONE (ohne PublicLayout) ── */}
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/admin" element={<Admin />} />
+
+            {/* ── 404 ──
+                 Muss die LETZTE Route bleiben. Vorher standen hier zwei
+                 Catch-all-Routen; die erste gewann, weshalb NotFound nie
+                 gerendert wurde und stattdessen der Platzhalter mit
+                 "COMING SOON" erschien. */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </AuthProvider>
       </BrowserRouter>
     </IndustryProvider>
