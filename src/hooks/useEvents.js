@@ -100,6 +100,24 @@ export function useEvents() {
 
   useEffect(() => { load(); }, [load]);
 
+  /* ── "Gesehen" vermerken ──
+     Gebündelt und einmalig je Empfehlung. Ohne diesen Vermerk lässt
+     sich später nicht unterscheiden, ob eine Empfehlung ignoriert
+     oder nie angezeigt wurde — und das ist ein Unterschied zwischen
+     einer schlechten Empfehlung und einem Anzeigefehler. */
+  const seenRef = useRef(new Set());
+  useEffect(() => {
+    if (events.length === 0) return;
+    const unseen = events.map((e) => e.id).filter((id) => !seenRef.current.has(id));
+    if (unseen.length === 0) return;
+
+    unseen.forEach((id) => seenRef.current.add(id));
+    // Best effort: eine fehlgeschlagene Statistik darf nichts blockieren.
+    callFunction('google-business/events/track', {
+      eventIds: unseen, action: 'seen', channel: 'dashboard',
+    }).catch(() => {});
+  }, [events]);
+
   /* Neu bewerten. Nach einer Handlung, die die Lage ändert. */
   const revaluate = useCallback(async () => {
     setBusy(true);
@@ -113,6 +131,15 @@ export function useEvents() {
       if (mountedRef.current) setBusy(false);
     }
   }, [load]);
+
+  /* ── "Geöffnet" vermerken ──
+     Der Nutzer folgt der Empfehlung. Zusammen mit "gesehen" ergibt
+     das die Öffnungsquote — sie misst, ob der Titel trägt. */
+  const open = useCallback((eventId) => {
+    callFunction('google-business/events/track', {
+      eventIds: [eventId], action: 'opened', channel: 'dashboard',
+    }).catch(() => {});
+  }, []);
 
   const dismiss = useCallback(async (eventId) => {
     // Sofort ausblenden, dann speichern — ein Wegklicken, das auf die
@@ -146,7 +173,7 @@ export function useEvents() {
     };
   }, [events]);
 
-  return { events, ...derived, loading, busy, error, reload: load, revaluate, dismiss };
+  return { events, ...derived, loading, busy, error, reload: load, revaluate, dismiss, open };
 }
 
 export default useEvents;
