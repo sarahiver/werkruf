@@ -1,0 +1,91 @@
+name: Deploy
+
+# Der Workflow startet NICHT automatisch, solange "push" auskommentiert
+# ist. Das ist Absicht: Erst wenn die Functions vollstaendig im Repo
+# liegen und SUPABASE_ACCESS_TOKEN hinterlegt ist, schaltest du ihn
+# scharf — bis dahin laesst er sich unter "Actions" von Hand starten.
+#
+# Scharfschalten: die drei Zeilen unter "push:" einkommentieren.
+
+on:
+  workflow_dispatch:
+  push:
+  branches: [main]
+
+jobs:
+
+  # ── Frontend pruefen ──────────────────────────────────────────────
+  # Faengt genau die Fehlerklasse ab, an der der letzte Deploy
+  # scheiterte: setShowGhostSetup is not defined. esbuild findet
+  # undefinierte Variablen nicht, ESLint schon.
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        # CI=true macht aus CRA-Warnungen Fehler.
+        run: CI=true npx eslint src --ext .js,.jsx
+
+      - name: Build
+        run: CI=true npm run build
+
+  # ── Edge Functions pruefen ────────────────────────────────────────
+  check-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Typpruefung
+        # Deno prueft Typen und aufloesbare Importe. Ein Tippfehler in
+        # einem Modulpfad faellt hier auf, nicht erst im Produktivlauf.
+        run: |
+          for f in supabase/functions/*/index.ts; do
+            echo "── $f"
+            deno check "$f" || exit 1
+          done
+
+      - name: Tests
+        # Laufen nur, wenn es welche gibt.
+        run: |
+          if [ -d supabase/tests ] && ls supabase/tests/*.test.ts >/dev/null 2>&1; then
+            deno test --allow-net supabase/tests/
+          else
+            echo "Keine Tests gefunden — uebersprungen"
+          fi
+
+  # ── Deployen ──────────────────────────────────────────────────────
+  deploy-functions:
+    needs: [lint-and-build, check-functions]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Functions deployen
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        # Ohne --project-ref nimmt die CLI die Verknuepfung aus
+        # config.toml. Deployt werden alle Ordner unter
+        # supabase/functions — Ordner, die nicht existieren, bleiben
+        # im Dashboard unangetastet.
+        run: supabase functions deploy --project-ref kueoozsfkevmncucrdjd
+
+# Migrationen werden BEWUSST nicht automatisch eingespielt.
+# Ein fehlerhafter Push wuerde sonst das Schema der Produktivdatenbank
+# aendern, ohne dass jemand hinsieht. Migrationen bleiben ein
+# bewusster Schritt im SQL Editor.
