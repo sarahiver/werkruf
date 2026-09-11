@@ -15,25 +15,21 @@ on:
 
 jobs:
 
-  # ── Frontend pruefen ──────────────────────────────────────────────
-  # Faengt genau die Fehlerklasse ab, an der der letzte Deploy
-  # scheiterte: setShowGhostSetup is not defined. esbuild findet
-  # undefinierte Variablen nicht, ESLint schon.
-    lint-and-build:
-      runs-on: ubuntu-latest
+  lint-and-build:
+    runs-on: ubuntu-latest
 
-      steps:
-        - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-        - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-        - run: npm install --no-audit --no-fund
+      - run: npm install --no-audit --no-fund
 
-        -  name: Lint und Build
+      - name: Lint und Build
         run: CI=true npm run build
-
+        
   # ── Edge Functions pruefen ────────────────────────────────────────
   check-functions:
     runs-on: ubuntu-latest
