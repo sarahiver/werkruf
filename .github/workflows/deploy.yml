@@ -7,10 +7,11 @@ name: Deploy
 #
 # Scharfschalten: die drei Zeilen unter "push:" einkommentieren.
 
+
 on:
   workflow_dispatch:
   push:
-  branches: [main]
+    branches: [main]
 
 jobs:
 
