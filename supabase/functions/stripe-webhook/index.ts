@@ -20,6 +20,13 @@
 //      vollstaendig entfernt — laut Uebergabe §1 gestrichen.
 //   6. Toter Ternaer (isSetup ? 'trial' : 'trial') entfernt,
 //      doppelte Profil-Abfrage im payment_failed-Zweig zusammengelegt.
+//   7. NACHTRAG 11.09. abends: Willkommensmail wieder entfernt. Sie wird
+//      bereits vom Trigger on_user_confirmed_send_welcome eingereiht,
+//      sobald der Nutzer seine Adresse bestaetigt — ueber email_queue,
+//      mit Dedupe-Key und Beruecksichtigung von email_opt_out. Eine
+//      zweite Mail beim Checkout waere eine Dublette in anderer
+//      Gestaltung. Der Checkout-Handler merkt jetzt nur noch die
+//      stripe_customer_id vor.
 //
 // VORAUSSETZUNG: Migration 019_stripe_events.sql ist eingespielt.
 //
@@ -339,10 +346,14 @@ serve(async (req) => {
       /* ─────────────────────────────────────────────
          CHECKOUT ABGESCHLOSSEN
 
-         Zustaendig fuer: Willkommensmail, stripe_customer_id.
-         NICHT zustaendig fuer: plan, trial_ends_at, subscription_status —
+         Zustaendig fuer: stripe_customer_id vormerken. Sonst nichts.
+
+         NICHT zustaendig fuer plan, trial_ends_at, subscription_status —
          das gehoert den subscription.*-Events, deren Reihenfolge
          gegenueber diesem Event nicht garantiert ist.
+
+         NICHT zustaendig fuer die Willkommensmail — die haengt am
+         Trigger on_user_confirmed_send_welcome (siehe Nachtrag 7 oben).
       ───────────────────────────────────────────── */
       case 'checkout.session.completed': {
         const session    = event.data.object as Stripe.Checkout.Session;
@@ -366,55 +377,10 @@ serve(async (req) => {
 
         console.log(`✓ Checkout abgeschlossen fuer User ${userId}, Plan ${meta.plan_type || '?'}`);
 
-        /* ── Willkommensmail ──
-           Mailfehler duerfen den Webhook nicht scheitern lassen —
-           sonst wiederholt Stripe und der Kunde bekommt sie mehrfach. */
-        try {
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('company_name')
-            .eq('id', userId)
-            .maybeSingle();
-
-          const { data: authUser } = await supabase.auth.admin.getUserById(userId);
-          const userEmail   = authUser?.user?.email;
-          const companyName = meta.company_name || profile?.company_name || 'dein Betrieb';
-          const siteUrl     = Deno.env.get('SITE_URL') || 'https://werkruf.com';
-
-          if (userEmail) {
-            const html = buildEmailHtml({
-              greeting: 'Willkommen bei WERKRUF',
-              headline: 'Dein Zugang ist freigeschaltet.',
-              body: `
-                <p>Ab jetzt behalten wir das Google-Profil von
-                <strong>${companyName}</strong> im Blick.</p>
-                <p><strong>Der naechste Schritt:</strong> Verbinde dein
-                Google-Unternehmensprofil im Dashboard. Danach siehst du deinen
-                Profilwert und die ersten konkreten Empfehlungen.</p>
-                <p style="background:#E8F5E9;border-left:3px solid #1E7E34;padding:12px 16px;margin:16px 0;">
-                  Veroeffentlicht wird nur, was du freigibst. WERKRUF schlaegt vor —
-                  du entscheidest.
-                </p>
-              `,
-              ctaText:    'Google-Profil verbinden',
-              ctaUrl:     `${siteUrl}/dashboard`,
-              footerNote: 'Fragen? Antworte einfach auf diese Mail.',
-            });
-
-            await sendEmail({
-              to:      { email: userEmail, name: companyName },
-              subject: `Willkommen bei WERKRUF — "${companyName}" ist eingerichtet`,
-              html,
-            });
-
-            await supabase.from('user_profiles').update({
-              last_notification_step: 'checkout_completed',
-              last_email_sent_at:     new Date().toISOString(),
-            }).eq('id', userId);
-          }
-        } catch (emailErr) {
-          console.error('[stripe-webhook] Mailfehler (nicht kritisch):', emailErr);
-        }
+        /* Bewusst KEINE Mail an dieser Stelle.
+           Die Willkommensmail haengt am Trigger
+           on_user_confirmed_send_welcome und laeuft ueber email_queue.
+           Eine zweite hier waere eine Dublette. */
 
         break;
       }
