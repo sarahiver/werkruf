@@ -30,20 +30,6 @@ verify_jwt = false
 # Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).
 verify_jwt = false
 
-[functions.check-trial-emails]
-# Aufruf von pg_cron.
-# ⚠️  ACHTUNG: Diese Function hat KEINE eigene Zugriffspruefung.
-#     Mit verify_jwt = false ist sie ein offener Endpunkt, der
-#     Mailversand ausloest. Vor dem Produktivbetrieb entweder
-#     X-Worker-Secret einbauen (wie in send-email) oder die Function
-#     abschalten — siehe README, Abschnitt "Doppelte Mailpfade".
-verify_jwt = false
-
-[functions.send-welcome-email]
-# Aufruf von einem Datenbank-Webhook auf auth.users.
-# ⚠️  Gleiches Problem wie oben: keine eigene Pruefung.
-verify_jwt = false
-
 # ── Mit JWT ──────────────────────────────────────────────────────────
 # Werden aus dem Frontend mit gueltiger Session aufgerufen.
 
