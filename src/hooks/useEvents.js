@@ -100,6 +100,19 @@ export function useEvents() {
 
   useEffect(() => { load(); }, [load]);
 
+  /* ── Dashboard-Besuch vermerken ──
+     Grundlage der Abwesenheits-Erinnerung. Ohne diesen Zeitstempel
+     liesse sie sich nicht an Abwesenheit knüpfen — und wäre dann
+     genau die Bettelmail, die wir nicht schreiben wollen.
+
+     Einmal je Sitzung, best effort. */
+  const visitRef = useRef(false);
+  useEffect(() => {
+    if (visitRef.current) return;
+    visitRef.current = true;
+    supabase.rpc('touch_dashboard_visit', {}).catch(() => {});
+  }, []);
+
   /* ── "Gesehen" vermerken ──
      Gebündelt und einmalig je Empfehlung. Ohne diesen Vermerk lässt
      sich später nicht unterscheiden, ob eine Empfehlung ignoriert
