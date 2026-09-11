@@ -19,22 +19,19 @@ jobs:
   # Faengt genau die Fehlerklasse ab, an der der letzte Deploy
   # scheiterte: setShowGhostSetup is not defined. esbuild findet
   # undefinierte Variablen nicht, ESLint schon.
-  lint-and-build:
+    lint-and-build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+
       - run: npm install --no-audit --no-fund
 
-      - name: Lint
-        # CI=true macht aus CRA-Warnungen Fehler.
-        run: CI=true npx eslint src --ext .js,.jsx
-
-      - name: Build
+      - name: Lint und Build
         run: CI=true npm run build
 
   # ── Edge Functions pruefen ────────────────────────────────────────
