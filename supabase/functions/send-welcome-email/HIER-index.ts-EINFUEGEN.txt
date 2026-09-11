@@ -1,1 +1,0 @@
-Dieser Ordner ist absichtlich leer. Fuege hier die Datei index.ts ein — Inhalt aus dem Supabase-Dashboard kopieren. Siehe supabase/README.md, Abschnitt 2. Diese Datei danach loeschen.
