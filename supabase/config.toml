@@ -1,0 +1,63 @@
+# Supabase-Projektkonfiguration
+#
+# Diese Datei haelt fest, welche Function ihr JWT pruefen laesst. Bisher
+# war das eine Dashboard-Einstellung, die nirgends dokumentiert war und
+# beim Deploy still zurueckspringen kann.
+#
+# WICHTIG: Die Werte unten sind das, was fachlich RICHTIG ist — nicht
+# zwingend das, was heute im Dashboard steht. Vor dem ersten CLI-Deploy
+# gegenpruefen: Edge Functions → Function → Details → "Verify JWT".
+# Weicht etwas ab, erst klaeren, warum.
+
+project_id = "kueoozsfkevmncucrdjd"
+
+# ── Ohne JWT ─────────────────────────────────────────────────────────
+# Aufrufer ohne Authorization-Header: Google-Callback, pg_cron,
+# Stripe, Datenbank-Webhooks. Der Schutz liegt jeweils im Code.
+
+[functions.google-business]
+# Google redirectet den Browser auf /callback, ohne Header.
+# Schutz: requireUser() auf allen anderen Routen, state auf /callback,
+# X-Worker-Secret auf den Worker-Routen.
+verify_jwt = false
+
+[functions.send-email]
+# Aufruf von pg_cron. Schutz: X-Worker-Secret.
+verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe sendet keinen Authorization-Header.
+# Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).
+verify_jwt = false
+
+[functions.check-trial-emails]
+# Aufruf von pg_cron.
+# ⚠️  ACHTUNG: Diese Function hat KEINE eigene Zugriffspruefung.
+#     Mit verify_jwt = false ist sie ein offener Endpunkt, der
+#     Mailversand ausloest. Vor dem Produktivbetrieb entweder
+#     X-Worker-Secret einbauen (wie in send-email) oder die Function
+#     abschalten — siehe README, Abschnitt "Doppelte Mailpfade".
+verify_jwt = false
+
+[functions.send-welcome-email]
+# Aufruf von einem Datenbank-Webhook auf auth.users.
+# ⚠️  Gleiches Problem wie oben: keine eigene Pruefung.
+verify_jwt = false
+
+# ── Mit JWT ──────────────────────────────────────────────────────────
+# Werden aus dem Frontend mit gueltiger Session aufgerufen.
+
+[functions.generate-review-reply]
+verify_jwt = true
+
+[functions.create-checkout-session]
+verify_jwt = true
+
+[functions.create-portal-session]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+[functions.cloudinary-sign-upload]
+verify_jwt = true
