@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
+import { useCheckout } from '../../hooks/useCheckout';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
 
@@ -129,6 +130,17 @@ export default function DashboardSettings() {
   const { user, profile }     = useAuthContext();
   const { brand, pricing }    = useIndustry();
   const [portalLoading, setPortalLoading] = useState(false);
+
+  /* Neukunden-Weg zu Stripe.
+     Stand vorher auf window.location.href = '/dashboard' — ein
+     Platzhalter, der nie ersetzt wurde. Der Knopf fuehrte also von der
+     Einstellungsseite zurueck aufs Dashboard, ohne dass irgendetwas
+     passierte. */
+  const {
+    startCheckout,
+    loading: checkoutLoading,
+    error:   checkoutError,
+  } = useCheckout();
   const [portalError,   setPortalError]   = useState('');
 
   const plan              = profile?.plan || 'free';
@@ -272,13 +284,33 @@ export default function DashboardSettings() {
                 </p>
               </>
             ) : (
-              <PortalBtn
-                onClick={() => window.location.href = '/dashboard'}
-                style={{ background: 'var(--color-accent)' }}
-              >
-                <CreditCard size={15} />
-                Jetzt upgraden
-              </PortalBtn>
+              <>
+                <PortalBtn
+                  /* Fest auf 'monthly': kommuniziert werden derzeit nur
+                     die 49 EUR pro Monat. Sobald Quartal und Jahr
+                     beworben werden, gehoert hier eine Auswahl hin oder
+                     ein Verweis auf /pricing. */
+                  onClick={() => startCheckout({
+                    plan:        'monthly',
+                    companyName: profile?.company_name || '',
+                    industryKey: profile?.industry_key || 'handwerk',
+                  })}
+                  disabled={checkoutLoading}
+                  style={{ background: 'var(--color-accent)' }}
+                >
+                  {checkoutLoading
+                    ? <><Loader size={15} className="spin" />Weiterleitung zu Stripe…</>
+                    : <><CreditCard size={15} />Jetzt upgraden</>
+                  }
+                </PortalBtn>
+                <p style={{
+                  fontFamily: 'var(--font-body)', fontSize: '.72rem',
+                  color: '#A0ADB8', marginTop: 6
+                }}>
+                  30 Tage kostenlos — danach 49 € / Monat, jederzeit kündbar
+                </p>
+                {checkoutError && <ErrorBanner>{checkoutError}</ErrorBanner>}
+              </>
             )}
             {portalError && <ErrorBanner>{portalError}</ErrorBanner>}
           </div>
