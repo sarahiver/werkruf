@@ -1,7 +1,7 @@
 import ProGate from '../../components/dashboard/ProGate';
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
-import { FileText, Download, CheckCircle } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import { FahrplanDownloadButton } from '../../templates/FahrplanPDF';

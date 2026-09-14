@@ -223,11 +223,11 @@ const SpinnerIcon = styled(Loader)`animation: ${spin} .8s linear infinite;`;
    COMPONENT
 ───────────────────────────────────────────── */
 export default function DashboardFotos() {
-  const { profile, user } = useAuthContext();
+  const { user } = useAuthContext();
   const [photos,  setPhotos]  = useState([]);
   const [queue,   setQueue]   = useState([]); // { file, preview, progress, done, error }
   const [dragging,setDragging]= useState(false);
-  const [error,   setError]   = useState('');
+  const [error]               = useState('');
   const [loading, setLoading] = useState(true);
 
   const profileId = user?.id;

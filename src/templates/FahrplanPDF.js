@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Document, Page, Text, View, StyleSheet,
-  PDFDownloadLink, pdf,
+  PDFDownloadLink,
 } from '@react-pdf/renderer';
 
 /* ─────────────────────────────────────────────

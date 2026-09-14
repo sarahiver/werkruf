@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   CheckCircle, Star, ArrowRight, Loader, MapPin, PlusCircle, ChevronDown, Ghost,
@@ -6,8 +6,7 @@ import {
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import {
-  fetchPlaceDetails, extractCity, calcScore,
-  scoreColor, scoreBg, scoreLabel, saveManualLead
+  extractCity, calcScore, scoreColor, saveManualLead
 } from '../../hooks/usePlacesAnalysis';
 import supabase from '../../supabaseClient';
 import PlacesSearch      from '../PlacesSearch';
@@ -36,102 +35,6 @@ const fadeUp    = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity
 const fadeIn    = keyframes`from{opacity:0}to{opacity:1}`;
 const spin      = keyframes`to{transform:rotate(360deg)}`;
 const slideDown = keyframes`from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}`;
-
-/* ─────────────────────────────────────────────
-   SEARCH STYLED
-───────────────────────────────────────────── */
-const SearchWrap = styled.div`position:relative;`;
-const SearchIconAbs = styled.div`
-  position:absolute;left:12px;top:50%;transform:translateY(-50%);
-  color:var(--color-accent);display:flex;align-items:center;z-index:5;pointer-events:none;
-`;
-const SearchInput = styled.input`
-  width:100%;padding:12px 40px 12px 38px;
-  border:2px solid var(--color-border);
-  background:var(--color-bg);color:var(--color-text);
-  font-family:var(--font-body);font-size:.95rem;
-  outline:none;border-radius:var(--radius-card);
-  transition:border-color .2s;
-  &:focus{border-color:var(--color-primary);background:var(--color-white);}
-  &::placeholder{color:#A0ADB8;}
-`;
-const SearchSpinner = styled.div`
-  position:absolute;right:12px;top:50%;transform:translateY(-50%);
-  width:16px;height:16px;
-  border:2px solid var(--color-border);
-  border-top-color:var(--color-accent);
-  border-radius:50%;animation:${spin} .7s linear infinite;
-`;
-const SuggestionList = styled.ul`
-  position:absolute;top:calc(100% + 2px);left:0;right:0;
-  background:var(--color-white);
-  border:2px solid var(--color-primary);border-top:none;
-  border-radius:0 0 var(--radius-card) var(--radius-card);
-  list-style:none;z-index:100;max-height:280px;overflow-y:auto;
-  box-shadow:0 8px 24px rgba(var(--color-primary-rgb),.12);
-`;
-const SuggestionItem = styled.li`
-  padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--color-border);
-  &:last-child{border-bottom:none;}
-  &:hover{background:rgba(var(--color-primary-rgb),.05);}
-`;
-const SuggMain = styled.p`font-family:var(--font-body);font-size:.9rem;color:var(--color-primary);`;
-const SuggSec  = styled.p`font-family:var(--font-body);font-size:.78rem;color:var(--color-text-muted);margin-top:1px;`;
-
-/* ─────────────────────────────────────────────
-   METRICS
-───────────────────────────────────────────── */
-const Grid = styled.div`
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
-  gap:14px;margin-bottom:22px;
-`;
-const MetricCard = styled.div`
-  background:var(--color-white);border:1px solid var(--color-border);
-  border-radius:var(--radius-card);padding:18px 20px;
-  animation:${fadeUp} .45s ease ${({ $d }) => $d||'0s'} both;
-`;
-const MetricLabel = styled.p`
-  font-family:var(--font-body);font-size:.7rem;text-transform:uppercase;
-  letter-spacing:.1em;color:var(--color-text-muted);margin-bottom:8px;
-`;
-const MetricValue = styled.p`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.9rem;line-height:1;color:${({ $c }) => $c||'var(--color-primary)'};
-`;
-const MetricSub = styled.p`
-  font-family:var(--font-body);font-size:.72rem;color:var(--color-text-muted);margin-top:4px;
-`;
-
-/* ─────────────────────────────────────────────
-   SCORE BANNER
-───────────────────────────────────────────── */
-const ScoreBanner = styled.div`
-  background:${({ $s }) => scoreBg($s)};
-  border:1px solid ${({ $s }) => scoreColor($s)}44;
-  border-left:4px solid ${({ $s }) => scoreColor($s)};
-  border-radius:var(--radius-card);padding:14px 18px;
-  display:flex;align-items:center;justify-content:space-between;
-  gap:16px;flex-wrap:wrap;margin-bottom:22px;
-  animation:${fadeUp} .4s ease both;
-`;
-const ScoreLeft  = styled.div`display:flex;align-items:center;gap:12px;`;
-const ScoreCircle = styled.div`
-  width:48px;height:48px;border-radius:50%;
-  background:${({ $s }) => scoreColor($s)};
-  color:white;display:flex;align-items:center;justify-content:center;
-  font-family:var(--font-display);font-weight:900;font-size:1rem;flex-shrink:0;
-`;
-const ScoreTitle = styled.p`font-family:var(--font-body);font-weight:700;font-size:.9rem;color:#1A1A1A;`;
-const ScoreSub2  = styled.p`font-family:var(--font-body);font-size:.77rem;color:var(--color-text-muted);line-height:1.4;`;
-const OptBtn = styled.button`
-  display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-  background:var(--color-accent);color:white;
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:.82rem;letter-spacing:.06em;text-transform:var(--text-transform);
-  border:none;border-radius:var(--radius-button);white-space:nowrap;
-  flex-shrink:0;cursor:pointer;transition:filter .2s;
-  &:hover{filter:brightness(.9);}
-`;
 
 /* ─────────────────────────────────────────────
    SECTION CARD
@@ -312,26 +215,6 @@ const GhostResetBtn = styled.button`
   cursor: pointer; transition: border-color .2s, color .2s;
   &:hover:not(:disabled) { border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85); }
   &:disabled { opacity: .4; cursor: not-allowed; }
-`;
-
-/* Checkout pending banner */
-const CheckoutBanner = styled.div`
-  background: rgba(var(--color-accent-rgb),.1);
-  border: 1px solid rgba(var(--color-accent-rgb),.3);
-  border-left: 4px solid var(--color-accent);
-  border-radius: var(--radius-card);
-  padding: 16px 18px; margin-bottom: 18px;
-  display: flex; align-items: center; gap: 12px;
-  animation: ${fadeIn} .3s ease both;
-`;
-const CheckoutBannerText = styled.div``;
-const CheckoutBannerTitle = styled.p`
-  font-family: var(--font-body); font-weight: 700;
-  font-size: .9rem; color: var(--color-primary); margin-bottom: 2px;
-`;
-const CheckoutBannerSub = styled.p`
-  font-family: var(--font-body); font-size: .78rem;
-  color: var(--color-text-muted); line-height: 1.4;
 `;
 
 /* ─────────────────────────────────────────────

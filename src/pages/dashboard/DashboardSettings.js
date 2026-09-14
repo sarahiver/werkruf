@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   CreditCard, ExternalLink, CheckCircle,
-  AlertTriangle, User, Building, Loader
+  AlertTriangle, Loader
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';

@@ -33,7 +33,6 @@ import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
 import Admin                from './pages/Admin';
 import Datenschutz          from './pages/Datenschutz';
-import { DashboardPlaceholder } from './pages/dashboard/DashboardPlaceholder';
 
 /* Placeholder for future pages */
 const Placeholder = ({ title }) => (

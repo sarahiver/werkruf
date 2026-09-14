@@ -222,7 +222,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
       : 'Alle Punkte, die sich beeinflussen lassen, sind erledigt.';
 
     return { score, level, factors, headline, summary, weakest };
-  }, [stats, locations, replyCounts, loading]);
+  }, [stats, locations, loading]);
 }
 
 export default useHealthScore;

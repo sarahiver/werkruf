@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, CheckCircle, Search, Building2, Zap } from 'lucide-react';
+import { ArrowRight, CheckCircle, Search, Zap } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import PlacesSearch from '../components/PlacesSearch';

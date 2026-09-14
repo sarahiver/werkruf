@@ -2,7 +2,6 @@ import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Link } from 'react-router-dom';
 import { Home, Search, ArrowRight } from 'lucide-react';
-import { useIndustry } from '../context/IndustryContext';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const float  = keyframes`0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}`;
@@ -109,7 +108,6 @@ const SecondaryBtn = styled(Link)`
 `;
 
 export default function NotFound() {
-  const { brand } = useIndustry();
 
   return (
     <Page>

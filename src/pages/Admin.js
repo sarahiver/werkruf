@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { Users, TrendingUp, CreditCard, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
+import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 
@@ -157,7 +157,8 @@ export default function Admin() {
     if (!user) { navigate('/login'); return; }
     if (!isAdmin) { navigate('/dashboard'); return; }
     loadData();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isAdmin, navigate]);
 
   const loadData = async () => {
     setRefreshing(true);

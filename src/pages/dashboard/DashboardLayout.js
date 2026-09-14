@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import styled, { css } from 'styled-components';
+import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  FileText, Settings, LogOut, Menu, X, Link2, Users, MapPin
+  FileText, Settings, LogOut, Menu, X, Users, MapPin
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
