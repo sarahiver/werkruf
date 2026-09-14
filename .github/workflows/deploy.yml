@@ -12,6 +12,13 @@ jobs:
   # Fehlerklasse ab, an der ein frueherer Deploy scheiterte:
   # setShowGhostSetup is not defined. esbuild findet undefinierte
   # Variablen nicht, ESLint schon.
+  #
+  # npm install statt npm ci: Es gibt noch kein brauchbares
+  # package-lock.json. react-scripts@5 zieht typescript als optionale
+  # Peer-Abhaengigkeit herein, npm waehlt die neueste (7.x), und npm ci
+  # lehnt das anschliessend ab. Der Pin auf typescript 4.9.5 in der
+  # package.json soll das beheben — sobald der Lockfile-Workflow
+  # durchlaeuft, kann hier wieder npm ci und cache: npm stehen.
   lint-and-build:
     runs-on: ubuntu-latest
 
@@ -21,9 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
 
       - name: Lint und Build
         run: CI=true npm run build
