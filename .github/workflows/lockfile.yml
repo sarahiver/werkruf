@@ -1,5 +1,15 @@
 name: Lockfile erzeugen
 
+# Einmaliger Hilfs-Workflow. Erzeugt package-lock.json im CI, weil lokal
+# kein Node verfuegbar ist. Nach erfolgreichem Lauf kann die Datei
+# geloescht werden.
+#
+# WICHTIG: vollstaendiges `npm install`, NICHT --package-lock-only.
+# Letzteres loest Abhaengigkeiten nur rechnerisch auf und waehlt bei
+# optionalen Peers die neueste Fassung — typescript@7 statt @4.9.5.
+# Das Lockfile passt dann nicht zu dem, was eine echte Installation
+# ergibt, und `npm ci` bricht mit EUSAGE ab.
+
 on:
   workflow_dispatch:
 
@@ -9,6 +19,7 @@ permissions:
 jobs:
   lockfile:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,20 +27,31 @@ jobs:
         with:
           node-version: '20'
 
-      - name: package-lock.json erzeugen
-        run: npm install --package-lock-only --no-audit --no-fund
+      - name: Altes Lockfile entfernen
+        run: rm -f package-lock.json
+
+      - name: Vollstaendig installieren
+        run: npm install --no-audit --no-fund
+
+      - name: Gegenprobe mit npm ci
+        # Scheitert das hier, passt das Lockfile nicht — dann lieber
+        # jetzt auffallen als im Deploy.
+        run: |
+          rm -rf node_modules
+          npm ci --no-audit --no-fund
 
       - name: Diagnose
         run: |
+          echo "── typescript ──"
+          npm ls typescript --all 2>&1 | head -10 || true
           echo "── eslint ──"
-          npm ls eslint --all 2>&1 | head -20 || true
-          echo "── eslint-plugin-jest ──"
-          npm ls eslint-plugin-jest --all 2>&1 | head -20 || true
+          npm ls eslint 2>&1 | head -10 || true
 
       - name: Committen
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add package-lock.json
-          git commit -m "package-lock.json aus CI erzeugt" || echo "keine Änderung"
+          git commit -m "package-lock.json aus CI erzeugt (vollstaendige Installation)" \
+            || echo "keine Aenderung"
           git push
