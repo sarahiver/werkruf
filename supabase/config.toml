@@ -1,19 +1,19 @@
 # Supabase-Projektkonfiguration
 #
-# Diese Datei haelt fest, welche Function ihr JWT pruefen laesst. Bisher
-# war das eine Dashboard-Einstellung, die nirgends dokumentiert war und
-# beim Deploy still zurueckspringen kann.
+# Haelt fest, welche Function ihr JWT pruefen laesst. Bisher war das eine
+# Dashboard-Einstellung, die nirgends dokumentiert war und beim Deploy
+# still zurueckspringen kann.
 #
-# WICHTIG: Die Werte unten sind das, was fachlich RICHTIG ist — nicht
-# zwingend das, was heute im Dashboard steht. Vor dem ersten CLI-Deploy
-# gegenpruefen: Edge Functions → Function → Details → "Verify JWT".
-# Weicht etwas ab, erst klaeren, warum.
+# ⚠️  Es darf hier KEIN Abschnitt fuer eine Function stehen, deren Ordner
+#     unter supabase/functions/ fehlt — daran bricht der Deploy ab
+#     ("entrypoint path does not exist"). Genau das ist am 11.09. nach
+#     dem Loeschen von check-trial-emails und send-welcome-email passiert.
 
 project_id = "kueoozsfkevmncucrdjd"
 
 # ── Ohne JWT ─────────────────────────────────────────────────────────
-# Aufrufer ohne Authorization-Header: Google-Callback, pg_cron,
-# Stripe, Datenbank-Webhooks. Der Schutz liegt jeweils im Code.
+# Aufrufer ohne Authorization-Header: Google-Callback, pg_cron, Stripe.
+# Jede dieser Functions hat einen eigenen Schutz im Code.
 
 [functions.google-business]
 # Google redirectet den Browser auf /callback, ohne Header.
@@ -28,6 +28,12 @@ verify_jwt = false
 [functions.stripe-webhook]
 # Stripe sendet keinen Authorization-Header.
 # Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).
+verify_jwt = false
+
+[functions.ops-alert]
+# Aufruf von pg_cron. Schutz: X-Worker-Secret.
+# Bewusst eigenstaendig statt als Route in send-email: ein Alarm, der
+# die ueberwachte Maschinerie nutzt, kann deren Ausfall nicht melden.
 verify_jwt = false
 
 # ── Mit JWT ──────────────────────────────────────────────────────────
