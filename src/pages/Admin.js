@@ -149,6 +149,9 @@ export default function Admin() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
 
+  // UI guard only. RLS is the authoritative permission check.
+  const isAdmin = hasAdminRole(user);
+
   useEffect(() => {
     if (!isAdmin) return;
     loadData();
@@ -159,27 +162,19 @@ export default function Admin() {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [
-        { data: p, error: profilesError },
-        { data: l, error: leadsError },
-      ] = await Promise.all([
+      const [profilesResult, leadsResult] = await Promise.all([
         supabase.from('user_profiles').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
-
-      if (profilesError) throw profilesError;
-      if (leadsError) throw leadsError;
-
-      setProfiles(p || []);
-      setLeads(l || []);
+      if (profilesResult.error) throw profilesResult.error;
+      if (leadsResult.error) throw leadsResult.error;
+      setProfiles(profilesResult.data || []);
+      setLeads(leadsResult.data || []);
     } catch (err) {
       console.error('Admin load error:', err);
-      setLoadError('Admin-Daten konnten nicht geladen werden. Bitte Berechtigung und Verbindung prüfen.');
+      setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
       setProfiles([]);
       setLeads([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
   };
 
@@ -216,8 +211,7 @@ export default function Admin() {
       </TopBar>
 
       <Inner>
-        {loadError && <Empty role="alert">{loadError}</Empty>}
-
+        {loadError && <Empty>{loadError}</Empty>}
         {/* Stats */}
         <StatsGrid>
           <StatCard $color="var(--color-accent)" $d="0s">

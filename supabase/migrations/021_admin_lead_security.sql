@@ -57,7 +57,7 @@ begin
   select leads.*
     into v_lead
     from public.leads as leads
-   where lower(btrim(leads.email)) = lower(btrim(v_email))
+   where lower(leads.email) = lower(v_email)
      and leads.status = 'new'
    order by leads.created_at desc, leads.id desc
    limit 1
@@ -69,13 +69,13 @@ begin
   end if;
 
   update public.user_profiles as profiles
-     set company_name = coalesce(profiles.company_name, nullif(v_lead.company_name, '')),
-         google_place_id = coalesce(profiles.google_place_id, nullif(v_lead.google_place_id, '')),
-         google_rating = coalesce(profiles.google_rating, v_lead.google_rating),
-         google_review_count = coalesce(profiles.google_review_count, v_lead.google_review_count),
-         visibility_score = coalesce(profiles.visibility_score, v_lead.visibility_score),
-         city = coalesce(profiles.city, nullif(v_lead.city, '')),
-         industry_key = coalesce(profiles.industry_key, nullif(v_lead.industry_key, ''))
+     set company_name = coalesce(nullif(v_lead.company_name, ''), profiles.company_name),
+         google_place_id = coalesce(nullif(v_lead.google_place_id, ''), profiles.google_place_id),
+         google_rating = coalesce(v_lead.google_rating, profiles.google_rating),
+         google_review_count = coalesce(v_lead.google_review_count, profiles.google_review_count),
+         visibility_score = coalesce(v_lead.visibility_score, profiles.visibility_score),
+         city = coalesce(nullif(v_lead.city, ''), profiles.city),
+         industry_key = coalesce(nullif(v_lead.industry_key, ''), profiles.industry_key)
    where profiles.id = v_user_id;
 
   -- Do not consume the lead before the new user's profile exists.

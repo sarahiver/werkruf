@@ -236,6 +236,9 @@ export default function Signup() {
       return;
     }
 
+    /* Cross-check: link existing lead data to new profile */
+    await claimOwnLead();
+
     setLoading(false);
     // Supabase sends confirmation email — redirect to a "check your email" state
     navigate('/onboarding', {
@@ -340,4 +343,17 @@ export default function Signup() {
       </Card>
     </Page>
   );
+}
+
+/* ─────────────────────────────────────────────
+   CROSS-LINK: existing lead → new profile
+───────────────────────────────────────────── */
+async function claimOwnLead() {
+  try {
+    const { error } = await supabase.rpc('claim_own_lead');
+    if (error) throw error;
+  } catch (err) {
+    console.error('Lead cross-link failed:', err);
+    // Non-blocking — don't throw
+  }
 }

@@ -7,12 +7,8 @@ import { isAdminUser } from '../utils/authRoles';
    Runs in background — never awaited in auth flow
 ───────────────────────────────────────────── */
 async function syncLeadToProfile() {
-  try {
-    const { error } = await supabase.rpc('claim_own_lead');
-    if (error) throw error;
-  } catch (err) {
-    console.warn('Lead sync skipped:', err?.message);
-  }
+  const { error } = await supabase.rpc('claim_own_lead');
+  if (error) throw error;
 }
 
 /* ─────────────────────────────────────────────
