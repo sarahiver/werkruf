@@ -54,7 +54,7 @@ export function fetchPlaceDetails(placeId) {
    NORMALISE PLACE
    Converts legacy PlacesService result to a
    consistent internal format used everywhere.
-   
+
    Legacy → Internal mapping:
      place_id           → placeId
      name               → name

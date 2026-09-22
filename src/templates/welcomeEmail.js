@@ -60,7 +60,7 @@ export function generateWelcomeEmail({ industry, user, checkout }) {
         ${greeting}! Die Zahlung für<br/>${companyName} ist eingegangen.
       </h1>
       <p style="margin:0 0 24px;font-size:15px;color:#5A6A7A;line-height:1.7;">
-        Wir legen jetzt los, ${firstName}. Dein ${isSetup ? 'Google Business Profil' : 'Optimierungs-Plan'} 
+        Wir legen jetzt los, ${firstName}. Dein ${isSetup ? 'Google Business Profil' : 'Optimierungs-Plan'}
         wird von unserem ${expert}-Team betreut.
       </p>
     </td>

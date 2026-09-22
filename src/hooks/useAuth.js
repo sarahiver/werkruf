@@ -103,7 +103,7 @@ export function useAuth() {
 
   /* ─────────────────────────────────────────────
      GOOGLE OAuth
-     
+
      First time: shows consent screen
      Return visits: prompt: 'none' skips consent silently.
      If token is still valid → instant redirect.
