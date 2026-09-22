@@ -1,0 +1,39 @@
+name: Export Supabase Schema
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Export Supabase schema
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_POOLER_DB_URL }}
+        run: |
+          mkdir -p schema-export
+
+          docker run --rm \
+            -e DATABASE_URL="$DATABASE_URL" \
+            postgres:17 \
+            pg_dump \
+              --dbname="$DATABASE_URL" \
+              --schema-only \
+              --no-owner \
+              --no-privileges \
+              --schema=public \
+            > schema-export/werkruf-schema.sql
+
+      - name: Verify dump
+        run: |
+          wc -l schema-export/werkruf-schema.sql
+          ls -lh schema-export/werkruf-schema.sql
+
+      - name: Upload schema artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: werkruf-supabase-schema
+          path: schema-export/werkruf-schema.sql
