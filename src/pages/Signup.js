@@ -4,6 +4,7 @@ import styled, { keyframes } from 'styled-components';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
+import supabase from '../supabaseClient';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;

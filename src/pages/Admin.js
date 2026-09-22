@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
-import { hasAdminRole } from '../utils/authorization';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -141,16 +140,13 @@ const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Admin() {
-  const { isAdmin, signOut } = useAuthContext();
+  const { isAdmin, signOut, loading: authLoading } = useAuthContext();
   const navigate          = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [leads,    setLeads]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
-
-  // UI guard only. RLS is the authoritative permission check.
-  const isAdmin = hasAdminRole(user);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -175,6 +171,9 @@ export default function Admin() {
       setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
       setProfiles([]);
       setLeads([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
