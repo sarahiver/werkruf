@@ -70,13 +70,13 @@ begin
   end if;
 
   update public.user_profiles p
-     set company_name = coalesce(v_lead.company_name, p.company_name),
-         google_place_id = coalesce(v_lead.google_place_id, p.google_place_id),
-         google_rating = coalesce(v_lead.google_rating, p.google_rating),
-         google_review_count = coalesce(v_lead.google_review_count, p.google_review_count),
-         visibility_score = coalesce(v_lead.visibility_score, p.visibility_score),
-         city = coalesce(v_lead.city, p.city),
-         industry_key = coalesce(v_lead.industry_key, p.industry_key),
+     set company_name = coalesce(p.company_name, v_lead.company_name),
+         google_place_id = coalesce(p.google_place_id, v_lead.google_place_id),
+         google_rating = coalesce(p.google_rating, v_lead.google_rating),
+         google_review_count = coalesce(p.google_review_count, v_lead.google_review_count),
+         visibility_score = coalesce(p.visibility_score, v_lead.visibility_score),
+         city = coalesce(p.city, v_lead.city),
+         industry_key = coalesce(p.industry_key, v_lead.industry_key),
          updated_at = now()
    where p.id = v_user_id;
 
