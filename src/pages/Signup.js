@@ -4,7 +4,6 @@ import styled, { keyframes } from 'styled-components';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
-import supabase from '../supabaseClient';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -237,9 +236,6 @@ export default function Signup() {
       return;
     }
 
-    /* Cross-check: link existing lead data to new profile */
-    await linkLeadToProfile(email, prefillResult);
-
     setLoading(false);
     // Supabase sends confirmation email — redirect to a "check your email" state
     navigate('/onboarding', {
@@ -344,63 +340,4 @@ export default function Signup() {
       </Card>
     </Page>
   );
-}
-
-/* ─────────────────────────────────────────────
-   CROSS-LINK: existing lead → new profile
-───────────────────────────────────────────── */
-async function linkLeadToProfile(email, result) {
-  if (!email) return;
-  try {
-    // Get the newly created user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Find existing lead with same email
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('*')
-      .eq('email', email)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!lead && !result) return;
-
-    // Merge lead data into profile
-    const updates = {
-      ...(lead?.google_place_id     && { google_place_id:      lead.google_place_id }),
-      ...(lead?.google_rating       && { google_rating:         lead.google_rating }),
-      ...(lead?.google_review_count && { google_review_count:   lead.google_review_count }),
-      ...(lead?.visibility_score    && { visibility_score:      lead.visibility_score }),
-      ...(lead?.company_name        && { company_name:           lead.company_name }),
-      ...(lead?.city                && { city:                   lead.city }),
-      ...(lead?.industry_key        && { industry_key:           lead.industry_key }),
-      // Override with fresh result data if available
-      ...(result?.placeId    && { google_place_id:    result.placeId }),
-      ...(result?.rating     && { google_rating:       result.rating }),
-      ...(result?.reviewCount && { google_review_count: result.reviewCount }),
-      ...(result?.score      && { visibility_score:    result.score }),
-      ...(result?.name       && { company_name:        result.name }),
-      ...(result?.city       && { city:                result.city }),
-    };
-
-    if (Object.keys(updates).length > 0) {
-      await supabase
-        .from('user_profiles')
-        .update(updates)
-        .eq('id', user.id);
-
-      // Mark lead as converted
-      if (lead?.id) {
-        await supabase
-          .from('leads')
-          .update({ status: 'converted' })
-          .eq('id', lead.id);
-      }
-    }
-  } catch (err) {
-    console.error('Lead cross-link failed:', err);
-    // Non-blocking — don't throw
-  }
 }
