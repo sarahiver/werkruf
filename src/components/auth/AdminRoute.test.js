@@ -2,26 +2,20 @@ import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import AdminRoute from './AdminRoute';
-import { useAuthContext } from '../../context/AuthContext';
 
 jest.mock('../../context/AuthContext', () => ({
   useAuthContext: jest.fn(),
 }));
 
-function renderRoute(auth) {
+const { useAuthContext } = require('../../context/AuthContext');
+
+function renderWithAuth(auth) {
   useAuthContext.mockReturnValue(auth);
 
   render(
     <MemoryRouter initialEntries={['/admin']}>
       <Routes>
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <div>Admin content</div>
-            </AdminRoute>
-          }
-        />
+        <Route path="/admin" element={<AdminRoute><div>Admin content</div></AdminRoute>} />
         <Route path="/login" element={<div>Login page</div>} />
         <Route path="/dashboard" element={<div>Dashboard page</div>} />
       </Routes>
@@ -30,22 +24,28 @@ function renderRoute(auth) {
 }
 
 describe('AdminRoute', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
+  afterEach(() => jest.clearAllMocks());
 
-  test('redirects unauthenticated users to login', () => {
-    renderRoute({ loading: false, isAuthenticated: false, isAdmin: false });
+  it('redirects unauthenticated users to login', () => {
+    renderWithAuth({ loading: false, isAuthenticated: false, user: null });
     expect(screen.getByText('Login page')).toBeInTheDocument();
   });
 
-  test('redirects authenticated non-admin users to dashboard', () => {
-    renderRoute({ loading: false, isAuthenticated: true, isAdmin: false });
+  it('redirects authenticated non-admin users to dashboard', () => {
+    renderWithAuth({
+      loading: false,
+      isAuthenticated: true,
+      user: { app_metadata: {}, user_metadata: { role: 'admin' } },
+    });
     expect(screen.getByText('Dashboard page')).toBeInTheDocument();
   });
 
-  test('renders the admin page only for admins', () => {
-    renderRoute({ loading: false, isAuthenticated: true, isAdmin: true });
+  it('renders for an app_metadata admin', () => {
+    renderWithAuth({
+      loading: false,
+      isAuthenticated: true,
+      user: { app_metadata: { role: 'admin' } },
+    });
     expect(screen.getByText('Admin content')).toBeInTheDocument();
   });
 });

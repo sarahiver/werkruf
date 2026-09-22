@@ -117,11 +117,7 @@ function App() {
 
             {/* ── STANDALONE (ohne PublicLayout) ── */}
             <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/admin" element={
-              <AdminRoute>
-                <Admin />
-              </AdminRoute>
-            } />
+            <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
 
             {/* ── 404 ──
                  Muss die LETZTE Route bleiben. Vorher standen hier zwei
