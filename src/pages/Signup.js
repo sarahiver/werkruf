@@ -4,7 +4,6 @@ import styled, { keyframes } from 'styled-components';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
-import supabase from '../supabaseClient';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -237,9 +236,6 @@ export default function Signup() {
       return;
     }
 
-    /* Cross-check: link existing lead data to new profile */
-    await claimOwnLead();
-
     setLoading(false);
     // Supabase sends confirmation email — redirect to a "check your email" state
     navigate('/onboarding', {
@@ -344,17 +340,4 @@ export default function Signup() {
       </Card>
     </Page>
   );
-}
-
-/* ─────────────────────────────────────────────
-   CROSS-LINK: existing lead → new profile
-───────────────────────────────────────────── */
-async function claimOwnLead() {
-  try {
-    const { error } = await supabase.rpc('claim_own_lead');
-    if (error) throw error;
-  } catch (err) {
-    console.error('Lead cross-link failed:', err);
-    // Non-blocking — don't throw
-  }
 }
