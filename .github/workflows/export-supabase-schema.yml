@@ -10,22 +10,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
-      - name: Export schema
+      - name: Export Supabase schema
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_POOLER_DB_URL }}
         run: |
           mkdir -p schema-export
-          pg_dump \
-            --schema-only \
-            --no-owner \
-            --no-privileges \
-            --schema=public \
-            "$DATABASE_URL" \
+
+          docker run --rm \
+            -e DATABASE_URL="$DATABASE_URL" \
+            postgres:17 \
+            pg_dump \
+              --dbname="$DATABASE_URL" \
+              --schema-only \
+              --no-owner \
+              --no-privileges \
+              --schema=public \
             > schema-export/werkruf-schema.sql
 
       - name: Verify dump
