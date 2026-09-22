@@ -7,6 +7,12 @@ import {
   RotateCcw
 } from 'lucide-react';
 import supabase from '../supabaseClient';
+import {
+  calculateVisibilityScore as calcScore,
+  scoreBg,
+  scoreColor,
+  scoreLabel,
+} from '../utils/visibilityScore';
 
 /* ─────────────────────────────────────────────
    SCORE LOGIC — Start 100, Abzüge:
@@ -14,29 +20,6 @@ import supabase from '../supabaseClient';
    Reviews < 50 → gestaffelt bis -25
    Keine Website → -15
 ───────────────────────────────────────────── */
-function calcScore({ rating, reviewCount, hasWebsite }) {
-  let score = 100;
-
-  if (!rating || rating === 0)   score -= 35;
-  else if (rating < 3.0)        score -= 40;
-  else if (rating < 3.5)        score -= 30;
-  else if (rating < 4.0)        score -= 20;
-  else if (rating < 4.5)        score -= 10;
-
-  if (!reviewCount || reviewCount === 0) score -= 25;
-  else if (reviewCount < 5)     score -= 20;
-  else if (reviewCount < 20)    score -= 15;
-  else if (reviewCount < 50)    score -= 10;
-
-  if (!hasWebsite) score -= 15;
-
-  return Math.max(0, Math.min(100, score));
-}
-
-const scoreColor = (s) => s >= 70 ? '#1E7E34' : s >= 45 ? '#D48A00' : '#D93025';
-const scoreBg    = (s) => s >= 70 ? '#E8F5E9' : s >= 45 ? '#FFF8E1' : '#FDECEA';
-const scoreLabel = (s) => s >= 70 ? 'GUT' : s >= 45 ? 'AUSBAUFÄHIG' : 'KRITISCH';
-
 /* ─────────────────────────────────────────────
    GOOGLE PLACES DETAILS FETCH
 ───────────────────────────────────────────── */

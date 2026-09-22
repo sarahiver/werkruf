@@ -1,11 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════
    WERKRUF — INDUSTRY CONFIG
-   
+
    Eine Variable ändert das komplette Look & Feel:
    Setze ACTIVE_INDUSTRY auf einen der Keys unten,
    ODER lass die Domain-Erkennung in IndustryContext.js
    automatisch die richtige Config wählen.
-   
+
    Für lokale Entwicklung: 'handwerk' | 'gastro' | 'beauty'
 ═══════════════════════════════════════════════════════════════ */
 export const ACTIVE_INDUSTRY = 'handwerk';

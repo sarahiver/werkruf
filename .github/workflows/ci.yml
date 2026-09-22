@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v5
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Leichte statische Prüfungen
+        run: |
+          git log -1 --check
+          node --check src/utils/healthScore.js
+          node --check src/utils/visibilityScore.js
+          npx tsc --project .github/tsconfig.score-mapping.json
+
+      - name: Tests
+        run: CI=true npm test -- --watchAll=false --runInBand
+
+      - name: Production-Build
+        run: CI=true npm run build

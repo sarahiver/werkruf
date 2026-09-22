@@ -126,7 +126,7 @@ export default function PathAPricingModal({
             </ScoreHighlight>
           )}
           <PricingCard
-            
+
             onCheckout={handleCheckout}
             loading={loading}
             companyName={companyName}
