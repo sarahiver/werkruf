@@ -4,12 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
+import { hasAdminRole } from '../utils/authorization';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
-
-// Admin email whitelist — add yours
-const ADMIN_EMAILS = ['ivergentz@gmail.com'];
 
 const Page = styled.div`
   min-height: 100vh; background: var(--color-bg);
@@ -149,9 +147,10 @@ export default function Admin() {
   const [leads,    setLeads]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
-  // Guard — admin only
-  const isAdmin = ADMIN_EMAILS.includes(user?.email);
+  // UI guard only. RLS is the authoritative permission check.
+  const isAdmin = hasAdminRole(user);
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
@@ -162,15 +161,21 @@ export default function Admin() {
 
   const loadData = async () => {
     setRefreshing(true);
+    setLoadError('');
     try {
-      const [{ data: p }, { data: l }] = await Promise.all([
+      const [profilesResult, leadsResult] = await Promise.all([
         supabase.from('user_profiles').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
-      setProfiles(p || []);
-      setLeads(l || []);
+      if (profilesResult.error) throw profilesResult.error;
+      if (leadsResult.error) throw leadsResult.error;
+      setProfiles(profilesResult.data || []);
+      setLeads(leadsResult.data || []);
     } catch (err) {
       console.error('Admin load error:', err);
+      setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
+      setProfiles([]);
+      setLeads([]);
     }
     setLoading(false);
     setRefreshing(false);
@@ -209,6 +214,7 @@ export default function Admin() {
       </TopBar>
 
       <Inner>
+        {loadError && <Empty>{loadError}</Empty>}
         {/* Stats */}
         <StatsGrid>
           <StatCard $color="var(--color-accent)" $d="0s">
