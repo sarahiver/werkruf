@@ -8,9 +8,6 @@ import supabase from '../supabaseClient';
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
 
-// Admin email whitelist — add yours
-const ADMIN_EMAILS = ['ivergentz@gmail.com'];
-
 const Page = styled.div`
   min-height: 100vh; background: var(--color-bg);
   padding: 0;
@@ -143,37 +140,46 @@ const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Admin() {
-  const { user, signOut } = useAuthContext();
+  const { isAdmin, signOut } = useAuthContext();
   const navigate          = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [leads,    setLeads]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Guard — admin only
-  const isAdmin = ADMIN_EMAILS.includes(user?.email);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    if (!user) { navigate('/login'); return; }
-    if (!isAdmin) { navigate('/dashboard'); return; }
+    if (!isAdmin) return;
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isAdmin, navigate]);
+  }, [isAdmin]);
 
   const loadData = async () => {
     setRefreshing(true);
+    setLoadError('');
     try {
-      const [{ data: p }, { data: l }] = await Promise.all([
+      const [
+        { data: p, error: profilesError },
+        { data: l, error: leadsError },
+      ] = await Promise.all([
         supabase.from('user_profiles').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
+
+      if (profilesError) throw profilesError;
+      if (leadsError) throw leadsError;
+
       setProfiles(p || []);
       setLeads(l || []);
     } catch (err) {
       console.error('Admin load error:', err);
+      setLoadError('Admin-Daten konnten nicht geladen werden. Bitte Berechtigung und Verbindung prüfen.');
+      setProfiles([]);
+      setLeads([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   };
 
   if (!isAdmin) return null;
@@ -209,6 +215,8 @@ export default function Admin() {
       </TopBar>
 
       <Inner>
+        {loadError && <Empty role="alert">{loadError}</Empty>}
+
         {/* Stats */}
         <StatsGrid>
           <StatCard $color="var(--color-accent)" $d="0s">
