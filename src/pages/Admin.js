@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
+import { hasAdminRole } from '../utils/authorization';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -182,7 +183,7 @@ export default function Admin() {
     }
   };
 
-  if (!isAdmin) return null;
+  if (authLoading || !isAdmin) return null;
 
   // Stats
   const total      = profiles.length;
