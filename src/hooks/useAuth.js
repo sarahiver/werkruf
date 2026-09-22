@@ -5,47 +5,9 @@ import supabase from '../supabaseClient';
    LEAD → PROFILE SYNC (non-blocking)
    Runs in background — never awaited in auth flow
 ───────────────────────────────────────────── */
-async function syncLeadToProfile(userId, email) {
-  if (!userId || !email) return;
-  try {
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('google_place_id')
-      .eq('id', userId)
-      .single();
-
-    if (profile?.google_place_id) return; // already synced
-
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('company_name, google_place_id, google_rating, google_review_count, visibility_score, city, industry_key')
-      .eq('email', email)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!lead) return;
-
-    const updates = {};
-    if (lead.company_name)        updates.company_name        = lead.company_name;
-    if (lead.google_place_id)     updates.google_place_id     = lead.google_place_id;
-    if (lead.google_rating)       updates.google_rating       = lead.google_rating;
-    if (lead.google_review_count) updates.google_review_count = lead.google_review_count;
-    if (lead.visibility_score)    updates.visibility_score    = lead.visibility_score;
-    if (lead.city)                updates.city                = lead.city;
-    if (lead.industry_key)        updates.industry_key        = lead.industry_key;
-
-    if (Object.keys(updates).length === 0) return;
-
-    await supabase.from('user_profiles').update(updates).eq('id', userId);
-    await supabase.from('leads')
-      .update({ status: 'converted' })
-      .eq('email', email)
-      .eq('status', 'new');
-
-  } catch (err) {
-    console.warn('Lead sync skipped:', err.message);
-  }
+async function syncLeadToProfile() {
+  const { error } = await supabase.rpc('claim_own_lead');
+  if (error) throw error;
 }
 
 /* ─────────────────────────────────────────────
@@ -133,7 +95,7 @@ export function useAuth() {
   useEffect(() => {
     if (user === undefined || user === null || syncedRef.current) return;
     syncedRef.current = true;
-    syncLeadToProfile(user.id, user.email)
+    syncLeadToProfile()
       .then(() => fetchProfile(user.id))
       .catch((err) => console.warn('[useAuth] Lead-Sync:', err?.message));
   }, [user?.id, user, fetchProfile]);
