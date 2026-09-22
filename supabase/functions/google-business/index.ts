@@ -24,6 +24,10 @@
 ═══════════════════════════════════════════════════════════════════════════ */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import {
+  mapGoogleLocationFields,
+  type GoogleLocationForPersistence,
+} from './location-mapper.ts';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -127,14 +131,8 @@ interface GbpAccount {
   verificationState?: string;
 }
 
-interface GbpLocation {
+interface GbpLocation extends GoogleLocationForPersistence {
   name: string;
-  title?: string;
-  storefrontAddress?: Record<string, unknown>;
-  phoneNumbers?: { primaryPhone?: string };
-  websiteUri?: string;
-  categories?: { primaryCategory?: { displayName?: string } };
-  metadata?: { placeId?: string };
 }
 
 /* ── Reviews (Legacy-v4-API, siehe Abschnitt 10) ── */
@@ -2391,7 +2389,7 @@ class LocationSyncService {
        trennen und Verschwundenes zu erkennen. */
     const { data: existingRows, error: existingError } = await this.db
       .from('google_locations')
-      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, place_id, deleted_at')
+      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, primary_category, place_id, deleted_at')
       .eq('account_id', accountId);
 
     if (existingError) {
@@ -2418,21 +2416,7 @@ class LocationSyncService {
         seen.add(location.name);
         const prior = existing.get(location.name);
 
-        const address = location.storefrontAddress as {
-          addressLines?: string[]; locality?: string;
-          postalCode?: string; regionCode?: string;
-        } | undefined;
-
-        const fields = {
-          title:            location.title ?? null,
-          address:          address?.addressLines?.join(', ') ?? null,
-          locality:         address?.locality ?? null,
-          postal_code:      address?.postalCode ?? null,
-          region_code:      address?.regionCode ?? null,
-          primary_phone:    location.phoneNumbers?.primaryPhone ?? null,
-          website_uri:      location.websiteUri ?? null,
-          place_id:         location.metadata?.placeId ?? null,
-        };
+        const fields = mapGoogleLocationFields(location);
 
         if (prior) {
           // Nur schreiben, wenn sich etwas geändert hat. Sonst würde
@@ -3547,8 +3531,8 @@ function assignChannels(
 const HEALTH_WEIGHTS = {
   responseRate: 30,
   rating:       25,
-  completeness: 20,
-  recency:      15,
+  recency:      20,
+  completeness: 15,
   photos:       10,
 } as const;
 
@@ -3572,32 +3556,25 @@ interface HealthScoreResult {
   recommendedImprovement: string | null;
 }
 
-function computeHealthScore(facts: Facts, t: (key: string) => number): HealthScoreResult {
-  const factors: HealthFactor[] = [];
-
-  const push = (id: keyof typeof HEALTH_WEIGHTS, label: string, ratio: number) => {
-    const max = HEALTH_WEIGHTS[id];
-    const bounded = Math.max(0, Math.min(1, ratio));
-    factors.push({ id, label, points: Math.round(bounded * max), max, ratio: bounded });
+function computeHealthScore(facts: Facts): HealthScoreResult {
+  /* public.compute_health_score() hat die Punkte bereits im selben
+     Evaluation-Context berechnet. Die Engine stellt sie nur dar und
+     darf weder Gewichte noch Standortauswahl ein zweites Mal deuten. */
+  const labels: Record<keyof typeof HEALTH_WEIGHTS, string> = {
+    responseRate: 'Antwortquote',
+    rating: 'Durchschnittsbewertung',
+    recency: 'Aktualität',
+    completeness: 'Profilangaben',
+    photos: 'Fotos',
   };
+  const factors = (Object.keys(HEALTH_WEIGHTS) as Array<keyof typeof HEALTH_WEIGHTS>)
+    .map((id) => {
+      const max = HEALTH_WEIGHTS[id];
+      const points = Math.max(0, Math.min(max, Number(facts.health.factors[id] ?? 0)));
+      return { id, label: labels[id], points, max, ratio: points / max };
+    });
 
-  push('responseRate', 'Antwortquote', facts.reviews.responseRate ?? 0);
-
-  /* 3,0 gibt null Punkte, 5,0 die vollen. Darunter zu differenzieren
-     bringt nichts — ein Profil mit 2,1 statt 2,8 hat dasselbe
-     Problem. */
-  push('rating', 'Durchschnittsbewertung',
-    facts.reviews.averageRating === null ? 0 : (facts.reviews.averageRating - 3) / 2);
-
-  push('completeness', 'Profilangaben', facts.profile.completeness);
-
-  const days = facts.reviews.daysSinceNewest;
-  push('recency', 'Aktualität',
-    days === null ? 0 : days <= 30 ? 1 : days <= 90 ? 0.7 : days <= 180 ? 0.4 : 0);
-
-  push('photos', 'Fotos', facts.profile.photoCount / t('profile.photos_target'));
-
-  const score = factors.reduce((sum, f) => sum + f.points, 0);
+  const score = facts.health.score;
   const previous = facts.health.previous;
 
   const sorted = [...factors].sort((a, b) => a.ratio - b.ratio);
@@ -3753,7 +3730,7 @@ function evaluate(facts: Facts, thresholds: Thresholds): EngineResult {
 
   recommendations.sort((a, b) => b.weight - a.weight);
 
-  return { facts, insights, recommendations, health: computeHealthScore(facts, t) };
+  return { facts, insights, recommendations, health: computeHealthScore(facts) };
 }
 
 /** Übersetzt in das Format, das sync_events erwartet. */
