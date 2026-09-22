@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
+import { isAdminUser } from '../utils/authRoles';
 
 /* ─────────────────────────────────────────────
    LEAD → PROFILE SYNC (non-blocking)
@@ -164,5 +165,6 @@ export function useAuth() {
     signOut,
     refreshProfile,
     isAuthenticated: !!user && user !== undefined,
+    isAdmin: isAdminUser(user),
   };
 }

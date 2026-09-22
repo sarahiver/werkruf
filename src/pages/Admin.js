@@ -141,7 +141,7 @@ const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Admin() {
-  const { user, signOut } = useAuthContext();
+  const { isAdmin, signOut } = useAuthContext();
   const navigate          = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [leads,    setLeads]    = useState([]);
@@ -153,11 +153,10 @@ export default function Admin() {
   const isAdmin = hasAdminRole(user);
 
   useEffect(() => {
-    if (!user) { navigate('/login'); return; }
-    if (!isAdmin) { navigate('/dashboard'); return; }
+    if (!isAdmin) return;
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isAdmin, navigate]);
+  }, [isAdmin]);
 
   const loadData = async () => {
     setRefreshing(true);
@@ -177,11 +176,9 @@ export default function Admin() {
       setProfiles([]);
       setLeads([]);
     }
-    setLoading(false);
-    setRefreshing(false);
   };
 
-  if (!isAdmin) return null;
+  if (authLoading || !isAdmin) return null;
 
   // Stats
   const total      = profiles.length;
