@@ -24,6 +24,10 @@
 ═══════════════════════════════════════════════════════════════════════════ */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import {
+  mapGoogleLocationFields,
+  type GoogleLocationForPersistence,
+} from './location-mapper.ts';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -127,14 +131,8 @@ interface GbpAccount {
   verificationState?: string;
 }
 
-interface GbpLocation {
+interface GbpLocation extends GoogleLocationForPersistence {
   name: string;
-  title?: string;
-  storefrontAddress?: Record<string, unknown>;
-  phoneNumbers?: { primaryPhone?: string };
-  websiteUri?: string;
-  categories?: { primaryCategory?: { displayName?: string } };
-  metadata?: { placeId?: string };
 }
 
 /* ── Reviews (Legacy-v4-API, siehe Abschnitt 10) ── */
@@ -2391,7 +2389,7 @@ class LocationSyncService {
        trennen und Verschwundenes zu erkennen. */
     const { data: existingRows, error: existingError } = await this.db
       .from('google_locations')
-      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, place_id, deleted_at')
+      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, primary_category, place_id, deleted_at')
       .eq('account_id', accountId);
 
     if (existingError) {
@@ -2418,21 +2416,7 @@ class LocationSyncService {
         seen.add(location.name);
         const prior = existing.get(location.name);
 
-        const address = location.storefrontAddress as {
-          addressLines?: string[]; locality?: string;
-          postalCode?: string; regionCode?: string;
-        } | undefined;
-
-        const fields = {
-          title:            location.title ?? null,
-          address:          address?.addressLines?.join(', ') ?? null,
-          locality:         address?.locality ?? null,
-          postal_code:      address?.postalCode ?? null,
-          region_code:      address?.regionCode ?? null,
-          primary_phone:    location.phoneNumbers?.primaryPhone ?? null,
-          website_uri:      location.websiteUri ?? null,
-          place_id:         location.metadata?.placeId ?? null,
-        };
+        const fields = mapGoogleLocationFields(location);
 
         if (prior) {
           // Nur schreiben, wenn sich etwas geändert hat. Sonst würde
