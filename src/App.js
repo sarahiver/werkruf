@@ -6,6 +6,7 @@ import { IndustryProvider } from './context/IndustryContext';
 import { AuthProvider }     from './context/AuthContext';
 import ThemeInjector        from './components/ThemeInjector';
 import ProtectedRoute       from './components/auth/ProtectedRoute';
+import AdminRoute           from './components/auth/AdminRoute';
 
 /* Global shell */
 import GlobalStyle from './components/GlobalStyle';
@@ -116,7 +117,11 @@ function App() {
 
             {/* ── STANDALONE (ohne PublicLayout) ── */}
             <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin" element={
+              <AdminRoute>
+                <Admin />
+              </AdminRoute>
+            } />
 
             {/* ── 404 ──
                  Muss die LETZTE Route bleiben. Vorher standen hier zwei
