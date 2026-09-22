@@ -54,7 +54,7 @@ export function IndustryProvider({ children }) {
 
 /* ─────────────────────────────────────────────
    HOOK — use anywhere in the component tree
-   
+
    const industry = useIndustry();
    const { colors, copy, pricing, places } = useIndustry();
 ───────────────────────────────────────────── */

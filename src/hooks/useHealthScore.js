@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { calculateHealthScoreInputs, HEALTH_WEIGHTS as WEIGHTS } from '../utils/healthScore';
 
 /* ─────────────────────────────────────────────
    useHealthScore
@@ -38,14 +39,6 @@ import { useMemo } from 'react';
    obwohl sie wichtiger wirkt: Sie lässt sich kurzfristig kaum ändern,
    und ein Wert, den man nicht beeinflussen kann, gehört nicht in ein
    Werkzeug, das zu Handlungen führen soll. */
-const WEIGHTS = {
-  responseRate: 30,
-  rating:       25,
-  recency:      20,
-  completeness: 15,
-  photos:       10,
-};
-
 export function useHealthScore({ stats, locations, replyCounts, loading }) {
   return useMemo(() => {
     if (loading || !stats) {
@@ -53,13 +46,12 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     }
 
     const factors = [];
-    const total = stats.totalReviews ?? 0;
+    const location = locations?.[0];
+    const canonical = calculateHealthScoreInputs({ stats, location });
+    const { total, answered, responseRate: rate } = canonical;
 
     /* ── 1. Antwortquote ──
        Quelle: google_reviews.is_answered */
-    const answered = total - (stats.unanswered ?? 0);
-    const rate = total > 0 ? answered / total : null;
-
     if (total === 0) {
       factors.push({
         id: 'responseRate',
@@ -69,7 +61,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
         action: null,
       });
     } else {
-      const points = Math.round(rate * WEIGHTS.responseRate);
+      const points = canonical.points.responseRate;
       factors.push({
         id: 'responseRate',
         label: 'Antworten auf Bewertungen',
@@ -89,7 +81,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
        Unter 3,0 gibt es keine Punkte, aber der Text bleibt sachlich:
        eine schlechte Bewertungslage lässt sich nicht wegoptimieren,
        und Schuldzuweisungen helfen niemandem. */
-    const rating = stats.averageRating;
+    const rating = canonical.rating;
     if (rating === null || rating === undefined) {
       factors.push({
         id: 'rating',
@@ -99,12 +91,10 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
         action: 'Kunden nach einer Bewertung fragen',
       });
     } else {
-      // 3,0 = 0 Punkte, 5,0 = volle Punkte. Linear dazwischen.
-      const normalized = Math.max(0, Math.min(1, (rating - 3) / 2));
       factors.push({
         id: 'rating',
         label: 'Durchschnittsbewertung',
-        points: Math.round(normalized * WEIGHTS.rating),
+        points: canonical.points.rating,
         max: WEIGHTS.rating,
         verdict:
           rating >= 4.7 ? `${rating.toFixed(1)} von 5 — kaum zu verbessern.`
@@ -121,8 +111,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
        Der Faktor, den fast niemand kennt: Ein Profil, dessen letzte
        Bewertung anderthalb Jahre alt ist, wirkt aufgegeben — auch bei
        fünf Sternen. */
-    const newest = stats.newestReviewAt ? new Date(stats.newestReviewAt) : null;
-    const daysSince = newest ? Math.floor((Date.now() - newest.getTime()) / 864e5) : null;
+    const daysSince = canonical.daysSinceNewest;
 
     if (daysSince === null) {
       factors.push({
@@ -133,10 +122,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
         action: 'Bewertungslink an Kunden geben',
       });
     } else {
-      const points =
-        daysSince <= 30  ? WEIGHTS.recency :
-        daysSince <= 90  ? Math.round(WEIGHTS.recency * 0.7) :
-        daysSince <= 180 ? Math.round(WEIGHTS.recency * 0.4) : 0;
+      const points = canonical.points.recency;
       factors.push({
         id: 'recency',
         label: 'Letzte Bewertung',
@@ -153,15 +139,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     /* ── 4. Vollständigkeit der Angaben ──
        Quelle: google_locations — die Felder, die der Standort-Sync
        tatsächlich befüllt. Nichts geschätzt. */
-    const location = locations?.[0];
-    const fields = location ? [
-      ['Telefonnummer', location.primary_phone],
-      ['Website',       location.website_uri],
-      ['Adresse',       location.locality],
-      ['Kategorie',     location.primary_category],
-    ] : [];
-    const filled = fields.filter(([, value]) => !!value);
-    const missing = fields.filter(([, value]) => !value).map(([name]) => name);
+    const missing = canonical.missingFields;
 
     if (!location) {
       factors.push({
@@ -175,7 +153,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
       factors.push({
         id: 'completeness',
         label: 'Profilangaben',
-        points: Math.round((filled.length / fields.length) * WEIGHTS.completeness),
+        points: canonical.points.completeness,
         max: WEIGHTS.completeness,
         verdict: missing.length === 0
           ? 'Alle Grundangaben sind hinterlegt.'
@@ -188,11 +166,11 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
        Quelle: business_photos. Google nennt keine Mindestzahl; fünf
        ist ein Erfahrungswert, kein offizieller Grenzwert — deshalb
        steht im Text auch keine Behauptung über Rankingwirkung. */
-    const photoCount = stats.photoCount ?? 0;
+    const photoCount = canonical.photoCount;
     factors.push({
       id: 'photos',
       label: 'Fotos',
-      points: Math.round(Math.min(photoCount / 5, 1) * WEIGHTS.photos),
+      points: canonical.points.photos,
       max: WEIGHTS.photos,
       verdict:
         photoCount === 0 ? 'Keine Fotos hinterlegt. Profile ohne Bilder werden seltener angeklickt.'
@@ -202,7 +180,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     });
 
     /* ── Gesamt ── */
-    const score = factors.reduce((sum, f) => sum + f.points, 0);
+    const score = canonical.score;
     const level = score >= 75 ? 'good' : score >= 50 ? 'ok' : 'weak';
 
     /* Die Begründung nennt den schwächsten Faktor, nicht alle.
