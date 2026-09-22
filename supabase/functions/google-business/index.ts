@@ -3531,8 +3531,8 @@ function assignChannels(
 const HEALTH_WEIGHTS = {
   responseRate: 30,
   rating:       25,
-  completeness: 20,
-  recency:      15,
+  recency:      20,
+  completeness: 15,
   photos:       10,
 } as const;
 
@@ -3556,32 +3556,25 @@ interface HealthScoreResult {
   recommendedImprovement: string | null;
 }
 
-function computeHealthScore(facts: Facts, t: (key: string) => number): HealthScoreResult {
-  const factors: HealthFactor[] = [];
-
-  const push = (id: keyof typeof HEALTH_WEIGHTS, label: string, ratio: number) => {
-    const max = HEALTH_WEIGHTS[id];
-    const bounded = Math.max(0, Math.min(1, ratio));
-    factors.push({ id, label, points: Math.round(bounded * max), max, ratio: bounded });
+function computeHealthScore(facts: Facts): HealthScoreResult {
+  /* public.compute_health_score() hat die Punkte bereits im selben
+     Evaluation-Context berechnet. Die Engine stellt sie nur dar und
+     darf weder Gewichte noch Standortauswahl ein zweites Mal deuten. */
+  const labels: Record<keyof typeof HEALTH_WEIGHTS, string> = {
+    responseRate: 'Antwortquote',
+    rating: 'Durchschnittsbewertung',
+    recency: 'Aktualität',
+    completeness: 'Profilangaben',
+    photos: 'Fotos',
   };
+  const factors = (Object.keys(HEALTH_WEIGHTS) as Array<keyof typeof HEALTH_WEIGHTS>)
+    .map((id) => {
+      const max = HEALTH_WEIGHTS[id];
+      const points = Math.max(0, Math.min(max, Number(facts.health.factors[id] ?? 0)));
+      return { id, label: labels[id], points, max, ratio: points / max };
+    });
 
-  push('responseRate', 'Antwortquote', facts.reviews.responseRate ?? 0);
-
-  /* 3,0 gibt null Punkte, 5,0 die vollen. Darunter zu differenzieren
-     bringt nichts — ein Profil mit 2,1 statt 2,8 hat dasselbe
-     Problem. */
-  push('rating', 'Durchschnittsbewertung',
-    facts.reviews.averageRating === null ? 0 : (facts.reviews.averageRating - 3) / 2);
-
-  push('completeness', 'Profilangaben', facts.profile.completeness);
-
-  const days = facts.reviews.daysSinceNewest;
-  push('recency', 'Aktualität',
-    days === null ? 0 : days <= 30 ? 1 : days <= 90 ? 0.7 : days <= 180 ? 0.4 : 0);
-
-  push('photos', 'Fotos', facts.profile.photoCount / t('profile.photos_target'));
-
-  const score = factors.reduce((sum, f) => sum + f.points, 0);
+  const score = facts.health.score;
   const previous = facts.health.previous;
 
   const sorted = [...factors].sort((a, b) => a.ratio - b.ratio);
@@ -3737,7 +3730,7 @@ function evaluate(facts: Facts, thresholds: Thresholds): EngineResult {
 
   recommendations.sort((a, b) => b.weight - a.weight);
 
-  return { facts, insights, recommendations, health: computeHealthScore(facts, t) };
+  return { facts, insights, recommendations, health: computeHealthScore(facts) };
 }
 
 /** Übersetzt in das Format, das sync_events erwartet. */
