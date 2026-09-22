@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
+import { isAdminUser } from '../utils/authRoles';
 
 /* ─────────────────────────────────────────────
    LEAD → PROFILE SYNC (non-blocking)
    Runs in background — never awaited in auth flow
 ───────────────────────────────────────────── */
 async function syncLeadToProfile() {
-  const { error } = await supabase.rpc('claim_own_lead');
-  if (error) throw error;
+  try {
+    const { error } = await supabase.rpc('claim_own_lead');
+    if (error) throw error;
+  } catch (err) {
+    console.warn('Lead sync skipped:', err?.message);
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -164,5 +169,6 @@ export function useAuth() {
     signOut,
     refreshProfile,
     isAuthenticated: !!user && user !== undefined,
+    isAdmin: isAdminUser(user),
   };
 }

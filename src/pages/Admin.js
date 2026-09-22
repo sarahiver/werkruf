@@ -141,7 +141,7 @@ const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Admin() {
-  const { user, signOut, loading: authLoading } = useAuthContext();
+  const { isAdmin, signOut } = useAuthContext();
   const navigate          = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [leads,    setLeads]    = useState([]);
@@ -149,37 +149,38 @@ export default function Admin() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  // UI guard only. RLS is the authoritative permission check.
-  const isAdmin = hasAdminRole(user);
-
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate('/login'); return; }
-    if (!isAdmin) { navigate('/dashboard'); return; }
+    if (!isAdmin) return;
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isAdmin, authLoading, navigate]);
+  }, [isAdmin]);
 
   const loadData = async () => {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [profilesResult, leadsResult] = await Promise.all([
+      const [
+        { data: p, error: profilesError },
+        { data: l, error: leadsError },
+      ] = await Promise.all([
         supabase.from('user_profiles').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
-      if (profilesResult.error) throw profilesResult.error;
-      if (leadsResult.error) throw leadsResult.error;
-      setProfiles(profilesResult.data || []);
-      setLeads(leadsResult.data || []);
+
+      if (profilesError) throw profilesError;
+      if (leadsError) throw leadsError;
+
+      setProfiles(p || []);
+      setLeads(l || []);
     } catch (err) {
       console.error('Admin load error:', err);
-      setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
+      setLoadError('Admin-Daten konnten nicht geladen werden. Bitte Berechtigung und Verbindung prüfen.');
       setProfiles([]);
       setLeads([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   };
 
   if (authLoading || !isAdmin) return null;
@@ -215,7 +216,8 @@ export default function Admin() {
       </TopBar>
 
       <Inner>
-        {loadError && <Empty>{loadError}</Empty>}
+        {loadError && <Empty role="alert">{loadError}</Empty>}
+
         {/* Stats */}
         <StatsGrid>
           <StatCard $color="var(--color-accent)" $d="0s">
