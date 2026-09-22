@@ -17,6 +17,9 @@ import supabase from '../supabaseClient';
    @property {string}  id
    @property {?string} title
    @property {?string} locality
+   @property {?string} primary_phone
+   @property {?string} website_uri
+   @property {?string} primary_category
    @property {number}  review_count
    @property {?number} average_rating
    @property {?string} last_synced_at
@@ -48,7 +51,7 @@ export function useGoogleBusinessData() {
       ] = await Promise.all([
         supabase
           .from('google_locations')
-          .select('id, title, locality, place_id, review_count, average_rating, last_synced_at, is_primary')
+          .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary')
           .order('is_primary', { ascending: false })
           .order('title', { ascending: true }),
 
