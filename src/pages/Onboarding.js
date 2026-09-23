@@ -132,6 +132,13 @@ const ScoreLabel = styled.p`
   color: var(--color-text-muted); margin-top: 6px;
 `;
 
+const ErrorBanner = styled.div`
+  margin: 14px 0 0; padding: 11px 14px;
+  background: #FDECEA; border-left: 3px solid #D93025;
+  border-radius: var(--radius-card); color: #B3261E;
+  font-family: var(--font-body); font-size: .82rem; line-height: 1.5;
+`;
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
@@ -145,6 +152,26 @@ export default function Onboarding() {
   const [saving,   setSaving]   = useState(false);
   const [score,    setScore]    = useState(null);
   const [showManual, setShowManual] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const saveSelection = async (result, calculatedScore) => {
+    if (!user?.id) throw new Error('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
+
+    const city = extractCity(result.addressComponents || []);
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({
+        google_place_id:     result.placeId,
+        company_name:        result.name,
+        city,
+        google_rating:       result.rating      || null,
+        google_review_count: result.reviewCount || null,
+        visibility_score:    calculatedScore,
+      })
+      .eq('id', user.id);
+
+    if (error) throw error;
+  };
 
   const handlePlaceSelect = async (result) => {
     if (!result) return;
@@ -158,44 +185,45 @@ export default function Onboarding() {
     });
     setScore(s);
     setStep(3);
+    setSaveError('');
 
     // Save to profile
     setSaving(true);
     try {
-      const city = extractCity(result.addressComponents || []);
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (token && user?.id) {
-        await fetch(
-          `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/user_profiles?id=eq.${user.id}`,
-          {
-            method: 'PATCH',
-            headers: {
-              'Content-Type':  'application/json',
-              'apikey':        process.env.REACT_APP_SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${token}`,
-              'Prefer':        'return=minimal',
-            },
-            body: JSON.stringify({
-              google_place_id:     result.placeId,
-              company_name:        result.name,
-              city,
-              google_rating:       result.rating      || null,
-              google_review_count: result.reviewCount || null,
-              visibility_score:    s,
-            }),
-          }
-        );
-      }
+      await saveSelection(result, s);
     } catch (err) {
       console.error('Onboarding save error:', err);
+      setSaveError('Dein Betrieb konnte nicht gespeichert werden. Bitte versuche es erneut.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
+  };
+
+  const retrySave = async () => {
+    if (!selected || score === null) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await saveSelection(selected, score);
+    } catch (err) {
+      console.error('Onboarding retry error:', err);
+      setSaveError('Speichern weiterhin nicht möglich. Deine Auswahl bleibt erhalten.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const goToDashboard = async () => {
-    await refreshProfile();
-    navigate('/dashboard');
+    if (saveError) return;
+    setSaving(true);
+    try {
+      await refreshProfile();
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Profile refresh error:', err);
+      setSaveError('Dein Profil konnte nicht geladen werden. Bitte versuche es erneut.');
+      setSaving(false);
+    }
   };
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'dir';
@@ -309,12 +337,21 @@ export default function Onboarding() {
               </p>
             </ScorePreview>
 
-            <NextBtn onClick={goToDashboard} disabled={saving}>
+            <NextBtn onClick={goToDashboard} disabled={saving || !!saveError}>
               {saving
                 ? <><span className="spin">◌</span> Wird gespeichert…</>
                 : <>Dashboard öffnen <ArrowRight size={16} /></>
               }
             </NextBtn>
+
+            {saveError && (
+              <ErrorBanner role="alert">
+                {saveError}
+                <NextBtn type="button" $ghost onClick={retrySave} disabled={saving}>
+                  {saving ? 'Speichert erneut…' : 'Erneut speichern'}
+                </NextBtn>
+              </ErrorBanner>
+            )}
 
             <p style={{ fontFamily: 'var(--font-body)', fontSize: '.72rem',
               color: '#A0ADB8', textAlign: 'center', marginTop: 10 }}>
