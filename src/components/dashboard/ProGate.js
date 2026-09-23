@@ -4,6 +4,7 @@ import { Lock, ArrowRight, CheckCircle, Zap } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
+import { hasPaidAccess } from '../../utils/subscription';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}`;
 const float  = keyframes`0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}`;
@@ -88,6 +89,11 @@ const Note = styled.p`
   color: var(--color-text-muted); margin-top: 12px; line-height: 1.5;
 `;
 
+const ErrorText = styled.p`
+  margin-top: 12px; color: #B3261E; font-family: var(--font-body);
+  font-size: .8rem; line-height: 1.45;
+`;
+
 const PRO_FEATURES = [
   'Google Bewertungen verwalten & beantworten',
   'KI-Antwort-Assistent (Claude)',
@@ -109,12 +115,25 @@ const PRO_FEATURES = [
      </ProGate>
 ───────────────────────────────────────────── */
 export default function ProGate({ children, feature }) {
-  const { profile } = useAuthContext();
+  const { profile, profileLoading, profileError, refreshProfile } = useAuthContext();
   const { pricing } = useIndustry();
-  const { startCheckout, loading } = useCheckout();
+  const { startCheckout, loading, error } = useCheckout();
 
-  const plan   = profile?.plan || 'free';
-  const isPro  = plan === 'pro' || plan === 'trial';
+  const isPro = hasPaidAccess(profile);
+
+  if (profileLoading) {
+    return <Overlay><Card role="status">Abo-Status wird geladen…</Card></Overlay>;
+  }
+
+  if (profileError) {
+    return (
+      <Overlay><Card>
+        <Title>Abo-Status nicht verfügbar</Title>
+        <Sub>{profileError}</Sub>
+        <CTABtn type="button" onClick={() => refreshProfile()}>Erneut laden</CTABtn>
+      </Card></Overlay>
+    );
+  }
 
   // Allow access for pro/trial users
   if (isPro) return children;
@@ -161,6 +180,7 @@ export default function ProGate({ children, feature }) {
         <Note>
           Danach {pricing?.monthlyPrice || 49}€/Monat · monatlich kündbar · kein Jahresvertrag
         </Note>
+        {error && <ErrorText role="alert">{error}</ErrorText>}
       </Card>
     </Overlay>
   );

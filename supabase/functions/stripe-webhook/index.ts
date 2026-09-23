@@ -261,7 +261,10 @@ async function resolveUserId(
 function mapStatusToPlan(status: Stripe.Subscription.Status): string {
   switch (status) {
     case 'active':             return 'pro';
-    case 'trialing':           return 'trial';
+    // user_profiles_plan_check only permits free/starter/pro in the
+    // production schema. Trial is represented by Stripe's authoritative
+    // subscription status plus trial_ends_at, while product access is pro.
+    case 'trialing':           return 'pro';
     case 'past_due':           return 'pro';      // Zugang halten, Mahnung laeuft
     case 'canceled':
     case 'unpaid':
@@ -270,6 +273,15 @@ function mapStatusToPlan(status: Stripe.Subscription.Status): string {
     case 'paused':             return 'free';
     default:                   return 'free';
   }
+}
+
+async function updateProfile(
+  supabase: SupabaseClient,
+  userId: string,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabase.from('user_profiles').update(values).eq('id', userId);
+  if (error) throw error;
 }
 
 /* ═════════════════════════════════════════════
@@ -327,13 +339,19 @@ serve(async (req) => {
   if (insertError) {
     // 23505 = unique_violation → bereits verarbeitet, sauberer Fall
     if (insertError.code === '23505') {
-      console.log(`[stripe-webhook] Event ${event.id} bereits verarbeitet — uebersprungen`);
-      return json({ received: true, duplicate: true }, 200);
+      const { data: previous, error: lookupError } = await supabase
+        .from('stripe_events').select('processed_at').eq('id', event.id).maybeSingle();
+      if (lookupError) return json({ error: 'Idempotency check failed' }, 500);
+      if (previous?.processed_at) {
+        console.log(`[stripe-webhook] Event ${event.id} bereits verarbeitet — uebersprungen`);
+        return json({ received: true, duplicate: true }, 200);
+      }
+      // The first delivery is still running (or failed before cleanup).
+      // A non-2xx response makes Stripe retry instead of losing the event.
+      return json({ error: 'Event is already being processed' }, 409);
     }
-    // Andere Fehler (z. B. Tabelle fehlt): laut protokollieren, aber
-    // weiterverarbeiten. Ein fehlender Idempotenzschutz ist schlechter
-    // als gar keine Verarbeitung.
     console.error('[stripe-webhook] stripe_events nicht beschreibbar:', insertError);
+    return json({ error: 'Idempotency storage unavailable' }, 500);
   }
 
   console.log(`[stripe-webhook] Event: ${event.type} (${event.id})`);
@@ -369,10 +387,7 @@ serve(async (req) => {
         }
 
         if (customerId) {
-          await supabase
-            .from('user_profiles')
-            .update({ stripe_customer_id: customerId })
-            .eq('id', userId);
+          await updateProfile(supabase, userId, { stripe_customer_id: customerId });
         }
 
         console.log(`✓ Checkout abgeschlossen fuer User ${userId}, Plan ${meta.plan_type || '?'}`);
@@ -392,7 +407,10 @@ serve(async (req) => {
       ───────────────────────────────────────────── */
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const sub        = event.data.object as Stripe.Subscription;
+        const eventSub   = event.data.object as Stripe.Subscription;
+        // Stripe does not guarantee delivery order. Reading the current object
+        // prevents an older `created` event from restoring access after cancel.
+        const sub        = await stripe.subscriptions.retrieve(eventSub.id);
         const meta       = (sub.metadata || {}) as Record<string, string>;
         const customerId = sub.customer as string | null;
 
@@ -406,9 +424,7 @@ serve(async (req) => {
 
         const plan = mapStatusToPlan(sub.status);
 
-        await supabase
-          .from('user_profiles')
-          .update({
+        await updateProfile(supabase, userId, {
             plan,
             stripe_customer_id:         customerId,
             stripe_subscription_id:     sub.id,
@@ -419,8 +435,9 @@ serve(async (req) => {
             trial_ends_at: sub.trial_end
               ? new Date(sub.trial_end * 1000).toISOString()
               : null,
-          })
-          .eq('id', userId);
+            stripe_cancel_at_period_end: sub.cancel_at_period_end,
+            stripe_current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          });
 
         console.log(`✓ ${event.type}: User ${userId} → status ${sub.status}, plan ${plan}`);
         break;
@@ -442,14 +459,16 @@ serve(async (req) => {
           break;
         }
 
-        await supabase
-          .from('user_profiles')
-          .update({
+        await updateProfile(supabase, userId, {
             plan:                       'free',
+            stripe_subscription_id:     sub.id,
             stripe_subscription_status: 'canceled',
+            stripe_cancel_at_period_end: false,
+            stripe_current_period_end: sub.current_period_end
+              ? new Date(sub.current_period_end * 1000).toISOString()
+              : null,
             trial_ends_at:              null,
-          })
-          .eq('id', userId);
+          });
 
         console.log(`✓ Abo beendet fuer User ${userId}`);
         break;
@@ -476,10 +495,7 @@ serve(async (req) => {
           break;
         }
 
-        await supabase
-          .from('user_profiles')
-          .update({ stripe_subscription_status: 'past_due' })
-          .eq('id', profile.id);
+        await updateProfile(supabase, profile.id, { stripe_subscription_status: 'past_due' });
 
         console.log(`⚠ Zahlung fehlgeschlagen: User ${profile.id}, customer ${customerId}`);
 
@@ -514,10 +530,10 @@ serve(async (req) => {
               html,
             });
 
-            await supabase.from('user_profiles').update({
+            await updateProfile(supabase, profile.id, {
               last_notification_step: 'payment_failed',
               last_email_sent_at:     new Date().toISOString(),
-            }).eq('id', profile.id);
+            });
           }
         } catch (emailErr) {
           console.error('[stripe-webhook] Mailfehler (nicht kritisch):', emailErr);
@@ -530,14 +546,17 @@ serve(async (req) => {
         console.log(`[stripe-webhook] Nicht behandelt: ${event.type}`);
     }
 
+    if (handlerError) throw new Error(handlerError);
+
     /* ── Verarbeitung protokollieren ── */
-    await supabase
+    const { error: finishError } = await supabase
       .from('stripe_events')
       .update({
         processed_at:  new Date().toISOString(),
         error_message: handlerError,
       })
       .eq('id', event.id);
+    if (finishError) throw finishError;
 
     return json({ received: true }, 200);
 
@@ -545,15 +564,13 @@ serve(async (req) => {
     const message = (err as Error).message;
     console.error('[stripe-webhook] Handler-Fehler:', err);
 
-    await supabase
-      .from('stripe_events')
-      .update({ error_message: message })
-      .eq('id', event.id);
+    // Release the claim. All business updates above are idempotent, so a
+    // Stripe retry can safely complete instead of being mistaken for a
+    // successfully processed duplicate.
+    const { error: releaseError } = await supabase
+      .from('stripe_events').delete().eq('id', event.id).is('processed_at', null);
+    if (releaseError) console.error('[stripe-webhook] Event-Claim nicht freigegeben:', releaseError);
 
-    // 500 loest einen Stripe-Retry aus. Der Idempotenz-Eintrag bleibt
-    // ohne processed_at stehen — sichtbar in ops_stripe_events. Der Retry
-    // wird allerdings am Primaerschluessel abgewiesen; bei echten Fehlern
-    // also manuell nacharbeiten und die Zeile loeschen.
     return json({ error: message }, 500);
   }
 });

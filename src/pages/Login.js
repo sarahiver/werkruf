@@ -173,7 +173,11 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     setError(''); setLoading(true);
-    await signInGoogle();
+    const { error: oauthError } = await signInGoogle(from);
+    if (oauthError) {
+      setError(oauthError.message || 'Google-Anmeldung konnte nicht gestartet werden.');
+      setLoading(false);
+    }
   };
 
   return (

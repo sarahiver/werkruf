@@ -3820,6 +3820,42 @@ CREATE VIEW public.ops_engine_versions AS
 
 
 --
+-- Name: user_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_profiles (
+    id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    full_name text,
+    company_name text,
+    phone text,
+    trade text,
+    city text,
+    plan text DEFAULT 'free'::text NOT NULL,
+    avatar_url text,
+    industry_key text DEFAULT 'handwerk'::text NOT NULL,
+    trial_started_at timestamp with time zone,
+    trial_ends_at timestamp with time zone,
+    google_place_id text,
+    google_rating numeric(3,1),
+    google_review_count integer,
+    visibility_score integer,
+    gmb_account_id text,
+    updated_at timestamp with time zone DEFAULT now(),
+    stripe_customer_id text,
+    stripe_subscription_id text,
+    stripe_subscription_status text,
+    setup_fee_paid boolean DEFAULT false,
+    setup_fee_paid_at timestamp with time zone,
+    last_notification_step text,
+    last_email_sent_at timestamp with time zone,
+    email_opt_out boolean DEFAULT false,
+    path_type text,
+    CONSTRAINT user_profiles_plan_check CHECK ((plan = ANY (ARRAY['free'::text, 'starter'::text, 'pro'::text])))
+);
+
+
+--
 -- Name: weekly_snapshots; Type: TABLE; Schema: public; Owner: -
 --
 

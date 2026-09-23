@@ -9,6 +9,7 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
+import { isCancellationScheduled } from '../../utils/subscription';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -144,6 +145,7 @@ export default function DashboardSettings() {
   const [portalError,   setPortalError]   = useState('');
 
   const plan              = profile?.plan || 'free';
+  const isTrial           = profile?.stripe_subscription_status === 'trialing' || plan === 'trial';
   const hasStripeCustomer = !!profile?.stripe_customer_id;
 
   const trialEndsDate = profile?.trial_ends_at ? new Date(profile.trial_ends_at) : null;
@@ -154,6 +156,12 @@ export default function DashboardSettings() {
     ? Math.max(0, Math.ceil((trialEndsDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
   const trialUrgent = daysLeft !== null && daysLeft <= 5;
+  const cancellationScheduled = isCancellationScheduled(profile);
+  const periodEnd = profile?.stripe_current_period_end
+    ? new Date(profile.stripe_current_period_end).toLocaleDateString('de-DE', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      })
+    : null;
 
   const planLabels = {
     free:  'Kostenloser Plan',
@@ -215,7 +223,7 @@ export default function DashboardSettings() {
         <CardTitle>Abo & Abrechnung</CardTitle>
         <CardSub>Verwalte dein Abo, ändere den Tarif oder kündige jederzeit.</CardSub>
 
-        {plan === 'trial' && daysLeft !== null && (
+        {isTrial && daysLeft !== null && (
           <div style={{ marginBottom: 16 }}>
             <div style={{
               display: 'flex', justifyContent: 'space-between',
@@ -242,14 +250,14 @@ export default function DashboardSettings() {
         )}
         <PlanRow>
           <PlanInfo>
-            <PlanBadge $plan={plan}>
+            <PlanBadge $plan={isTrial ? 'trial' : plan}>
               {plan === 'pro' && <CheckCircle size={11} />}
               {plan === 'trial' && <CheckCircle size={11} />}
               {plan === 'free' && <AlertTriangle size={11} />}
-              {plan === 'pro' ? 'Aktiv' : plan === 'trial' ? 'Test-Phase' : 'Free'}
+              {isTrial ? 'Test-Phase' : plan === 'pro' ? 'Aktiv' : 'Free'}
             </PlanBadge>
-            <PlanName>{planLabels[plan] || plan}</PlanName>
-            {plan === 'trial' && trialEnds && (
+            <PlanName>{isTrial ? `${pricing.trialDays} Tage Gratis-Test` : (planLabels[plan] || plan)}</PlanName>
+            {isTrial && trialEnds && (
               <PlanDetail style={{ color: trialUrgent ? '#D93025' : undefined }}>
                 {daysLeft === 0
                   ? 'Test ist heute abgelaufen'
@@ -264,6 +272,11 @@ export default function DashboardSettings() {
             )}
             {plan === 'pro' && profile?.stripe_subscription_status && (
               <PlanDetail>Status: {profile.stripe_subscription_status}</PlanDetail>
+            )}
+            {cancellationScheduled && (
+              <PlanDetail style={{ color: '#D48A00', fontWeight: 700 }}>
+                Gekündigt — Zugang bis {periodEnd || 'zum Ende des Abrechnungszeitraums'}
+              </PlanDetail>
             )}
           </PlanInfo>
 
