@@ -30,4 +30,3 @@ describe('subscription access', () => {
     expect(isCancellationScheduled(profile)).toBe(true);
   });
 });
-

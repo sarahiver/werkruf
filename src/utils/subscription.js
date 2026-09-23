@@ -23,4 +23,3 @@ export function hasPaidAccess(profile, now = new Date()) {
 export function isCancellationScheduled(profile) {
   return hasPaidAccess(profile) && profile?.stripe_cancel_at_period_end === true;
 }
-
