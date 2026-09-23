@@ -121,8 +121,11 @@
   Filter `id = <TEST_USER_UUID>`.
 - **Eingeben:** nur den Filter; nichts manuell ändern.
 - **Erwartet:** `stripe_customer_id=cus_…`, `stripe_subscription_id=sub_…`,
-  `stripe_subscription_status=trialing`, `plan=trial`, Trial- und Periodenende
+  `stripe_subscription_status=trialing`, `plan=pro`, Trial- und Periodenende
   gesetzt, `stripe_cancel_at_period_end=false`. PRO-Funktionen sind freigeschaltet.
+  `plan=pro` ist beabsichtigt: Der Produktions-Constraint erlaubt nur
+  `free`, `starter` und `pro`; die Testphase wird durch den Stripe-Status
+  `trialing` und `trial_ends_at` dargestellt.
 
 ## 8. Webhook erneut zustellen
 

@@ -5,6 +5,14 @@ const migration = fs.readFileSync(
   path.join(process.cwd(), 'supabase/migrations/20260923070000_stripe_subscription_mvp.sql'),
   'utf8',
 );
+const productionSnapshot = fs.readFileSync(
+  path.join(process.cwd(), 'supabase/schema/production-baseline-2026-09-22.sql'),
+  'utf8',
+);
+const stripeWebhook = fs.readFileSync(
+  path.join(process.cwd(), 'supabase/functions/stripe-webhook/index.ts'),
+  'utf8',
+);
 
 describe('Stripe MVP migration scope', () => {
   it('fails clearly before changing an uninitialized project', () => {
@@ -34,5 +42,13 @@ describe('Stripe MVP migration scope', () => {
     expect(migration).not.toMatch(/\b(insert|update|delete|truncate)\b/i);
     expect(migration).not.toMatch(/\b(create|alter|drop)\s+(function|trigger|view|type|index|schema)\b/i);
     expect(migration).not.toMatch(/\bdrop\s+(table|column)\b/i);
+  });
+
+  it('maps Stripe trials to a plan accepted by the production constraint', () => {
+    expect(productionSnapshot).toMatch(
+      /user_profiles_plan_check[\s\S]*?ARRAY\['free'::text, 'starter'::text, 'pro'::text\]/i,
+    );
+    expect(stripeWebhook).toMatch(/case 'trialing':\s+return 'pro'/i);
+    expect(stripeWebhook).not.toMatch(/case 'trialing':\s+return 'trial'/i);
   });
 });

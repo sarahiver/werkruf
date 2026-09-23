@@ -261,7 +261,10 @@ async function resolveUserId(
 function mapStatusToPlan(status: Stripe.Subscription.Status): string {
   switch (status) {
     case 'active':             return 'pro';
-    case 'trialing':           return 'trial';
+    // user_profiles_plan_check only permits free/starter/pro in the
+    // production schema. Trial is represented by Stripe's authoritative
+    // subscription status plus trial_ends_at, while product access is pro.
+    case 'trialing':           return 'pro';
     case 'past_due':           return 'pro';      // Zugang halten, Mahnung laeuft
     case 'canceled':
     case 'unpaid':

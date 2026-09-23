@@ -145,6 +145,7 @@ export default function DashboardSettings() {
   const [portalError,   setPortalError]   = useState('');
 
   const plan              = profile?.plan || 'free';
+  const isTrial           = profile?.stripe_subscription_status === 'trialing' || plan === 'trial';
   const hasStripeCustomer = !!profile?.stripe_customer_id;
 
   const trialEndsDate = profile?.trial_ends_at ? new Date(profile.trial_ends_at) : null;
@@ -222,7 +223,7 @@ export default function DashboardSettings() {
         <CardTitle>Abo & Abrechnung</CardTitle>
         <CardSub>Verwalte dein Abo, ändere den Tarif oder kündige jederzeit.</CardSub>
 
-        {plan === 'trial' && daysLeft !== null && (
+        {isTrial && daysLeft !== null && (
           <div style={{ marginBottom: 16 }}>
             <div style={{
               display: 'flex', justifyContent: 'space-between',
@@ -249,14 +250,14 @@ export default function DashboardSettings() {
         )}
         <PlanRow>
           <PlanInfo>
-            <PlanBadge $plan={plan}>
+            <PlanBadge $plan={isTrial ? 'trial' : plan}>
               {plan === 'pro' && <CheckCircle size={11} />}
               {plan === 'trial' && <CheckCircle size={11} />}
               {plan === 'free' && <AlertTriangle size={11} />}
-              {plan === 'pro' ? 'Aktiv' : plan === 'trial' ? 'Test-Phase' : 'Free'}
+              {isTrial ? 'Test-Phase' : plan === 'pro' ? 'Aktiv' : 'Free'}
             </PlanBadge>
-            <PlanName>{planLabels[plan] || plan}</PlanName>
-            {plan === 'trial' && trialEnds && (
+            <PlanName>{isTrial ? `${pricing.trialDays} Tage Gratis-Test` : (planLabels[plan] || plan)}</PlanName>
+            {isTrial && trialEnds && (
               <PlanDetail style={{ color: trialUrgent ? '#D93025' : undefined }}>
                 {daysLeft === 0
                   ? 'Test ist heute abgelaufen'
