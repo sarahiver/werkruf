@@ -29,6 +29,7 @@ import DashboardBewertungen    from './pages/dashboard/DashboardBewertungen';
 import DashboardGoogleBusiness from './pages/dashboard/DashboardGoogleBusiness';
 import DashboardFotos          from './pages/dashboard/DashboardFotos';
 import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung';
+import ProGate                 from './components/dashboard/ProGate';
 import Impressum            from './pages/Impressum';
 import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
@@ -108,7 +109,9 @@ function App() {
 
               {/* Nested routes */}
               <Route path="google" element={<DashboardGoogleBusiness />} />
-              <Route path="bewertungen" element={<DashboardBewertungen />} />
+              <Route path="bewertungen" element={
+                <ProGate feature="Bewertungen"><DashboardBewertungen /></ProGate>
+              } />
               <Route path="fotos" element={<DashboardFotos />} />
               <Route path="kunden-gewinnung" element={<DashboardKundenGewinnung />} />
               <Route path="reporting" element={<DashboardReporting />} />

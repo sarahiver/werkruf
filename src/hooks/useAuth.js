@@ -17,6 +17,8 @@ async function syncLeadToProfile() {
 export function useAuth() {
   const [user,    setUser]    = useState(undefined); // undefined = not yet resolved
   const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState(null);
   const syncedRef = useRef(false);
 
   // loading = true until we know if user is logged in or not
@@ -41,7 +43,9 @@ export function useAuth() {
    * ohne localStorage-Suche.
    */
   const fetchProfile = useCallback(async (userId) => {
-    if (!userId) { setProfile(null); return; }
+    if (!userId) { setProfile(null); setProfileLoading(false); return; }
+    setProfileLoading(true);
+    setProfileError(null);
 
     const { data, error } = await supabase
       .from('user_profiles')
@@ -55,9 +59,12 @@ export function useAuth() {
     if (error) {
       console.warn('[useAuth] Profil nicht ladbar:', error.message);
       setProfile(null);
+      setProfileError('Dein Profil konnte nicht geladen werden.');
+      setProfileLoading(false);
       return;
     }
     setProfile(data ?? null);
+    setProfileLoading(false);
   }, []);
 
   /*
@@ -162,6 +169,8 @@ export function useAuth() {
   return {
     user:            user === undefined ? null : user,
     profile,
+    profileLoading,
+    profileError,
     loading,
     signInGoogle,
     signInEmail,
