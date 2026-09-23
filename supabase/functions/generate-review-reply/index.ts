@@ -113,12 +113,13 @@ interface AnthropicResponse {
 type ReplyErrorCode =
   | 'config_error' | 'unauthenticated' | 'bad_request'
   | 'model_error' | 'model_overloaded' | 'rate_limited'
-  | 'invalid_model_output' | 'not_found' | 'internal_error';
+  | 'invalid_model_output' | 'not_found' | 'payment_required' | 'internal_error';
 
 const STATUS_BY_CODE: Record<ReplyErrorCode, number> = {
   config_error: 500, unauthenticated: 401, bad_request: 400,
   model_error: 502, model_overloaded: 503, rate_limited: 429,
   invalid_model_output: 502, not_found: 404, internal_error: 500,
+  payment_required: 402,
 };
 
 const SAFE_MESSAGES: Partial<Record<ReplyErrorCode, string>> = {
@@ -127,6 +128,7 @@ const SAFE_MESSAGES: Partial<Record<ReplyErrorCode, string>> = {
   model_overloaded: 'Die KI ist gerade ausgelastet. Bitte gleich noch einmal versuchen.',
   rate_limited: 'Zu viele Anfragen. Bitte einen Moment warten.',
   not_found: 'Die Bewertung wurde nicht gefunden.',
+  payment_required: 'Für diese Funktion ist ein aktives Abo erforderlich.',
 };
 
 class ReplyError extends Error {
@@ -853,6 +855,26 @@ async function requireUser(request: Request): Promise<{ id: string; email: strin
   return { id: data.user.id, email: data.user.email ?? null };
 }
 
+async function requirePaidAccess(userId: string): Promise<void> {
+  const { data, error } = await adminClient()
+    .from('user_profiles')
+    .select('plan, trial_ends_at, stripe_subscription_id, stripe_subscription_status')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) throw new ReplyError('internal_error', 'Abo-Status nicht ladbar', { cause: error });
+
+  const status = data?.stripe_subscription_status as string | null | undefined;
+  const hasStripeState = Boolean(data?.stripe_subscription_id || status);
+  const stripeAllows = ['active', 'trialing', 'past_due'].includes(status ?? '');
+  const trialEnd = data?.trial_ends_at ? new Date(data.trial_ends_at).getTime() : 0;
+  const legacyAllows = data?.plan === 'pro' || (data?.plan === 'trial' && trialEnd > Date.now());
+
+  if (hasStripeState ? !stripeAllows : !legacyAllows) {
+    throw new ReplyError('payment_required', 'Kein aktiver Produktzugang');
+  }
+}
+
 /** Kürzt und säubert Freitext aus dem Request. */
 function clampText(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
@@ -1002,6 +1024,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   try {
     const user = await requireUser(request);
+    await requirePaidAccess(user.id);
 
     /* ── Bremse ──
        Ohne die kann jeder eingeloggte Nutzer den Endpunkt in einer

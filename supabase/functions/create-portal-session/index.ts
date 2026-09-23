@@ -24,6 +24,12 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
     // Auth
     const authHeader = req.headers.get('Authorization');
@@ -52,11 +58,13 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .select('stripe_customer_id')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
+
+    if (profileError) throw profileError;
 
     if (!profile?.stripe_customer_id) {
       return new Response(
@@ -71,7 +79,12 @@ serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     });
 
-    const siteUrl = Deno.env.get('SITE_URL') || 'https://werkruf.vercel.app';
+    const siteUrl = Deno.env.get('SITE_URL');
+    if (!siteUrl) {
+      return new Response(JSON.stringify({ error: 'Portal ist nicht konfiguriert.' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer:   profile.stripe_customer_id,
@@ -86,7 +99,7 @@ serve(async (req) => {
   } catch (err) {
     console.error('create-portal-session error:', err);
     return new Response(
-      JSON.stringify({ error: err.message || 'Internal server error' }),
+      JSON.stringify({ error: 'Portal konnte nicht geöffnet werden.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
