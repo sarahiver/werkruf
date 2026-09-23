@@ -21,8 +21,6 @@
 // Benoetigte Secrets:
 //   STRIPE_SECRET_KEY        sk_test_... oder sk_live_...
 //   STRIPE_PRICE_MONTHLY     price_...
-//   STRIPE_PRICE_QUARTERLY   price_...
-//   STRIPE_PRICE_ANNUAL      price_...
 //   SITE_URL                 https://werkruf.com
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -41,8 +39,8 @@ import Stripe from 'https://esm.sh/stripe@14?target=deno';
 // direkt abzurechnen.
 const TRIAL_DAYS = 30;
 
-type PlanKey = 'monthly' | 'quarterly' | 'annual';
-const VALID_PLANS: PlanKey[] = ['monthly', 'quarterly', 'annual'];
+type PlanKey = 'monthly';
+const VALID_PLANS: PlanKey[] = ['monthly'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
@@ -110,8 +108,6 @@ serve(async (req) => {
     /* ── Preis aufloesen ── */
     const PRICES: Record<PlanKey, string | undefined> = {
       monthly:   Deno.env.get('STRIPE_PRICE_MONTHLY'),
-      quarterly: Deno.env.get('STRIPE_PRICE_QUARTERLY'),
-      annual:    Deno.env.get('STRIPE_PRICE_ANNUAL'),
     };
 
     const priceId = PRICES[plan];
@@ -120,7 +116,8 @@ serve(async (req) => {
       return json({ error: 'Preis nicht konfiguriert' }, 500);
     }
 
-    const siteUrl = Deno.env.get('SITE_URL') || 'https://werkruf.com';
+    const siteUrl = Deno.env.get('SITE_URL');
+    if (!siteUrl) return json({ error: 'Checkout ist nicht konfiguriert' }, 500);
 
     /* ── Stripe ── */
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
@@ -128,17 +125,35 @@ serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     });
 
+    /* Fail closed when test/live secrets or the configured product do not
+       match. This never creates products; it only validates the existing
+       monthly price before a customer can enter Checkout. */
+    const configuredPrice = await stripe.prices.retrieve(priceId);
+    const usesLiveSecret = Deno.env.get('STRIPE_SECRET_KEY')?.startsWith('sk_live_') ?? false;
+    if (configuredPrice.livemode !== usesLiveSecret ||
+        configuredPrice.currency !== 'eur' ||
+        configuredPrice.unit_amount !== 4900 ||
+        configuredPrice.type !== 'recurring' ||
+        configuredPrice.recurring?.interval !== 'month') {
+      console.error('[checkout] STRIPE_PRICE_MONTHLY passt nicht zu 49 EUR/Monat oder zum Stripe-Modus');
+      return json({ error: 'Preis ist nicht korrekt konfiguriert' }, 500);
+    }
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
     /* ── Stripe-Kunde holen oder anlegen ── */
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .select('stripe_customer_id, company_name, stripe_subscription_status')
       .eq('id', user.id)
       .maybeSingle();
+    if (profileError || !profile) {
+      console.error('[checkout] Profil nicht ladbar:', profileError);
+      return json({ error: 'Profil konnte nicht geladen werden' }, 500);
+    }
 
     // Wer bereits ein laufendes Abo hat, soll kein zweites abschliessen.
     const aktiveZustaende = ['active', 'trialing', 'past_due'];
@@ -163,10 +178,11 @@ serve(async (req) => {
       });
       customerId = customer.id;
 
-      await supabaseAdmin
+      const { error: saveCustomerError } = await supabaseAdmin
         .from('user_profiles')
         .update({ stripe_customer_id: customerId })
         .eq('id', user.id);
+      if (saveCustomerError) throw saveCustomerError;
     }
 
     /* ── Gemeinsame Metadaten ──
@@ -183,6 +199,7 @@ serve(async (req) => {
     /* ── Checkout-Session ── */
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       customer:    customerId,
+      client_reference_id: user.id,
       mode:        'subscription',
       line_items:  [{ price: priceId, quantity: 1 }],
       success_url: `${siteUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
@@ -206,6 +223,6 @@ serve(async (req) => {
 
   } catch (err) {
     console.error('[checkout] Fehler:', err);
-    return json({ error: (err as Error).message || 'Internal server error' }, 500);
+    return json({ error: 'Checkout konnte nicht gestartet werden' }, 500);
   }
 });

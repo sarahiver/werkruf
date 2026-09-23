@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
-import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import supabase from '../supabaseClient';
@@ -165,6 +165,11 @@ const ErrorBanner = styled.div`
   margin-bottom: 16px;
 `;
 
+const SuccessState = styled.div`
+  text-align: center; padding: 18px 0 4px;
+  svg { color: #1E7E34; margin-bottom: 14px; }
+`;
+
 const SwitchText = styled.p`
   font-family: var(--font-body); font-size: .83rem;
   color: var(--color-text-muted); text-align: center; margin-top: 20px;
@@ -197,6 +202,7 @@ export default function Signup() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [fieldErr, setFieldErr] = useState({});
+  const [confirmationEmail, setConfirmationEmail] = useState('');
 
   // Already logged in → go to dashboard
   useEffect(() => {
@@ -224,7 +230,7 @@ export default function Signup() {
       visibility_score:prefillResult?.score      || null,
     };
 
-    const { error: signUpErr } = await signUpEmail(email, password, meta);
+    const { data, error: signUpErr } = await signUpEmail(email, password, meta);
 
     if (signUpErr) {
       // Email already registered → try cross-linking lead data then redirect to login
@@ -241,18 +247,23 @@ export default function Signup() {
     await claimOwnLead();
 
     setLoading(false);
-    // Supabase sends confirmation email — redirect to a "check your email" state
-    navigate('/onboarding', {
-      state: { justSignedUp: true, email },
-      replace: true,
-    });
+    // Projects may enable or disable email confirmation. Only enter the
+    // protected onboarding route when signup actually yielded a session.
+    if (data?.session) {
+      navigate('/onboarding', { replace: true });
+    } else {
+      setConfirmationEmail(email);
+    }
   };
 
   const handleGoogleSignup = async () => {
     setError('');
     setLoading(true);
-    await signInGoogle();
-    // Redirect happens automatically via Supabase OAuth callback
+    const { error: oauthError } = await signInGoogle('/onboarding');
+    if (oauthError) {
+      setError(oauthError.message || 'Google-Anmeldung konnte nicht gestartet werden.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -261,11 +272,20 @@ export default function Signup() {
       <Card>
         <LogoLink to="/">{brand.logo}</LogoLink>
 
-        <Headline>Konto erstellen</Headline>
-        <Sub>
-          {pricing.trialDays} Tage kostenlos — danach{' '}
-          {pricing.monthlyPrice}{pricing.currency} / Monat. Jederzeit kündbar.
+        <Headline>{confirmationEmail ? 'E-Mail bestätigen' : 'Konto erstellen'}</Headline>
+        <Sub>{confirmationEmail
+          ? `Wir haben einen Bestätigungslink an ${confirmationEmail} gesendet.`
+          : <>{pricing.trialDays} Tage kostenlos — danach{' '}
+              {pricing.monthlyPrice}{pricing.currency} / Monat. Jederzeit kündbar.</>}
         </Sub>
+
+        {confirmationEmail ? (
+          <SuccessState role="status">
+            <CheckCircle size={42} />
+            <p>Öffne den Link in der E-Mail. Danach geht es direkt mit der Einrichtung deines Betriebs weiter.</p>
+            <SwitchText>Falsche Adresse? <button type="button" onClick={() => setConfirmationEmail('')}>Zurück</button></SwitchText>
+          </SuccessState>
+        ) : <>
 
         {/* Pre-fill banner from SmartCheck */}
         {prefillEmail && prefillResult && (
@@ -341,6 +361,7 @@ export default function Signup() {
           Mit der Registrierung stimmst du unseren{' '}
           <a href="/datenschutz">Datenschutzbestimmungen</a> zu.
         </TermsNote>
+        </>}
       </Card>
     </Page>
   );

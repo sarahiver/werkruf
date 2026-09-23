@@ -17,6 +17,8 @@ async function syncLeadToProfile() {
 export function useAuth() {
   const [user,    setUser]    = useState(undefined); // undefined = not yet resolved
   const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState(null);
   const syncedRef = useRef(false);
 
   // loading = true until we know if user is logged in or not
@@ -41,7 +43,9 @@ export function useAuth() {
    * ohne localStorage-Suche.
    */
   const fetchProfile = useCallback(async (userId) => {
-    if (!userId) { setProfile(null); return; }
+    if (!userId) { setProfile(null); setProfileLoading(false); return; }
+    setProfileLoading(true);
+    setProfileError(null);
 
     const { data, error } = await supabase
       .from('user_profiles')
@@ -55,9 +59,12 @@ export function useAuth() {
     if (error) {
       console.warn('[useAuth] Profil nicht ladbar:', error.message);
       setProfile(null);
+      setProfileError('Dein Profil konnte nicht geladen werden.');
+      setProfileLoading(false);
       return;
     }
     setProfile(data ?? null);
+    setProfileLoading(false);
   }, []);
 
   /*
@@ -109,11 +116,12 @@ export function useAuth() {
      If token is still valid → instant redirect.
      If expired → Supabase refreshes automatically.
   ───────────────────────────────────────────── */
-  const signInGoogle = useCallback(async () => {
-    await supabase.auth.signInWithOAuth({
+  const signInGoogle = useCallback(async (redirectPath = '/dashboard') => {
+    const redirectTo = new URL(redirectPath, window.location.origin).toString();
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo,
         // 'select_account' only on first time / when user has multiple accounts
         // After first auth, token is stored and Supabase auto-refreshes silently
         queryParams: {
@@ -122,6 +130,7 @@ export function useAuth() {
         },
       },
     });
+    return { data, error };
   }, []);
 
   const signInEmail = useCallback(async (email, password) => {
@@ -134,7 +143,9 @@ export function useAuth() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        // A newly confirmed account still has to select its business.
+        // Sending it to the dashboard used to silently skip onboarding.
+        emailRedirectTo: `${window.location.origin}/onboarding`,
         data: meta,
       },
     });
@@ -158,6 +169,8 @@ export function useAuth() {
   return {
     user:            user === undefined ? null : user,
     profile,
+    profileLoading,
+    profileError,
     loading,
     signInGoogle,
     signInEmail,
