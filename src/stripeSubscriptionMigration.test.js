@@ -7,6 +7,11 @@ const migration = fs.readFileSync(
 );
 
 describe('Stripe MVP migration scope', () => {
+  it('fails clearly before changing an uninitialized project', () => {
+    expect(migration).toMatch(/to_regclass\('public\.user_profiles'\) is null/i);
+    expect(migration).toContain('WERKRUF base schema missing: public.user_profiles does not exist');
+  });
+
   it('creates only the expected Stripe event table', () => {
     expect(migration).toMatch(/create table if not exists public\.stripe_events/i);
     expect(migration.match(/create table/gi)).toHaveLength(1);

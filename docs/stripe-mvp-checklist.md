@@ -24,11 +24,24 @@
 
 - Eine HTTPS-Test-URL der App, z. B. `https://test.example.invalid`.
 - Ein bestehender Stripe-Test-Price: **49,00 EUR**, wiederkehrend, monatlich.
+- Das Supabase-Testprojekt ist bereits mit dem WERKRUF-Basisschema initialisiert.
+  Prüfen unter **Table Editor**: `public.user_profiles` muss vorhanden sein.
+  Ein leeres Supabase-Projekt ist nicht ausreichend; diese Datei ist bewusst
+  nur eine inkrementelle Stripe-Migration und legt keine Anwendungstabellen an.
 - Die Migration wurde vor dieser Abnahme noch nicht gegen Produktion ausgeführt.
 
 ## 1. Migration ausführen
 
 - **Klicken:** Supabase-Testprojekt → **SQL Editor** → **New query**.
+- **Eingeben (Vorprüfung):**
+  ```sql
+  select to_regclass('public.user_profiles') as user_profiles;
+  ```
+- **Erwartet (Vorprüfung):** `public.user_profiles`. Kommt `null`, **nicht** mit
+  der Stripe-Migration fortfahren. Zuerst das WERKRUF-Basisschema in dieses
+  Testprojekt klonen beziehungsweise über den vorgesehenen Projekt-Setup-Prozess
+  initialisieren. Keinesfalls ersatzweise eine leere `user_profiles`-Tabelle
+  anlegen: Signup, RLS und die übrigen Profilspalten würden weiterhin fehlen.
 - **Eingeben:** vollständigen Inhalt von
   `supabase/migrations/20260923070000_stripe_subscription_mvp.sql`; dann **Run**.
 - **Erwartet:** Erfolg ohne Resultset. Unter **Table Editor** existiert
