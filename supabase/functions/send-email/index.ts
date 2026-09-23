@@ -25,7 +25,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 type EmailTemplate =
   | 'welcome' | 'trial_reminder' | 'trial_ended'
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
-  | 'critical_review_alert' | 'inactivity_reminder';
+  | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed';
 
 interface EmailRow {
   id: string;
@@ -127,6 +127,13 @@ function adminClient(): SupabaseClient {
 function log(level: 'debug' | 'warn' | 'error', event: string, data: Record<string, unknown> = {}) {
   const line = JSON.stringify({ scope: 'send-email', level, event, ts: new Date().toISOString(), ...data });
   if (level === 'debug') console.log(line); else console[level](line);
+}
+
+function deliveryRecipient(email: string): string {
+  const mode = (Deno.env.get('EMAIL_DELIVERY_MODE') ?? 'production').toLowerCase();
+  if (mode === 'production') return email;
+  if (mode === 'test') return requireEnv('EMAIL_TEST_RECIPIENT');
+  throw new Error('EMAIL_DELIVERY_MODE muss production oder test sein');
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -565,11 +572,9 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
     }
 
     case 'critical_review_alert': {
-      /* Der einzige Anlass, der nicht bis Montag wartet.
-         Gebündelt: Kommen drei schlechte Bewertungen an einem Tag,
-         ist das EINE Meldung. Drei Mails wären der schnellste Weg in
-         den Spamfilter — und dann käme auch die wichtige nicht mehr
-         an. */
+      /* Der einzige Anlass, der nicht bis Montag wartet. Der Planer
+         markiert die enthaltenen Review-Events erst nach erfolgreichem
+         Einreihen; Queue-Dedupe schützt parallele Planer-Läufe. */
       const count = Number(payload.count ?? 1);
       const title = count === 1
         ? 'Eine kritische Bewertung ist eingegangen'
@@ -590,6 +595,17 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
           url: `${brand.appUrl}/dashboard/bewertungen` },
       );
 
+      return { subject: title, html, text: toPlainText(html) };
+    }
+
+    case 'payment_failed': {
+      const title = 'Zahlung fehlgeschlagen — bitte Zahlungsmethode aktualisieren';
+      const html = layout(brand, title,
+        p(greeting) +
+        p(`die Abbuchung für dein ${escapeHtml(brand.productName)}-Abo (${company}) ist fehlgeschlagen.`) +
+        p('Bitte aktualisiere deine Zahlungsmethode, damit dein Zugang bestehen bleibt. Wir versuchen die Abbuchung in den nächsten Tagen erneut.'),
+        { label: 'Zahlungsmethode aktualisieren', url: `${brand.appUrl}/dashboard/einstellungen` },
+      );
       return { subject: title, html, text: toPlainText(html) };
     }
 
@@ -718,6 +734,7 @@ async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand
   let response: Response;
 
   try {
+    const recipient = deliveryRecipient(row.to_email);
     response = await fetch(BREVO_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -727,7 +744,7 @@ async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand
       },
       body: JSON.stringify({
         sender: { name: brand.name, email: brand.senderEmail },
-        to: [{ email: row.to_email, ...(row.to_name ? { name: row.to_name } : {}) }],
+        to: [{ email: recipient, ...(row.to_name ? { name: row.to_name } : {}) }],
         subject: rendered.subject,
         htmlContent: rendered.html,
         textContent: rendered.text,

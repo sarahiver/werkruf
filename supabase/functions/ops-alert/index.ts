@@ -171,7 +171,13 @@ function buildAlertText(alerts: Alert[]): string {
 
 async function sendAlertMail(alerts: Alert[]): Promise<boolean> {
   const apiKey    = requireEnv('BREVO_API_KEY');
-  const empfaenger = Deno.env.get('ADMIN_EMAIL') || 'hallo@werkruf.com';
+  const mode = (Deno.env.get('EMAIL_DELIVERY_MODE') ?? 'production').toLowerCase();
+  if (mode !== 'production' && mode !== 'test') {
+    throw new Error('EMAIL_DELIVERY_MODE muss production oder test sein');
+  }
+  const empfaenger = mode === 'test'
+    ? requireEnv('EMAIL_TEST_RECIPIENT')
+    : (Deno.env.get('ADMIN_EMAIL') || 'hallo@werkruf.com');
   const absender   = Deno.env.get('BREVO_SENDER_EMAIL') || 'hallo@werkruf.com';
   const siteUrl    = Deno.env.get('SITE_URL') || 'https://werkruf.com';
 
