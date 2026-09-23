@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
+import { formatAdminDate, getCustomerProblem, getSubscriptionLabel } from '../utils/adminOps';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -134,6 +135,17 @@ const Empty = styled.div`
   font-family: var(--font-body); font-size: .88rem; color: var(--color-text-muted);
 `;
 
+const Status = styled.span`
+  display: inline-block; padding: 3px 7px; border-radius: 4px; font-size: .72rem; font-weight: 700;
+  color: ${({ $ok }) => $ok ? '#1E7E34' : '#B42318'};
+  background: ${({ $ok }) => $ok ? '#E8F5E9' : '#FDECEC'};
+`;
+
+const Reason = styled.div`
+  max-width: 260px; color: ${({ $ok }) => $ok ? 'var(--color-text-muted)' : '#B42318'};
+  font-size: .76rem; line-height: 1.35; white-space: normal;
+`;
+
 const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
 
 /* ─────────────────────────────────────────────
@@ -142,7 +154,7 @@ const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
 export default function Admin() {
   const { isAdmin, signOut, loading: authLoading } = useAuthContext();
   const navigate          = useNavigate();
-  const [profiles, setProfiles] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [leads,    setLeads]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -158,18 +170,18 @@ export default function Admin() {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [profilesResult, leadsResult] = await Promise.all([
-        supabase.from('user_profiles').select('*').order('created_at', { ascending: false }).limit(100),
+      const [opsResult, leadsResult] = await Promise.all([
+        supabase.functions.invoke('admin-ops', { body: {} }),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
-      if (profilesResult.error) throw profilesResult.error;
+      if (opsResult.error) throw opsResult.error;
       if (leadsResult.error) throw leadsResult.error;
-      setProfiles(profilesResult.data || []);
+      setCustomers(opsResult.data?.customers || []);
       setLeads(leadsResult.data || []);
     } catch (err) {
       console.error('Admin load error:', err);
       setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
-      setProfiles([]);
+      setCustomers([]);
       setLeads([]);
     } finally {
       setLoading(false);
@@ -180,22 +192,17 @@ export default function Admin() {
   if (authLoading || !isAdmin) return null;
 
   // Stats
-  const total      = profiles.length;
-  const proUsers   = profiles.filter(p => p.plan === 'pro').length;
-  const trialUsers = profiles.filter(p => p.plan === 'trial').length;
+  const total      = customers.length;
+  const proUsers   = customers.filter(p => p.plan === 'pro').length;
+  const trialUsers = customers.filter(p => p.trialEndsAt && new Date(p.trialEndsAt) > new Date()).length;
   const mrr        = proUsers * 49;
-  const withBiz    = profiles.filter(p => p.google_place_id).length;
-  const avgScore   = profiles.filter(p => p.visibility_score).length
-    ? Math.round(profiles.filter(p => p.visibility_score).reduce((s, p) => s + p.visibility_score, 0) / profiles.filter(p => p.visibility_score).length)
+  const withBiz    = customers.filter(p => p.googleStatus === 'active').length;
+  const avgScore   = customers.filter(p => p.healthScore !== null).length
+    ? Math.round(customers.filter(p => p.healthScore !== null).reduce((s, p) => s + p.healthScore, 0) / customers.filter(p => p.healthScore !== null).length)
     : 0;
   const setupLeads = leads.filter(l => l.needs_manual_setup && l.status === 'new').length;
 
-  const fmt = (d) => d ? new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: 'short' }) : '—';
-  const daysLeft = (d) => {
-    if (!d) return null;
-    const days = Math.ceil((new Date(d) - Date.now()) / 86400000);
-    return days;
-  };
+  const fmt = (d) => formatAdminDate(d);
 
   return (
     <Page>
@@ -260,7 +267,7 @@ export default function Admin() {
 
           {loading ? (
             <Empty><SpinIcon size={20} style={{ margin: '0 auto', display: 'block' }} /></Empty>
-          ) : profiles.length === 0 ? (
+          ) : customers.length === 0 ? (
             <Empty>Keine User gefunden.</Empty>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -268,44 +275,41 @@ export default function Admin() {
                 <thead>
                   <tr>
                     <Th>Betrieb</Th>
-                    <Th>Plan</Th>
-                    <Th>Score</Th>
-                    <Th>Trial endet</Th>
-                    <Th>Setup</Th>
-                    <Th>Registriert</Th>
+                    <Th>Plan / Abo</Th>
+                    <Th>Google / Sync</Th>
+                    <Th>Health</Th>
+                    <Th>Reviews / Actions</Th>
+                    <Th>Letzte Mail</Th>
+                    <Th>Diagnose</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {profiles.map(p => {
-                    const days = daysLeft(p.trial_ends_at);
+                  {customers.map(p => {
+                    const problem = getCustomerProblem(p);
+                    const healthy = problem === 'Kein akutes Problem erkannt';
                     return (
                       <Tr key={p.id}>
                         <Td>
                           <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
-                            {p.company_name || '—'}
+                            {p.companyName || '—'}
                           </div>
                           <div style={{ fontSize: '.75rem', color: 'var(--color-text-muted)' }}>
-                            {p.city || ''}
+                            {p.email || 'Keine E-Mail'} · seit {fmt(p.createdAt)}
                           </div>
                         </Td>
-                        <Td><PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge></Td>
                         <Td>
-                          {p.visibility_score !== null ? (
-                            <>
-                              <ScoreDot $s={p.visibility_score} />
-                              {p.visibility_score}
-                            </>
-                          ) : '—'}
+                          <PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge>
+                          <div style={{ marginTop: 5, fontSize: '.75rem' }}>{getSubscriptionLabel(p)}</div>
+                          {p.trialEndsAt && <div style={{ fontSize: '.7rem', color: 'var(--color-text-muted)' }}>Trial bis {fmt(p.trialEndsAt)}</div>}
                         </Td>
                         <Td>
-                          {days !== null ? (
-                            <span style={{ color: days <= 3 ? '#D93025' : days <= 7 ? '#D48A00' : 'inherit', fontWeight: days <= 3 ? 700 : 400 }}>
-                              {days <= 0 ? 'Abgelaufen' : `${days} Tage`}
-                            </span>
-                          ) : '—'}
+                          <Status $ok={p.googleStatus === 'active'}>{p.googleStatus === 'active' ? 'Aktiv' : p.googleStatus.replaceAll('_', ' ')}</Status>
+                          <div style={{ marginTop: 5, fontSize: '.7rem', color: 'var(--color-text-muted)' }}>Sync: {formatAdminDate(p.lastGoogleSyncAt, true)}</div>
                         </Td>
-                        <Td>{p.setup_fee_paid ? '✓ Bezahlt' : '—'}</Td>
-                        <Td>{fmt(p.created_at)}</Td>
+                        <Td>{p.healthScore !== null ? <><ScoreDot $s={p.healthScore} />{p.healthScore}</> : '—'}</Td>
+                        <Td><strong>{p.reviewCount}</strong> Reviews<br /><span style={{ fontSize: '.75rem' }}>{p.openActions} offen</span></Td>
+                        <Td>{p.lastMail ? <><Status $ok={p.lastMail.status === 'sent'}>{p.lastMail.status}</Status><div style={{ marginTop: 5, fontSize: '.7rem' }}>{p.lastMail.template}<br />{formatAdminDate(p.lastMail.sent_at || p.lastMail.updated_at, true)}</div></> : '—'}</Td>
+                        <Td><Reason $ok={healthy}>{problem}{p.lastSyncError?.at && <><br />{formatAdminDate(p.lastSyncError.at, true)}</>}</Reason></Td>
                       </Tr>
                     );
                   })}
