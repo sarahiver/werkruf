@@ -109,11 +109,12 @@ export function useAuth() {
      If token is still valid → instant redirect.
      If expired → Supabase refreshes automatically.
   ───────────────────────────────────────────── */
-  const signInGoogle = useCallback(async () => {
-    await supabase.auth.signInWithOAuth({
+  const signInGoogle = useCallback(async (redirectPath = '/dashboard') => {
+    const redirectTo = new URL(redirectPath, window.location.origin).toString();
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo,
         // 'select_account' only on first time / when user has multiple accounts
         // After first auth, token is stored and Supabase auto-refreshes silently
         queryParams: {
@@ -122,6 +123,7 @@ export function useAuth() {
         },
       },
     });
+    return { data, error };
   }, []);
 
   const signInEmail = useCallback(async (email, password) => {
@@ -134,7 +136,9 @@ export function useAuth() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        // A newly confirmed account still has to select its business.
+        // Sending it to the dashboard used to silently skip onboarding.
+        emailRedirectTo: `${window.location.origin}/onboarding`,
         data: meta,
       },
     });

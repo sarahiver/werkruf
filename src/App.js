@@ -116,7 +116,7 @@ function App() {
             </Route>
 
             {/* ── STANDALONE (ohne PublicLayout) ── */}
-            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
 
             {/* ── 404 ──
