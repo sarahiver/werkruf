@@ -9,6 +9,7 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
+import { isCancellationScheduled } from '../../utils/subscription';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -154,6 +155,12 @@ export default function DashboardSettings() {
     ? Math.max(0, Math.ceil((trialEndsDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
   const trialUrgent = daysLeft !== null && daysLeft <= 5;
+  const cancellationScheduled = isCancellationScheduled(profile);
+  const periodEnd = profile?.stripe_current_period_end
+    ? new Date(profile.stripe_current_period_end).toLocaleDateString('de-DE', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      })
+    : null;
 
   const planLabels = {
     free:  'Kostenloser Plan',
@@ -264,6 +271,11 @@ export default function DashboardSettings() {
             )}
             {plan === 'pro' && profile?.stripe_subscription_status && (
               <PlanDetail>Status: {profile.stripe_subscription_status}</PlanDetail>
+            )}
+            {cancellationScheduled && (
+              <PlanDetail style={{ color: '#D48A00', fontWeight: 700 }}>
+                Gekündigt — Zugang bis {periodEnd || 'zum Ende des Abrechnungszeitraums'}
+              </PlanDetail>
             )}
           </PlanInfo>
 

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
@@ -194,6 +194,13 @@ const Content = styled.div`
   @media(max-width:560px) { padding: 18px 14px; }
 `;
 
+const CheckoutBanner = styled.div`
+  margin: 16px 24px 0; padding: 11px 14px; border-radius: var(--radius-card);
+  background: ${({ $error }) => $error ? '#FDECEA' : '#E8F5E9'};
+  color: ${({ $error }) => $error ? '#B3261E' : '#1E7E34'};
+  font-family: var(--font-body); font-size: .84rem; font-weight: 600;
+`;
+
 /* ─────────────────────────────────────────────
    NAV CONFIG
 ───────────────────────────────────────────── */
@@ -224,10 +231,40 @@ const NAV_ITEMS = [
    COMPONENT
 ───────────────────────────────────────────── */
 export default function DashboardLayout() {
-  const { user, profile, signOut } = useAuthContext();
+  const { user, profile, signOut, refreshProfile } = useAuthContext();
   const { brand } = useIndustry();
   const navigate   = useNavigate();
   const [open, setOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const checkoutResult = searchParams.get('checkout');
+  const [checkoutState, setCheckoutState] = useState(
+    checkoutResult === 'success' ? 'checking' : checkoutResult,
+  );
+
+  useEffect(() => {
+    if (checkoutResult !== 'success') return undefined;
+    let active = true;
+    let attempt = 0;
+
+    const check = async () => {
+      attempt += 1;
+      await refreshProfile();
+      if (!active) return;
+      if (attempt < 8) setTimeout(check, 1500);
+      else setCheckoutState('delayed');
+    };
+    check();
+    return () => { active = false; };
+  }, [checkoutResult, refreshProfile]);
+
+  useEffect(() => {
+    if (checkoutResult === 'success' && ['active', 'trialing'].includes(profile?.stripe_subscription_status)) {
+      setCheckoutState('active');
+      const next = new URLSearchParams(searchParams);
+      next.delete('checkout'); next.delete('session_id');
+      setSearchParams(next, { replace: true });
+    }
+  }, [checkoutResult, profile?.stripe_subscription_status, searchParams, setSearchParams]);
 
   const initials    = (profile?.full_name || user?.email || 'U')[0].toUpperCase();
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'Nutzer';
@@ -284,6 +321,10 @@ export default function DashboardLayout() {
           </MobileBtn>
           <TopBarTitle>{brand.name} Dashboard</TopBarTitle>
         </TopBar>
+        {checkoutState === 'checking' && <CheckoutBanner role="status">Zahlung bestätigt. Dein Zugang wird freigeschaltet…</CheckoutBanner>}
+        {checkoutState === 'active' && <CheckoutBanner role="status">Dein Abo ist aktiv.</CheckoutBanner>}
+        {checkoutState === 'cancelled' && <CheckoutBanner $error>Checkout abgebrochen — es wurde nichts berechnet.</CheckoutBanner>}
+        {checkoutState === 'delayed' && <CheckoutBanner $error>Stripe verarbeitet den Abschluss noch. Lade die Seite in Kürze erneut.</CheckoutBanner>}
         <Content>
           <Outlet />
         </Content>

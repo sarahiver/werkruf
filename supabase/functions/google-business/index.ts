@@ -200,7 +200,7 @@ type GbpErrorCode =
   | 'exchange_failed' | 'missing_refresh_token' | 'insufficient_scope'
   | 'not_connected' | 'reauth_required'
   | 'refresh_failed' | 'google_api_error' | 'rate_limited'
-  | 'bad_request' | 'not_found' | 'internal_error';
+  | 'bad_request' | 'not_found' | 'payment_required' | 'internal_error';
 
 const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   config_error: 500, encryption_error: 500, unauthenticated: 401,
@@ -209,6 +209,7 @@ const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   not_connected: 404, reauth_required: 409,
   refresh_failed: 502, google_api_error: 502, rate_limited: 429,
   bad_request: 400, not_found: 404, internal_error: 500,
+  payment_required: 402,
 };
 
 /* Nur diese Texte gehen nach aussen. Google- und Postgres-Meldungen
@@ -225,6 +226,7 @@ const SAFE_MESSAGES: Partial<Record<GbpErrorCode, string>> = {
   not_connected: 'Es ist noch kein Google-Konto verbunden.',
   reauth_required: 'Die Verbindung zu Google ist abgelaufen. Bitte neu verbinden.',
   rate_limited: 'Google drosselt gerade die Anfragen. Bitte in ein paar Minuten erneut versuchen.',
+  payment_required: 'Für diese Funktion ist ein aktives Abo erforderlich.',
 };
 
 const GENERIC_MESSAGE = 'Es ist ein Fehler aufgetreten. Bitte später erneut versuchen.';
@@ -575,6 +577,23 @@ async function requireUser(request: Request): Promise<AuthenticatedUser> {
   }
 
   return { id: data.user.id, email: data.user.email ?? null };
+}
+
+async function requirePaidAccess(userId: string): Promise<void> {
+  const { data, error } = await adminClient()
+    .from('user_profiles')
+    .select('plan, trial_ends_at, stripe_subscription_id, stripe_subscription_status')
+    .eq('id', userId).maybeSingle();
+  if (error) throw new GbpError('internal_error', 'Abo-Status nicht ladbar', { cause: error });
+
+  const status = data?.stripe_subscription_status as string | null | undefined;
+  const hasStripeState = Boolean(data?.stripe_subscription_id || status);
+  const stripeAllows = ['active', 'trialing', 'past_due'].includes(status ?? '');
+  const trialEnd = data?.trial_ends_at ? new Date(data.trial_ends_at).getTime() : 0;
+  const legacyAllows = data?.plan === 'pro' || (data?.plan === 'trial' && trialEnd > Date.now());
+  if (hasStripeState ? !stripeAllows : !legacyAllows) {
+    throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -4600,6 +4619,7 @@ async function handleRepliesList(request: Request): Promise<Response> {
  */
 async function handleReplyUpdate(request: Request): Promise<Response> {
   const user = await requireUser(request);
+  await requirePaidAccess(user.id);
   const { replyId, body } = await readJsonBody<{ replyId?: string; body?: string }>(request);
 
   if (!replyId || typeof body !== 'string') {
@@ -4654,6 +4674,7 @@ async function handleReplyUpdate(request: Request): Promise<Response> {
  */
 async function handleReplyApprove(request: Request): Promise<Response> {
   const user = await requireUser(request);
+  await requirePaidAccess(user.id);
   await enforceRateLimit(`reply_approve:${user.id}`, 100);
   const { replyId } = await readJsonBody<{ replyId?: string }>(request);
 
@@ -4717,6 +4738,7 @@ async function handleReplyApprove(request: Request): Promise<Response> {
  */
 async function handleReplyRetract(request: Request): Promise<Response> {
   const user = await requireUser(request);
+  await requirePaidAccess(user.id);
   const { replyId } = await readJsonBody<{ replyId?: string }>(request);
 
   if (!replyId) {
