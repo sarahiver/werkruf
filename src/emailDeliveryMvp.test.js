@@ -58,4 +58,3 @@ describe('MVP email delivery', () => {
     expect(stripeWebhook).not.toContain("'[sendEmail] Gesendet an:'");
   });
 });
-

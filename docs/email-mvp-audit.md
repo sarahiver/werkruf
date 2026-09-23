@@ -56,4 +56,3 @@ keine Mail mehr direkt über Brevo.
 7. Erst nach erfolgreicher Staging-Abnahme in Produktion
    `EMAIL_DELIVERY_MODE=production`, Brevo-Key, verifizierte Absenderdomains,
    `ADMIN_EMAIL` und Cron-Worker-Secret gegenprüfen.
-

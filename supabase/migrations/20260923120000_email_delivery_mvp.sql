@@ -53,4 +53,3 @@ grant execute on function public.finish_email(uuid, boolean, text, text, text) t
 grant execute on function public.schedule_lifecycle_emails() to service_role;
 grant execute on function public.schedule_weekly_summaries() to service_role;
 grant execute on function public.schedule_communications(text) to service_role;
-
