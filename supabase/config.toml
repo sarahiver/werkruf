@@ -11,6 +11,13 @@
 
 project_id = "kueoozsfkevmncucrdjd"
 
+# Mail-Secrets shared by send-email and ops-alert:
+#   EMAIL_DELIVERY_MODE=production
+# In preview/test environments always use:
+#   EMAIL_DELIVERY_MODE=test
+#   EMAIL_TEST_RECIPIENT=<controlled inbox>
+# Test mode rewrites every Brevo recipient and must never use customer data.
+
 # ── Ohne JWT ─────────────────────────────────────────────────────────
 # Aufrufer ohne Authorization-Header: Google-Callback, pg_cron, Stripe.
 # Jede dieser Functions hat einen eigenen Schutz im Code.

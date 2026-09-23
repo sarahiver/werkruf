@@ -37,7 +37,6 @@
 // Benoetigte Secrets:
 //   STRIPE_SECRET_KEY        sk_test_... / sk_live_...
 //   STRIPE_WEBHOOK_SECRET    whsec_...  (Stripe → Developers → Webhooks)
-//   BREVO_API_KEY
 //   SITE_URL                 https://werkruf.com
 //
 // Stripe-Endpunkt:
@@ -53,140 +52,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14?target=deno';
-
-/* ═════════════════════════════════════════════
-   MAILVERSAND
-   ═════════════════════════════════════════════ */
-
-interface EmailPayload {
-  to:       { email: string; name?: string };
-  subject:  string;
-  html:     string;
-  from?:    { email: string; name: string };
-  replyTo?: string;
-}
-
-async function sendEmail(payload: EmailPayload): Promise<boolean> {
-  const apiKey = Deno.env.get('BREVO_API_KEY');
-  if (!apiKey) {
-    console.error('[sendEmail] BREVO_API_KEY nicht gesetzt');
-    return false;
-  }
-
-  const from = payload.from || {
-    email: Deno.env.get('BREVO_SENDER_EMAIL') || 'hallo@werkruf.com',
-    name:  Deno.env.get('BREVO_SENDER_NAME')  || 'WERKRUF',
-  };
-
-  try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({
-        sender:      from,
-        to:          [{ email: payload.to.email, name: payload.to.name || payload.to.email }],
-        subject:     payload.subject,
-        htmlContent: payload.html,
-        replyTo:     payload.replyTo ? { email: payload.replyTo } : undefined,
-      }),
-    });
-
-    if (!res.ok) {
-      console.error('[sendEmail] Brevo-Fehler:', res.status, await res.text());
-      return false;
-    }
-
-    console.log('[sendEmail] Gesendet an:', payload.to.email, '|', payload.subject);
-    return true;
-
-  } catch (err) {
-    console.error('[sendEmail] Fetch-Fehler:', err);
-    return false;
-  }
-}
-
-function buildEmailHtml({
-  greeting,
-  headline,
-  body,
-  ctaText,
-  ctaUrl,
-  footerNote,
-  primaryColor = '#002C51',
-  accentColor  = '#FF8C00',
-  signature    = 'Dein WERKRUF-Team',
-  senderEmail  = 'hallo@werkruf.com',
-}: {
-  greeting:      string;
-  headline:      string;
-  body:          string;
-  ctaText?:      string;
-  ctaUrl?:       string;
-  footerNote?:   string;
-  primaryColor?: string;
-  accentColor?:  string;
-  signature?:    string;
-  senderEmail?:  string;
-}): string {
-  const cta = ctaText && ctaUrl ? `
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
-      <tr><td align="center">
-        <a href="${ctaUrl}"
-          style="display:inline-block;padding:14px 36px;
-            background:${accentColor};color:#ffffff;
-            font-size:14px;font-weight:700;text-transform:uppercase;
-            letter-spacing:2px;text-decoration:none;">
-          ${ctaText} →
-        </a>
-      </td></tr>
-    </table>` : '';
-
-  return `<!DOCTYPE html>
-<html lang="de">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#F2F2F2;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F2F2F2;padding:32px 16px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
-  <tr><td style="background:${primaryColor};padding:24px 36px;border-top:5px solid ${accentColor};">
-    <p style="margin:0;font-weight:900;font-size:20px;letter-spacing:3px;
-      text-transform:uppercase;color:#ffffff;">WERKRUF</p>
-  </td></tr>
-
-  <tr><td style="background:#ffffff;padding:36px 36px 28px;">
-    <p style="margin:0 0 16px;font-size:14px;color:${accentColor};
-      font-weight:700;letter-spacing:2px;text-transform:uppercase;">
-      ${greeting}
-    </p>
-    <h1 style="margin:0 0 20px;font-size:24px;font-weight:900;
-      text-transform:uppercase;color:${primaryColor};line-height:1.2;">
-      ${headline}
-    </h1>
-    <div style="font-size:15px;color:#5A6A7A;line-height:1.7;">
-      ${body}
-    </div>
-    ${cta}
-    ${footerNote ? `<p style="font-size:12px;color:#A0ADB8;margin-top:20px;">${footerNote}</p>` : ''}
-  </td></tr>
-
-  <tr><td style="background:${primaryColor};padding:20px 36px;border-top:3px solid ${accentColor};">
-    <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:rgba(255,255,255,0.6);">
-      ${signature}
-    </p>
-    <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);">
-      <a href="https://werkruf.com/datenschutz" style="color:rgba(255,255,255,0.3);">Datenschutz</a> ·
-      <a href="https://werkruf.com/impressum" style="color:rgba(255,255,255,0.3);">Impressum</a> ·
-      <a href="mailto:${senderEmail}" style="color:rgba(255,255,255,0.3);">${senderEmail}</a>
-    </p>
-  </td></tr>
-
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
-}
 
 /* ═════════════════════════════════════════════
    HILFSFUNKTIONEN
@@ -502,41 +367,29 @@ serve(async (req) => {
         try {
           const { data: authUser } = await supabase.auth.admin.getUserById(profile.id);
           const userEmail   = authUser?.user?.email;
-          const companyName = profile.company_name || 'dein Betrieb';
-          const siteUrl     = Deno.env.get('SITE_URL') || 'https://werkruf.com';
-
           if (userEmail) {
-            const html = buildEmailHtml({
-              greeting: 'Wichtige Mitteilung',
-              headline: 'Zahlung fehlgeschlagen — Aktion noetig.',
-              body: `
-                <p>Die Abbuchung fuer dein WERKRUF-Abo (<strong>${companyName}</strong>)
-                ist fehlgeschlagen.</p>
-                <p>Bitte aktualisiere deine Zahlungsmethode, damit dein Zugang
-                bestehen bleibt.</p>
-                <p style="background:#FDECEA;border-left:3px solid #D93025;padding:12px 16px;margin:16px 0;">
-                  Wir versuchen es in den naechsten Tagen erneut.
-                  Danach wird der Zugang eingeschraenkt.
-                </p>
-              `,
-              ctaText:    'Zahlungsmethode aktualisieren',
-              ctaUrl:     `${siteUrl}/dashboard/einstellungen`,
-              footerNote: 'Fragen? Antworte auf diese Mail.',
+            const { error: queueError } = await supabase.rpc('enqueue_email', {
+              p_template: 'payment_failed',
+              p_to_email: userEmail,
+              p_dedupe_key: `payment_failed:${event.id}`,
+              p_user_id: profile.id,
+              p_to_name: profile.company_name || null,
+              p_payload: {
+                companyName: profile.company_name || null,
+                industryKey: 'handwerk',
+                stripeEventId: event.id,
+              },
             });
-
-            await sendEmail({
-              to:      { email: userEmail, name: companyName },
-              subject: 'Zahlung fehlgeschlagen — bitte Zahlungsmethode aktualisieren',
-              html,
-            });
-
-            await updateProfile(supabase, profile.id, {
-              last_notification_step: 'payment_failed',
-              last_email_sent_at:     new Date().toISOString(),
-            });
+            if (queueError) throw queueError;
+          } else {
+            console.warn(`[stripe-webhook] payment_failed ohne Empfaenger: User ${profile.id}`);
           }
         } catch (emailErr) {
-          console.error('[stripe-webhook] Mailfehler (nicht kritisch):', emailErr);
+          // Queue-Ausfälle müssen Stripe einen Fehler liefern. Stripe versucht
+          // das Event erneut; der event-basierte dedupe_key verhindert dabei
+          // eine zweite Queue-Zeile.
+          console.error('[stripe-webhook] Mail nicht einreihbar:', emailErr);
+          throw emailErr;
         }
 
         break;
