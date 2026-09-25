@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
 import { isAdminUser } from '../utils/authRoles';
 
+const RECOVERY_MARKER = 'werkruf.password-recovery';
+
 /* ─────────────────────────────────────────────
    LEAD → PROFILE SYNC (non-blocking)
    Runs in background — never awaited in auth flow
@@ -19,6 +21,9 @@ export function useAuth() {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState(null);
+  const [recoveryMode, setRecoveryMode] = useState(
+    () => window.sessionStorage.getItem(RECOVERY_MARKER) === 'true',
+  );
   const syncedRef = useRef(false);
 
   // loading = true until we know if user is logged in or not
@@ -80,7 +85,14 @@ export function useAuth() {
    */
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          window.sessionStorage.setItem(RECOVERY_MARKER, 'true');
+          setRecoveryMode(true);
+        } else if (event === 'SIGNED_OUT') {
+          window.sessionStorage.removeItem(RECOVERY_MARKER);
+          setRecoveryMode(false);
+        }
         setUser(session?.user ?? null);
         if (!session?.user) {
           setProfile(null);
@@ -159,6 +171,11 @@ export function useAuth() {
     await supabase.auth.signOut();
   }, []);
 
+  const completePasswordRecovery = useCallback(() => {
+    window.sessionStorage.removeItem(RECOVERY_MARKER);
+    setRecoveryMode(false);
+  }, []);
+
   const refreshProfile = useCallback(async (userId) => {
     // getUser() ist hier unnötig: der Auth-Listener hält den
     // User-Zustand ohnehin aktuell.
@@ -171,11 +188,13 @@ export function useAuth() {
     profile,
     profileLoading,
     profileError,
+    recoveryMode,
     loading,
     signInGoogle,
     signInEmail,
     signUpEmail,
     signOut,
+    completePasswordRecovery,
     refreshProfile,
     isAuthenticated: !!user && user !== undefined,
     isAdmin: isAdminUser(user),

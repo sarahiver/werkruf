@@ -189,7 +189,7 @@ const TermsNote = styled.p`
 export default function Signup() {
   const location  = useLocation();
   const navigate  = useNavigate();
-  const { isAuthenticated, signInGoogle, signUpEmail } = useAuthContext();
+  const { isAuthenticated, recoveryMode, signInGoogle, signUpEmail } = useAuthContext();
   const { brand, pricing } = useIndustry();
 
   // Pre-fill from SmartCheck success flow
@@ -206,8 +206,8 @@ export default function Signup() {
 
   // Already logged in → go to dashboard
   useEffect(() => {
-    if (isAuthenticated) navigate('/dashboard', { replace: true });
-  }, [isAuthenticated, navigate]);
+    if (isAuthenticated && !recoveryMode) navigate('/dashboard', { replace: true });
+  }, [isAuthenticated, recoveryMode, navigate]);
 
   const validate = () => {
     const e = {};

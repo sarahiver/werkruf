@@ -19,6 +19,8 @@ import Pricing   from './pages/Pricing';
 import Success   from './pages/Success';
 import Signup    from './pages/Signup';
 import Login     from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword  from './pages/ResetPassword';
 
 /* Dashboard */
 import DashboardLayout      from './pages/dashboard/DashboardLayout';
@@ -35,17 +37,6 @@ import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
 import Admin                from './pages/Admin';
 import Datenschutz          from './pages/Datenschutz';
-
-/* Placeholder for future pages */
-const Placeholder = ({ title }) => (
-  <div style={{
-    padding: '120px 24px', textAlign: 'center',
-    fontFamily: 'var(--font-display)', fontSize: '2rem',
-    color: 'var(--color-primary)', textTransform: 'var(--text-transform)',
-  }}>
-    {title} — COMING SOON
-  </div>
-);
 
 /* ─────────────────────────────────────────────
    Shell wrapper — Header + Footer only on
@@ -88,9 +79,8 @@ function App() {
             <Route path="/success" element={<Success />} />
             <Route path="/signup"  element={<Signup />} />
             <Route path="/login"   element={<Login />} />
-            <Route path="/forgot-password" element={
-              <PublicLayout><Placeholder title="Passwort zurücksetzen" /></PublicLayout>
-            } />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/impressum" element={
               <PublicLayout><Impressum /></PublicLayout>
             } />
