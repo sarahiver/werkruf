@@ -54,6 +54,15 @@ const LocationStats = styled.div`
   padding-top: 10px; border-top: 1px solid var(--color-border);
   font-family: var(--font-body); font-size: .8rem; color: var(--color-text);
 `;
+const ProfileInput = styled.input`
+  width: 100%; padding: 9px 10px; border: 1px solid var(--color-border);
+  border-radius: 7px; font: .82rem var(--font-body); background: var(--color-bg);
+`;
+const ProfileTextarea = styled.textarea`
+  width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  font: .82rem var(--font-body); background: var(--color-bg);
+`;
 
 const SyncBar = styled(Card)`
   display: flex; align-items: center; justify-content: space-between;
@@ -125,7 +134,7 @@ export default function DashboardGoogleBusiness() {
   const { isConnected, loading: connectionLoading } = useGoogleBusiness();
   const {
     locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
-    loading, error, reload, triggerSync,
+    loading, error, reload, triggerSync, updateLocation,
   } = useGoogleBusinessData();
 
   const [syncing, setSyncing] = React.useState(false);
@@ -386,6 +395,7 @@ export default function DashboardGoogleBusiness() {
                         <Clock size={12} />{formatRelative(location.last_synced_at)}
                       </span>
                     </LocationStats>
+                    <LocationProfileEditor location={location} onSave={updateLocation} />
                   </LocationCard>
                 ))}
               </LocationGrid>
@@ -397,6 +407,37 @@ export default function DashboardGoogleBusiness() {
         </>
       )}
     </Page>
+  );
+}
+
+function LocationProfileEditor({ location, onSave }) {
+  const [phone, setPhone] = React.useState(location.primary_phone || '');
+  const [website, setWebsite] = React.useState(location.website_uri || '');
+  const [description, setDescription] = React.useState(location.google_profile?.profile?.description || '');
+  const [busy, setBusy] = React.useState(false);
+  const [notice, setNotice] = React.useState('');
+  const save = async () => {
+    setBusy(true); setNotice('');
+    try {
+      await onSave(location.id, {
+        phoneNumbers: { ...(location.google_profile?.phoneNumbers || {}), primaryPhone: phone || null },
+        websiteUri: website || null,
+        profile: { description: description || null },
+      });
+      setNotice('Von Google bestätigt.');
+    } catch (error) { setNotice(error.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
+      <small>Name, Adresse und Verifizierungsstatus werden von Google nur lesend angezeigt.</small>
+      <ProfileInput aria-label="Telefonnummer" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Telefonnummer" />
+      <ProfileInput aria-label="Website" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
+      <ProfileTextarea aria-label="Unternehmensbeschreibung" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Unternehmensbeschreibung" />
+      {location.google_diff_mask?.length > 0 && <Badge $variant="warning">Google-Änderung: {location.google_diff_mask.join(', ')}</Badge>}
+      <div><GhostBtn onClick={save} disabled={busy}>{busy ? <Spinner size={14} /> : <Send size={14} />} Bei Google speichern</GhostBtn></div>
+      {notice && <small>{notice}</small>}
+    </div>
   );
 }
 
