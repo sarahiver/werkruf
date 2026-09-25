@@ -28,6 +28,7 @@ import {
   mapGoogleLocationFields,
   type GoogleLocationForPersistence,
 } from './location-mapper.ts';
+import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -188,6 +189,10 @@ interface GbpLocationPatch {
   profile?: { description?: string };
   categories?: unknown;
   storefrontAddress?: unknown;
+  specialHours?: unknown;
+  moreHours?: unknown;
+  serviceArea?: unknown;
+  serviceItems?: unknown;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -200,7 +205,7 @@ type GbpErrorCode =
   | 'exchange_failed' | 'missing_refresh_token' | 'insufficient_scope'
   | 'not_connected' | 'reauth_required'
   | 'refresh_failed' | 'google_api_error' | 'rate_limited'
-  | 'bad_request' | 'not_found' | 'payment_required' | 'internal_error';
+  | 'google_validation' | 'bad_request' | 'not_found' | 'payment_required' | 'internal_error';
 
 const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   config_error: 500, encryption_error: 500, unauthenticated: 401,
@@ -208,6 +213,7 @@ const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   exchange_failed: 502, missing_refresh_token: 400, insufficient_scope: 403,
   not_connected: 404, reauth_required: 409,
   refresh_failed: 502, google_api_error: 502, rate_limited: 429,
+  google_validation: 400,
   bad_request: 400, not_found: 404, internal_error: 500,
   payment_required: 402,
 };
@@ -227,6 +233,7 @@ const SAFE_MESSAGES: Partial<Record<GbpErrorCode, string>> = {
   reauth_required: 'Die Verbindung zu Google ist abgelaufen. Bitte neu verbinden.',
   rate_limited: 'Google drosselt gerade die Anfragen. Bitte in ein paar Minuten erneut versuchen.',
   payment_required: 'Für diese Funktion ist ein aktives Abo erforderlich.',
+  google_validation: 'Google hat die Angaben abgelehnt. Bitte prüfe Format und Pflichtfelder.',
 };
 
 const GENERIC_MESSAGE = 'Es ist ein Fehler aufgetreten. Bitte später erneut versuchen.';
@@ -1521,6 +1528,11 @@ class GbpTransport {
           context: { operation: options.operation, detail },
         });
       }
+      if (response.status === 400 || response.status === 422) {
+        throw new GbpError('google_validation', `Google-Validierung: ${detail}`, {
+          context: { operation: options.operation, status: response.status, detail },
+        });
+      }
       throw new GbpError('google_api_error', `Google API ${response.status}: ${detail}`, {
         retryable: false,
         context: { operation: options.operation, status: response.status, detail },
@@ -1580,10 +1592,7 @@ class GbpApiClient {
    *                    ab, was wir in google_locations speichern.
    */
   async getLocations(accountName: string, options: { readMask?: string } = {}): Promise<GbpLocation[]> {
-    const readMask = options.readMask ?? [
-      'name', 'title', 'storefrontAddress', 'phoneNumbers',
-      'websiteUri', 'categories', 'metadata', 'profile', 'regularHours',
-    ].join(',');
+    const readMask = options.readMask ?? LOCATION_READ_MASK;
 
     return this.collect<GbpLocation, GbpLocationsResponse>(
       (pageToken) => this.transport.request<GbpLocationsResponse>(
@@ -1619,6 +1628,44 @@ class GbpApiClient {
     return this.transport.request<GbpLocation>(
       GBP_BUSINESS_INFO_API, normalizeName(locationName, 'locations'),
       { operation: 'updateLocation', method: 'PATCH', query: { updateMask }, body: patch },
+    );
+  }
+
+  async getLocation(locationName: string): Promise<GbpLocation> {
+    return this.transport.request<GbpLocation>(
+      GBP_BUSINESS_INFO_API, normalizeName(locationName, 'locations'),
+      { operation: 'getLocation', query: { readMask: LOCATION_READ_MASK } },
+    );
+  }
+
+  async getGoogleUpdated(locationName: string): Promise<{ location?: GbpLocation; diffMask?: string }> {
+    return this.transport.request<{ location?: GbpLocation; diffMask?: string }>(
+      GBP_BUSINESS_INFO_API, `${normalizeName(locationName, 'locations')}:getGoogleUpdated`,
+      { operation: 'getGoogleUpdated', query: { readMask: LOCATION_READ_MASK } },
+    );
+  }
+
+  async getAttributes(locationName: string): Promise<unknown[]> {
+    const result = await this.transport.request<{ attributes?: unknown[] }>(
+      GBP_BUSINESS_INFO_API, `${normalizeName(locationName, 'locations')}/attributes`,
+      { operation: 'getAttributes' },
+    );
+    return result.attributes ?? [];
+  }
+
+  async listMedia(accountName: string, locationName: string): Promise<unknown[]> {
+    const parent = `${normalizeName(accountName, 'accounts')}/${normalizeName(locationName, 'locations')}`;
+    const page = await this.transport.request<{ mediaItems?: unknown[] }>(
+      GBP_LEGACY_API, `${parent}/media`, { operation: 'listMedia', query: { pageSize: 100 } },
+    );
+    return page.mediaItems ?? [];
+  }
+
+  async createMedia(accountName: string, locationName: string, sourceUrl: string, category: string): Promise<unknown> {
+    const parent = `${normalizeName(accountName, 'accounts')}/${normalizeName(locationName, 'locations')}`;
+    return this.transport.request(
+      GBP_LEGACY_API, `${parent}/media`,
+      { operation: 'createMedia', method: 'POST', body: { mediaFormat: 'PHOTO', locationAssociation: { category }, sourceUrl } },
     );
   }
 
@@ -2234,6 +2281,20 @@ class ReplyPublisher {
         });
       }
 
+      // Google remains the source of truth: confirm the reply by reading the
+      // review feed again. A failed confirmation must not retry the PUT (which
+      // could overwrite a later user edit), so it is logged but publication
+      // remains successful and the regular sync job will reconcile it.
+      try {
+        await new ReviewSyncService(new ReviewRepository(), this.log)
+          .syncLocation(reply.location_id, { force: true });
+      } catch (confirmError) {
+        this.log.warn('reply_confirmation_deferred', {
+          replyId: reply.id,
+          message: confirmError instanceof Error ? confirmError.message : String(confirmError),
+        });
+      }
+
       /* Zuordnung statt Vermutung.
          Die empfohlene Handlung ist in unserem Produkt passiert —
          also lässt sich die Empfehlung nachweislich als erledigt
@@ -2408,7 +2469,7 @@ class LocationSyncService {
        trennen und Verschwundenes zu erkennen. */
     const { data: existingRows, error: existingError } = await this.db
       .from('google_locations')
-      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, primary_category, place_id, deleted_at')
+      .select('id, location_resource_name, title, locality, postal_code, primary_phone, website_uri, primary_category, place_id, google_profile, deleted_at')
       .eq('account_id', accountId);
 
     if (existingError) {
@@ -2432,6 +2493,9 @@ class LocationSyncService {
       fetched += locations.length;
 
       for (const location of locations) {
+        // Attributes use their own Business Information endpoint and cannot be
+        // requested as a Location readMask field.
+        location.attributes = await client.getAttributes(location.name);
         seen.add(location.name);
         const prior = existing.get(location.name);
 
@@ -2440,9 +2504,13 @@ class LocationSyncService {
         if (prior) {
           // Nur schreiben, wenn sich etwas geändert hat. Sonst würde
           // jeder Lauf jede Zeile anfassen und updated_at entwerten.
-          const changed = (Object.keys(fields) as Array<keyof typeof fields>).some(
-            (key) => prior[key] !== fields[key],
-          ) || prior.deleted_at !== null;
+          const changed = (Object.keys(fields) as Array<keyof typeof fields>).some((key) => {
+            const before = prior[key];
+            const after = fields[key];
+            return typeof after === 'object'
+              ? JSON.stringify(before ?? null) !== JSON.stringify(after)
+              : before !== after;
+          }) || prior.deleted_at !== null;
 
           if (!changed) { unchanged++; continue; }
           updated++;
@@ -4249,6 +4317,77 @@ async function handleAccounts(request: Request): Promise<Response> {
   return jsonResponse(request, { accounts: enriched });
 }
 
+async function loadOwnLocation(locationId: string, userId: string): Promise<LocationRow> {
+  const { data, error } = await adminClient().from('google_locations').select('*')
+    .eq('id', locationId).eq('user_id', userId).is('deleted_at', null).maybeSingle();
+  if (error) throw new GbpError('internal_error', 'Standort nicht ladbar', { cause: error });
+  if (!data) throw new GbpError('not_found', 'Standort nicht gefunden');
+  return data as LocationRow;
+}
+
+/** PATCH Location, then read it back. Only Google's confirmed state is persisted. */
+async function handleLocationUpdate(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; changes?: Record<string, unknown> }>(request);
+  if (!body.locationId || !body.changes) throw new GbpError('bad_request', 'locationId oder changes fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const { patch, updateMask } = sanitizeLocationPatch(body.changes);
+  if (!updateMask) throw new GbpError('bad_request', 'Keine unterstützten Änderungen');
+  const client = createGbpClient(user.id, location.account_id);
+  await client.updateLocation(location.location_resource_name, patch as GbpLocationPatch, { updateMask });
+  const confirmed = await client.getLocation(location.location_resource_name);
+  const fields = mapGoogleLocationFields(confirmed);
+  const { error } = await adminClient().from('google_locations')
+    .update({ ...fields, last_synced_at: new Date().toISOString() }).eq('id', location.id);
+  if (error) throw new GbpError('internal_error', 'Bestätigten Google-Stand nicht speicherbar', { cause: error });
+  await writeAuditLog({ userId: user.id, action: 'location.updated', entityType: 'google_location', entityId: location.id, metadata: { updateMask } });
+  return jsonResponse(request, { location: confirmed, updateMask, confirmed: true });
+}
+
+/** Exposes Google's serving-data proposal without accepting or rejecting it. */
+async function handleGoogleUpdated(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const locationId = new URL(request.url).searchParams.get('locationId');
+  if (!locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(locationId, user.id);
+  const result = await createGbpClient(user.id, location.account_id).getGoogleUpdated(location.location_resource_name);
+  const diffMask = result.diffMask?.split(',').filter(Boolean) ?? [];
+  const { error } = await adminClient().from('google_locations')
+    .update({ google_updated: result.location ?? null, google_diff_mask: diffMask }).eq('id', location.id);
+  if (error) throw new GbpError('internal_error', 'Google-Updates nicht speicherbar', { cause: error });
+  return jsonResponse(request, { ...result, diffMask });
+}
+
+async function handleMediaList(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const locationId = new URL(request.url).searchParams.get('locationId');
+  if (!locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(locationId, user.id);
+  const media = await createGbpClient(user.id, location.account_id)
+    .listMedia(location.account_resource_name, location.location_resource_name);
+  await adminClient().from('google_locations').update({ google_media: media }).eq('id', location.id);
+  return jsonResponse(request, { media });
+}
+
+async function handleMediaCreate(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; sourceUrl?: string; category?: string }>(request);
+  if (!body.locationId || !body.sourceUrl) throw new GbpError('bad_request', 'locationId oder sourceUrl fehlt');
+  let source: URL;
+  try { source = new URL(body.sourceUrl); } catch { throw new GbpError('bad_request', 'Ungültige Bild-URL'); }
+  if (source.protocol !== 'https:') throw new GbpError('bad_request', 'Bild-URL muss HTTPS verwenden');
+  const category = body.category ?? 'ADDITIONAL';
+  if (!['ADDITIONAL', 'COVER', 'PROFILE'].includes(category)) throw new GbpError('bad_request', 'Ungültige Medienkategorie');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const client = createGbpClient(user.id, location.account_id);
+  await client.createMedia(location.account_resource_name, location.location_resource_name, source.toString(), category);
+  const media = await client.listMedia(location.account_resource_name, location.location_resource_name);
+  await adminClient().from('google_locations').update({ google_media: media }).eq('id', location.id);
+  return jsonResponse(request, { media, confirmed: true });
+}
+
 /**
  * POST /sync/run
  *
@@ -5031,6 +5170,16 @@ const REPLY_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Reques
   retract: { method: 'POST', handler: handleReplyRetract },
 };
 
+const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  update: { method: 'POST', handler: handleLocationUpdate },
+  'google-updated': { method: 'GET', handler: handleGoogleUpdated },
+};
+
+const MEDIA_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  list: { method: 'GET', handler: handleMediaList },
+  create: { method: 'POST', handler: handleMediaCreate },
+};
+
 Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(request) });
@@ -5045,6 +5194,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
     routeName === 'sync'    ? (sub ? SYNC_ROUTES[sub] : undefined) :
     routeName === 'replies' ? (sub ? REPLY_ROUTES[sub]
                                    : { method: 'GET' as const, handler: handleRepliesList }) :
+    routeName === 'location' && sub ? LOCATION_ROUTES[sub] :
+    routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
     ROUTES[routeName];
 
   if (!route) {
