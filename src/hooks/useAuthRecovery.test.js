@@ -4,6 +4,12 @@ import supabase from '../supabaseClient';
 
 let mockAuthListener;
 
+const mockProfileQuery = () => ({
+  select: jest.fn(() => ({
+    eq: jest.fn(() => ({ maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }) })),
+  })),
+});
+
 jest.mock('../supabaseClient', () => ({
   __esModule: true,
   default: {
@@ -14,11 +20,7 @@ jest.mock('../supabaseClient', () => ({
       }),
       signOut: jest.fn(),
     },
-    from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => ({ maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }) })),
-      })),
-    })),
+    from: jest.fn(mockProfileQuery),
     rpc: jest.fn().mockResolvedValue({ error: null }),
   },
 }));
@@ -34,6 +36,11 @@ beforeEach(() => {
     mockAuthListener = callback;
     return { data: { subscription: { unsubscribe: jest.fn() } } };
   });
+  // CRA enables resetMocks, which also removes these implementations. Both
+  // effects run as soon as PASSWORD_RECOVERY supplies a user: profile loading
+  // uses from(), and lead claiming uses rpc().
+  supabase.from.mockImplementation(mockProfileQuery);
+  supabase.rpc.mockResolvedValue({ error: null });
 });
 
 test('erkennt PASSWORD_RECOVERY und hält den Recovery-Modus über den Auth-Status hinweg', async () => {
