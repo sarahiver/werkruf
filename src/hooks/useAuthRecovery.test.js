@@ -39,7 +39,11 @@ beforeEach(() => {
   // CRA enables resetMocks, which also removes these implementations. Both
   // effects run as soon as PASSWORD_RECOVERY supplies a user: profile loading
   // uses from(), and lead claiming uses rpc().
-  supabase.from.mockImplementation(mockProfileQuery);
+  supabase.from.mockImplementation(() => ({
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({ maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }) })),
+    })),
+  }));
   supabase.rpc.mockResolvedValue({ error: null });
 });
 
