@@ -4,6 +4,12 @@ import supabase from '../supabaseClient';
 
 let mockAuthListener;
 
+const mockProfileQuery = () => ({
+  select: jest.fn(() => ({
+    eq: jest.fn(() => ({ maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }) })),
+  })),
+});
+
 jest.mock('../supabaseClient', () => ({
   __esModule: true,
   default: {
