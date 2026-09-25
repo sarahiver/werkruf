@@ -134,7 +134,7 @@ const SwitchText = styled.p`
 export default function Login() {
   const location  = useLocation();
   const navigate  = useNavigate();
-  const { isAuthenticated, signInGoogle, signInEmail } = useAuthContext();
+  const { isAuthenticated, recoveryMode, signInGoogle, signInEmail } = useAuthContext();
   const { brand } = useIndustry();
 
   const from = location.state?.from?.pathname || '/dashboard';
@@ -147,8 +147,8 @@ export default function Login() {
   const [fieldErr, setFieldErr] = useState({});
 
   useEffect(() => {
-    if (isAuthenticated) navigate(from, { replace: true });
-  }, [isAuthenticated, navigate, from]);
+    if (isAuthenticated && !recoveryMode) navigate(from, { replace: true });
+  }, [isAuthenticated, recoveryMode, navigate, from]);
 
   const validate = () => {
     const e = {};

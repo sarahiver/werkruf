@@ -1,8 +1,13 @@
--- WERKRUF admin authorization + secure lead claim
--- Generated from production baseline 2026-09-22.
+-- WERKRUF admin authorization + secure lead claim (authoritative)
+-- Generated from production baseline 2026-09-22 and reconciled with the
+-- former 021_admin_lead_security.sql variant.
 --
 -- IMPORTANT: before applying this migration in production, ensure the intended
 -- administrator has app_metadata.role = 'admin' and has refreshed their JWT.
+--
+-- This migration deliberately removes every policy/function name introduced by
+-- either older variant first. It is therefore safe to apply when neither, one,
+-- or both variants were partially applied outside migration bookkeeping.
 
 begin;
 
@@ -18,8 +23,10 @@ create policy "Admins can read leads"
   );
 
 -- 2) Keep owner-only access for normal users, and add an explicit admin read
--- policy for the admin dashboard.
+-- policy for the admin dashboard. Both historical names are removed so the
+-- final state can never contain two equivalent permissive policies.
 drop policy if exists "Admins can read user profiles" on public.user_profiles;
+drop policy if exists "Admins can read all user profiles" on public.user_profiles;
 
 create policy "Admins can read user profiles"
   on public.user_profiles
@@ -31,7 +38,11 @@ create policy "Admins can read user profiles"
 
 -- 3) Claim exactly one lead belonging to the currently authenticated user's
 -- verified auth email. The client cannot choose a user id or email.
-create or replace function public.claim_own_lead()
+-- DROP is required because PostgreSQL cannot change a function's return type
+-- with CREATE OR REPLACE. The old variants returned either void or boolean.
+drop function if exists public.claim_own_lead();
+
+create function public.claim_own_lead()
 returns boolean
 language plpgsql
 security definer
@@ -61,7 +72,7 @@ begin
     from public.leads l
    where lower(btrim(l.email)) = lower(btrim(v_email))
      and l.status = 'new'
-   order by l.created_at desc
+   order by l.created_at desc, l.id desc
    limit 1
    for update;
 
@@ -69,14 +80,16 @@ begin
     return false;
   end if;
 
+  -- Existing profile values are authoritative. Lead data only fills gaps;
+  -- blank strings count as gaps just like NULL.
   update public.user_profiles p
-     set company_name = coalesce(p.company_name, v_lead.company_name),
-         google_place_id = coalesce(p.google_place_id, v_lead.google_place_id),
+     set company_name = coalesce(nullif(p.company_name, ''), nullif(v_lead.company_name, '')),
+         google_place_id = coalesce(nullif(p.google_place_id, ''), nullif(v_lead.google_place_id, '')),
          google_rating = coalesce(p.google_rating, v_lead.google_rating),
          google_review_count = coalesce(p.google_review_count, v_lead.google_review_count),
          visibility_score = coalesce(p.visibility_score, v_lead.visibility_score),
-         city = coalesce(p.city, v_lead.city),
-         industry_key = coalesce(p.industry_key, v_lead.industry_key),
+         city = coalesce(nullif(p.city, ''), nullif(v_lead.city, '')),
+         industry_key = coalesce(nullif(p.industry_key, ''), nullif(v_lead.industry_key, '')),
          updated_at = now()
    where p.id = v_user_id;
 
@@ -96,6 +109,7 @@ end;
 $$;
 
 revoke all on function public.claim_own_lead() from public;
+revoke all on function public.claim_own_lead() from anon;
 grant execute on function public.claim_own_lead() to authenticated;
 
 commit;
