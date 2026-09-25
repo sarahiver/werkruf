@@ -20,7 +20,13 @@ jest.mock('../supabaseClient', () => ({
       }),
       signOut: jest.fn(),
     },
-    from: jest.fn(mockProfileQuery),
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }),
+        })),
+      })),
+    })),
     rpc: jest.fn().mockResolvedValue({ error: null }),
   },
 }));
@@ -41,7 +47,9 @@ beforeEach(() => {
   // uses from(), and lead claiming uses rpc().
   supabase.from.mockImplementation(() => ({
     select: jest.fn(() => ({
-      eq: jest.fn(() => ({ maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }) })),
+      eq: jest.fn(() => ({
+        maybeSingle: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      })),
     })),
   }));
   supabase.rpc.mockResolvedValue({ error: null });
@@ -51,6 +59,7 @@ test('erkennt PASSWORD_RECOVERY und hält den Recovery-Modus über den Auth-Stat
   const { result } = renderHook(() => useAuth());
   act(() => mockAuthListener('PASSWORD_RECOVERY', { user: { id: 'user-1' } }));
   await waitFor(() => expect(result.current.recoveryMode).toBe(true));
+  await waitFor(() => expect(supabase.from).toHaveBeenCalledWith('user_profiles'));
   expect(result.current.isAuthenticated).toBe(true);
   expect(window.sessionStorage.getItem('werkruf.password-recovery')).toBe('true');
 
