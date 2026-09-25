@@ -295,6 +295,20 @@ export default function DashboardFotos() {
           setPhotos(prev => [newPhoto, ...prev]);
         }
 
+        // The file selection is the explicit publish action. Google receives
+        // only the public HTTPS URL, never browser-side OAuth credentials.
+        const { data: location } = await supabase.from('google_locations')
+          .select('id').order('is_primary', { ascending: false }).limit(1).maybeSingle();
+        if (location?.id) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/media/create`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locationId: location.id, sourceUrl: result.secure_url, category: 'ADDITIONAL' }),
+          });
+          if (!response.ok) throw new Error('Google konnte das Foto nicht veröffentlichen.');
+        }
+
         // Remove from queue after delay
         setTimeout(() => {
           setQueue(prev => prev.filter(q => q.id !== item.id));
@@ -399,7 +413,7 @@ export default function DashboardFotos() {
                 loading="lazy"
               />
               <SyncBadge>
-                <PulseDot /> Wartet auf Google-Sync
+                <PulseDot /> Google-Upload angefordert
               </SyncBadge>
               <PhotoOverlay>
                 <DeleteBtn onClick={() => handleDelete(photo)}>
