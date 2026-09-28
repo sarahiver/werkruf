@@ -57,7 +57,7 @@ export function useDashboardBriefing() {
   const {
     locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
     loading: dataLoading, error, reload, triggerSync,
-  } = useGoogleBusinessData();
+  } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const loading = connectionLoading || dataLoading;
 

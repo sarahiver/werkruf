@@ -12,7 +12,7 @@ import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConn
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
-  StarRating, ratingColor, Badge, GhostBtn, Spinner, Select, Toolbar,
+  StarRating, ratingColor, Badge, GhostBtn, Spinner,
   formatDate, formatRelative,
 } from '../../components/dashboard/gb/GbUi';
 
@@ -135,7 +135,7 @@ export default function DashboardGoogleBusiness() {
   const {
     locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
     loading, error, reload, triggerSync, updateLocation, selectLocation,
-  } = useGoogleBusinessData();
+  } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
 
@@ -152,16 +152,27 @@ export default function DashboardGoogleBusiness() {
   }, [isConnected, connectionLoading, loading, locations.length, triggerSync]);
 
   React.useEffect(() => {
-    if (!isConnected || locations.length > 0) return undefined;
-    const timer = window.setInterval(reload, 2500);
+    if (!isConnected || locations.length > 0 || lastFailedJob) return undefined;
+    let polls = 0;
+    const timer = window.setInterval(() => {
+      polls += 1;
+      reload();
+      // A missing worker must not leave the browser polling forever.
+      if (polls >= 48) {
+        window.clearInterval(timer);
+        setSyncError('Das Laden dauert ungewöhnlich lange. Bitte versuche den Abgleich erneut.');
+      }
+    }, 2500);
     return () => window.clearInterval(timer);
-  }, [isConnected, locations.length, reload]);
+  }, [isConnected, locations.length, lastFailedJob, reload]);
 
-  /* Standortauswahl.
-     'all' fasst zusammen — richtig bei mehreren Filialen desselben
-     Betriebs, irreführend bei zwei verschiedenen Betrieben unter
-     einem Google-Konto. Deshalb die Auswahl. */
-  const [selectedLocation, setSelectedLocation] = React.useState('all');
+  /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
+     Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
+  const persistedSelection = locations.find((location) => location.selected_at)?.id ?? '';
+  const [selectedLocation, setSelectedLocation] = React.useState('');
+  React.useEffect(() => {
+    setSelectedLocation(persistedSelection);
+  }, [persistedSelection]);
 
   /*
    * Abgleich anstossen.
@@ -213,20 +224,6 @@ export default function DashboardGoogleBusiness() {
         </PageSub>
         <GoogleBusinessConnect googleBusiness={googleBusiness} />
 
-      {/* Standortauswahl — erst ab zwei Standorten sinnvoll */}
-      {locations.length > 1 && (
-        <Toolbar>
-          <Select
-            value={selectedLocation}
-            onChange={(e) => setSelectedLocation(e.target.value)}
-          >
-            <option value="all">Alle Standorte ({locations.length})</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
-            ))}
-          </Select>
-        </Toolbar>
-      )}
       </Page>
     );
   }
@@ -234,25 +231,11 @@ export default function DashboardGoogleBusiness() {
   /* 'never' als eigener Zustand: vorher stand bei einem frisch
      verbundenen Konto "Daten sind aktuell / Zuletzt abgeglichen noch
      nie" — beides gleichzeitig, und das eine widerlegt das andere. */
-  const visibleLocations = selectedLocation === 'all'
-    ? locations
-    : locations.filter((l) => l.id === selectedLocation);
+  const visibleLocations = selectedLocation
+    ? locations.filter((l) => l.id === selectedLocation)
+    : locations;
 
-  /* Kennzahlen des gewählten Standorts. Bei 'all' bleiben die
-     Gesamtwerte aus dem Hook. */
-  const scopedStats = selectedLocation === 'all' ? stats : (() => {
-    const location = locations.find((l) => l.id === selectedLocation);
-    if (!location) return stats;
-    return {
-      ...stats,
-      totalReviews:  location.review_count,
-      averageRating: location.average_rating,
-      // Unbeantwortete je Standort liegen im Hook nicht vor —
-      // dafür bräuchte es eine eigene Abfrage. Bis dahin ehrlich
-      // ausblenden statt eine falsche Zahl zeigen.
-      unanswered:    null,
-    };
-  })();
+  const scopedStats = selectedLocation ? stats : null;
 
   const syncState = lastFailedJob ? 'error'
     : runningJob ? 'running'
@@ -295,8 +278,8 @@ export default function DashboardGoogleBusiness() {
           <StatsRow>
             <StatCard
               loading={loading}
-              value={selectedLocation === 'all' ? locations.length : 1}
-              label="Standorte"
+              value={selectedLocation ? 1 : '—'}
+              label="Ausgewählter Betrieb"
               accent="var(--color-accent)"
             />
             <StatCard
