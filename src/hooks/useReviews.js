@@ -44,6 +44,7 @@ async function callFunction(path, { method = 'POST', body } = {}) {
 }
 
 export function useReviews(initialFilters = {}) {
+  const scopedLocationId = initialFilters.locationId ?? null;
   const [reviews, setReviews] = useState([]);
   const [total, setTotal]     = useState(0);
   const [page, setPage]       = useState(0);
@@ -74,6 +75,13 @@ export function useReviews(initialFilters = {}) {
   /* Filterwechsel bringt zurück auf Seite 1 — sonst landet man auf
      einer Seite, die es im neuen Ergebnis nicht mehr gibt. */
   useEffect(() => { setPage(0); }, [debouncedSearch, rating, answered, locationId, sort]);
+
+  // The persisted business selection can arrive after the connection query.
+  // Keep the review query fail-closed until it does, and never fall back to an
+  // implicit cross-business "all" scope.
+  useEffect(() => {
+    setLocationId(scopedLocationId ?? 'all');
+  }, [scopedLocationId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -241,13 +249,14 @@ export function useReviews(initialFilters = {}) {
   }, []);
 
   const hasFilters = useMemo(
-    () => Boolean(debouncedSearch) || rating !== 'all' || answered !== 'all' || locationId !== 'all',
-    [debouncedSearch, rating, answered, locationId],
+    () => Boolean(debouncedSearch) || rating !== 'all' || answered !== 'all',
+    [debouncedSearch, rating, answered],
   );
 
   const resetFilters = useCallback(() => {
-    setSearch(''); setRating('all'); setAnswered('all'); setLocationId('all'); setSort('newest');
-  }, []);
+    setSearch(''); setRating('all'); setAnswered('all');
+    setLocationId(scopedLocationId ?? 'all'); setSort('newest');
+  }, [scopedLocationId]);
 
   return {
     reviews, replies, total, page, pageSize: PAGE_SIZE,

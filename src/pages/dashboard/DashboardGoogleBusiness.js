@@ -9,10 +9,11 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
+import supabase from '../../supabaseClient';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
-  StarRating, ratingColor, Badge, GhostBtn, Spinner, Select, Toolbar,
+  StarRating, ratingColor, Badge, GhostBtn, Spinner,
   formatDate, formatRelative,
 } from '../../components/dashboard/gb/GbUi';
 
@@ -69,7 +70,7 @@ const SyncBar = styled(Card)`
   border-left: 3px solid ${({ $state }) =>
     $state === 'error'   ? '#D93025' :
     $state === 'running' ? 'var(--color-accent)' :
-    $state === 'never'   ? '#D48A00' : '#1E7E34'};
+    $state === 'never' || $state === 'empty' ? '#D48A00' : '#1E7E34'};
 `;
 
 const SyncInfo = styled.div`display: flex; align-items: center; gap: 11px;`;
@@ -134,8 +135,9 @@ export default function DashboardGoogleBusiness() {
   const { isConnected, loading: connectionLoading } = googleBusiness;
   const {
     locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
+    locationImportCompleted,
     loading, error, reload, triggerSync, updateLocation, selectLocation,
-  } = useGoogleBusinessData();
+  } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
 
@@ -146,22 +148,34 @@ export default function DashboardGoogleBusiness() {
      afterwards. Start that import automatically and poll while it is queued so
      a freshly connected user does not have to discover the sync button. */
   React.useEffect(() => {
-    if (!isConnected || connectionLoading || loading || locations.length > 0 || initialSyncRef.current) return;
+    if (!isConnected || connectionLoading || loading || locations.length > 0
+        || locationImportCompleted || initialSyncRef.current) return;
     initialSyncRef.current = true;
     triggerSync(null).catch(() => setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
-  }, [isConnected, connectionLoading, loading, locations.length, triggerSync]);
+  }, [isConnected, connectionLoading, loading, locations.length, locationImportCompleted, triggerSync]);
 
   React.useEffect(() => {
-    if (!isConnected || locations.length > 0) return undefined;
-    const timer = window.setInterval(reload, 2500);
+    if (!isConnected || locations.length > 0 || lastFailedJob || locationImportCompleted) return undefined;
+    let polls = 0;
+    const timer = window.setInterval(() => {
+      polls += 1;
+      reload();
+      // A missing worker must not leave the browser polling forever.
+      if (polls >= 48) {
+        window.clearInterval(timer);
+        setSyncError('Das Laden dauert ungewöhnlich lange. Bitte versuche den Abgleich erneut.');
+      }
+    }, 2500);
     return () => window.clearInterval(timer);
-  }, [isConnected, locations.length, reload]);
+  }, [isConnected, locations.length, lastFailedJob, locationImportCompleted, reload]);
 
-  /* Standortauswahl.
-     'all' fasst zusammen — richtig bei mehreren Filialen desselben
-     Betriebs, irreführend bei zwei verschiedenen Betrieben unter
-     einem Google-Konto. Deshalb die Auswahl. */
-  const [selectedLocation, setSelectedLocation] = React.useState('all');
+  /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
+     Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
+  const persistedSelection = locations.find((location) => location.selected_at)?.id ?? '';
+  const [selectedLocation, setSelectedLocation] = React.useState('');
+  React.useEffect(() => {
+    setSelectedLocation(persistedSelection);
+  }, [persistedSelection]);
 
   /*
    * Abgleich anstossen.
@@ -177,8 +191,11 @@ export default function DashboardGoogleBusiness() {
     try {
       if (locations.length === 0) {
         await triggerSync(null);
+      } else if (selectedLocation) {
+        await triggerSync(selectedLocation);
       } else {
-        await Promise.all(locations.map((l) => triggerSync(l.id)));
+        setSyncError('Wähle zuerst den Betrieb aus, den du abgleichen möchtest.');
+        return;
       }
       await reload();
     } catch (err) {
@@ -213,20 +230,6 @@ export default function DashboardGoogleBusiness() {
         </PageSub>
         <GoogleBusinessConnect googleBusiness={googleBusiness} />
 
-      {/* Standortauswahl — erst ab zwei Standorten sinnvoll */}
-      {locations.length > 1 && (
-        <Toolbar>
-          <Select
-            value={selectedLocation}
-            onChange={(e) => setSelectedLocation(e.target.value)}
-          >
-            <option value="all">Alle Standorte ({locations.length})</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
-            ))}
-          </Select>
-        </Toolbar>
-      )}
       </Page>
     );
   }
@@ -234,28 +237,15 @@ export default function DashboardGoogleBusiness() {
   /* 'never' als eigener Zustand: vorher stand bei einem frisch
      verbundenen Konto "Daten sind aktuell / Zuletzt abgeglichen noch
      nie" — beides gleichzeitig, und das eine widerlegt das andere. */
-  const visibleLocations = selectedLocation === 'all'
-    ? locations
-    : locations.filter((l) => l.id === selectedLocation);
+  const visibleLocations = selectedLocation
+    ? locations.filter((l) => l.id === selectedLocation)
+    : locations;
 
-  /* Kennzahlen des gewählten Standorts. Bei 'all' bleiben die
-     Gesamtwerte aus dem Hook. */
-  const scopedStats = selectedLocation === 'all' ? stats : (() => {
-    const location = locations.find((l) => l.id === selectedLocation);
-    if (!location) return stats;
-    return {
-      ...stats,
-      totalReviews:  location.review_count,
-      averageRating: location.average_rating,
-      // Unbeantwortete je Standort liegen im Hook nicht vor —
-      // dafür bräuchte es eine eigene Abfrage. Bis dahin ehrlich
-      // ausblenden statt eine falsche Zahl zeigen.
-      unanswered:    null,
-    };
-  })();
+  const scopedStats = selectedLocation ? stats : null;
 
   const syncState = lastFailedJob ? 'error'
     : runningJob ? 'running'
+    : locationImportCompleted && locations.length === 0 ? 'empty'
     : lastSyncedAt ? 'ok'
     : 'never';
 
@@ -295,8 +285,8 @@ export default function DashboardGoogleBusiness() {
           <StatsRow>
             <StatCard
               loading={loading}
-              value={selectedLocation === 'all' ? locations.length : 1}
-              label="Standorte"
+              value={selectedLocation ? 1 : '—'}
+              label="Ausgewählter Betrieb"
               accent="var(--color-accent)"
             />
             <StatCard
@@ -368,18 +358,21 @@ export default function DashboardGoogleBusiness() {
               <SyncInfo>
                 {syncState === 'error'   ? <AlertTriangle size={19} color="#D93025" />
                   : syncState === 'running' ? <Spinner size={19} color="var(--color-accent)" />
-                  : syncState === 'never'   ? <Clock size={19} color="#D48A00" />
+                  : syncState === 'never' || syncState === 'empty' ? <Clock size={19} color="#D48A00" />
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
                     {syncState === 'error'   ? 'Letzter Abgleich fehlgeschlagen'
                       : syncState === 'running' ? 'Abgleich läuft'
                       : syncState === 'never'   ? 'Noch kein Abgleich gelaufen'
+                      : syncState === 'empty'   ? 'Abgleich abgeschlossen'
                       : 'Daten sind aktuell'}
                   </p>
                   <p>
                     {syncState === 'error'
                       ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
+                      : syncState === 'empty'
+                        ? 'Google hat für dieses Konto keine verwaltbaren Standorte zurückgegeben.'
                       : syncState === 'never'
                         ? 'Starte den ersten Abgleich, um Standorte und Bewertungen zu laden.'
                         : `Zuletzt abgeglichen ${formatRelative(lastSyncedAt)}`}
@@ -387,7 +380,7 @@ export default function DashboardGoogleBusiness() {
                 </SyncText>
               </SyncInfo>
 
-              <GhostBtn onClick={handleSyncAll} disabled={syncing}>
+              <GhostBtn onClick={handleSyncAll} disabled={syncing || (locations.length > 0 && !selectedLocation)}>
                 {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
               </GhostBtn>
             </SyncBar>
@@ -399,10 +392,12 @@ export default function DashboardGoogleBusiness() {
           {loading ? <SkeletonList count={2} height={140} />
             : visibleLocations.length === 0 ? (
               <EmptyState
-                title="Noch keine Standorte"
-                text="Die Standorte werden beim ersten Abgleich aus deinem Google-Profil übernommen. Das kann einen Moment dauern."
+                title={locationImportCompleted ? 'Keine verwaltbaren Standorte gefunden' : 'Standorte werden geladen'}
+                text={locationImportCompleted
+                  ? 'Das verbundene Google-Konto hat keine Standorte zurückgegeben, die du verwalten kannst. Prüfe das verwendete Google-Konto oder verbinde es erneut.'
+                  : 'Die Standorte werden beim ersten Abgleich aus deinem Google-Profil übernommen. Das kann einen Moment dauern.'}
                 action={
-                  <GhostBtn onClick={handleSyncAll} disabled={syncing}>
+                  <GhostBtn onClick={handleSyncAll} disabled={syncing || runningJob}>
                     {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
                   </GhostBtn>
                 }
@@ -445,7 +440,7 @@ export default function DashboardGoogleBusiness() {
 
           {/* ── NEUESTE BEWERTUNGEN ── */}
           <SectionTitle><Star size={15} /> Neueste Bewertungen</SectionTitle>
-          <LatestReviews />
+          <LatestReviews locationId={selectedLocation} />
         </>
       )}
     </Page>
@@ -491,20 +486,26 @@ function LocationProfileEditor({ location, onSave }) {
    würde die Übersicht unnötig schwer machen.
 ───────────────────────────────────────────── */
 
-function LatestReviews() {
+export function LatestReviews({ locationId }) {
   const [reviews, setReviews] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError]     = React.useState(null);
 
   const load = React.useCallback(async () => {
+    if (!locationId) {
+      setReviews([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const supabase = (await import('../../supabaseClient')).default;
       const { data, error: queryError } = await supabase
         .from('google_reviews')
         .select('id, star_rating, comment, reviewer_display_name, google_created_at, is_answered')
         .eq('status', 'active')
+        .eq('location_id', locationId)
         .order('google_created_at', { ascending: false })
         .limit(5);
 
@@ -516,7 +517,7 @@ function LatestReviews() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [locationId]);
 
   React.useEffect(() => { load(); }, [load]);
 

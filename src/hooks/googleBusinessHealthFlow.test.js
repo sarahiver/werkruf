@@ -1,7 +1,9 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import React from 'react';
+import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import supabase from '../supabaseClient';
 import { useGoogleBusinessData } from './useGoogleBusinessData';
 import { useHealthScore } from './useHealthScore';
+import { LatestReviews } from '../pages/dashboard/DashboardGoogleBusiness';
 
 jest.mock('../supabaseClient', () => ({
   __esModule: true,
@@ -20,6 +22,8 @@ const completeLocation = {
   average_rating: 5,
   last_synced_at: '2026-09-22T00:00:00Z',
   is_primary: true,
+  selected_at: '2026-09-22T00:00:00Z',
+  google_media: [],
 };
 
 function query(result) {
@@ -91,5 +95,44 @@ describe('Google location health-score flow', () => {
       points: 4,
       action: 'Angaben ergänzen',
     });
+  });
+
+  it('scopes score inputs to the persisted business selection', async () => {
+    mockDashboardQueries();
+
+    const { result } = renderHook(() => useGoogleBusinessData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(supabase.from.mock.results[1].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[2].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[3].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[4].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+  });
+
+  it('does not calculate business metrics before a location is selected', async () => {
+    mockDashboardQueries({ ...completeLocation, selected_at: null });
+
+    const { result } = renderHook(() => useGoogleBusinessData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.stats).toMatchObject({ totalReviews: 0, averageRating: null });
+    expect(result.current.replyCounts).toEqual({ draft: 0, approved: 0, published: 0, failed: 0 });
+  });
+
+  it('loads the latest review list only for the selected business', async () => {
+    const reviewsQuery = query({
+      data: [{
+        id: 'review-1', star_rating: 5, comment: 'Sehr gut',
+        reviewer_display_name: 'Testkunde', google_created_at: '2026-09-28T10:00:00Z',
+        is_answered: false,
+      }],
+      error: null,
+    });
+    supabase.from.mockReturnValue(reviewsQuery);
+
+    render(<LatestReviews locationId="location-1" />);
+
+    expect(await screen.findByText('Sehr gut')).toBeInTheDocument();
+    expect(reviewsQuery.eq).toHaveBeenCalledWith('location_id', 'location-1');
   });
 });

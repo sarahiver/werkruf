@@ -133,16 +133,17 @@ export default function DashboardBewertungen() {
   const { profile } = useAuthContext();
   const { brand } = useIndustry();
   const { locations } = useGoogleBusinessData();
+  const selectedLocation = locations.find((location) => location.selected_at) ?? null;
 
   const {
     reviews, replies, total, page, pageSize,
     loading, error, busy, actionError,
     search, setSearch, rating, setRating,
-    answered, setAnswered, locationId, setLocationId,
+    answered, setAnswered,
     sort, setSort, hasFilters, resetFilters,
     setPage, reload,
     generateReply, saveDraft, approveReply, dismissActionError,
-  } = useReviews();
+  } = useReviews({ locationId: selectedLocation?.id ?? '__no_selected_location__' });
 
   // Lokale Textstände, damit Tippen nicht bei jedem Anschlag speichert.
   const [edits, setEdits] = useState({});
@@ -194,7 +195,7 @@ export default function DashboardBewertungen() {
     <Page>
       <PageTitle>Bewertungen</PageTitle>
       <PageSub>
-        Alle Google-Bewertungen deiner Standorte. Antworten schlägt {brand.name} vor —
+        Google-Bewertungen deines ausgewählten Betriebs. Antworten schlägt {brand.name} vor —
         veröffentlicht wird erst nach deiner Freigabe.
       </PageSub>
 
@@ -230,15 +231,6 @@ export default function DashboardBewertungen() {
           <option value="open">Unbeantwortet</option>
           <option value="done">Beantwortet</option>
         </Select>
-
-        {locations.length > 1 && (
-          <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-            <option value="all">Alle Standorte</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
-            ))}
-          </Select>
-        )}
 
         <Select value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="newest">Neueste zuerst</option>

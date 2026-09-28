@@ -298,7 +298,7 @@ export default function DashboardFotos() {
         // The file selection is the explicit publish action. Google receives
         // only the public HTTPS URL, never browser-side OAuth credentials.
         const { data: location } = await supabase.from('google_locations')
-          .select('id').order('is_primary', { ascending: false }).limit(1).maybeSingle();
+          .select('id').not('selected_at', 'is', null).limit(1).maybeSingle();
         if (location?.id) {
           const { data: { session } } = await supabase.auth.getSession();
           const response = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/media/create`, {

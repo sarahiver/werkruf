@@ -28,7 +28,7 @@ import supabase from '../supabaseClient';
 
 const GENERIC_ERROR = 'Die Daten konnten nicht geladen werden.';
 
-export function useGoogleBusinessData() {
+export function useGoogleBusinessData({ enabled = true } = {}) {
   const [locations, setLocations] = useState([]);
   const [stats, setStats]         = useState(null);
   const [syncJobs, setSyncJobs]   = useState([]);
@@ -43,14 +43,26 @@ export function useGoogleBusinessData() {
   }, []);
 
   const load = useCallback(async () => {
+    if (!enabled) {
+      if (mountedRef.current) {
+        setLocations([]);
+        setStats(null);
+        setSyncJobs([]);
+        setReplyCounts({ draft: 0, approved: 0, published: 0, failed: 0 });
+        setError(null);
+        setLoading(false);
+      }
+      return;
+    }
+    setLoading(true);
     setError(null);
 
     try {
-      /* Alles parallel. Die Abfragen hängen nicht voneinander ab, und
-         seriell wären es vier Roundtrips statt einem. */
+      /* Zuerst die autorisierten Standorte laden. Erst die persistierte
+         Auswahl bestimmt danach den Scope aller Kennzahlen. */
       let locationsQuery = await supabase
         .from('google_locations')
-        .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary, selected_at, created_at, google_profile, google_updated, google_diff_mask')
+        .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary, selected_at, created_at, google_profile, google_updated, google_diff_mask, google_media')
         .order('is_primary', { ascending: false })
         .order('created_at', { ascending: true });
 
@@ -65,53 +77,55 @@ export function useGoogleBusinessData() {
           .order('created_at', { ascending: true });
       }
 
-      const [
-        locationsResult, reviewsResult, jobsResult, repliesResult,
-        newestResult, photoResult,
-      ] = await Promise.all([
-        Promise.resolve(locationsQuery),
+      const locationsResult = await Promise.resolve(locationsQuery);
+      if (locationsResult.error) throw locationsResult.error;
 
-        /* Nur die Felder, die in die Kennzahlen eingehen. Ein
-           select('*') würde bei tausenden Bewertungen den ganzen
-           Kommentartext über die Leitung ziehen, nur um zu zählen. */
-        supabase
-          .from('google_reviews')
-          .select('star_rating, is_answered')
-          .eq('status', 'active'),
+      const loadedLocations = locationsResult.data ?? [];
+      const selectedLocation = loadedLocations.find((location) => location.selected_at) ?? null;
 
-        supabase
-          .from('sync_jobs')
-          .select('id, job_type, status, scheduled_for, finished_at, error_code, attempts, max_attempts')
-          .order('created_at', { ascending: false })
-          .limit(10),
+      /* Reviews, replies and the canonical score must never aggregate two
+         different businesses. Until the customer has made an explicit
+         selection, deliberately return no business metrics. */
+      const reviewsQuery = supabase
+        .from('google_reviews')
+        .select('star_rating, is_answered')
+        .eq('status', 'active');
+      const jobsQuery = supabase
+        .from('sync_jobs')
+        .select('id, job_type, status, scheduled_for, finished_at, error_code, attempts, max_attempts, location_id')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      const repliesQuery = supabase
+        .from('review_replies')
+        .select('status')
+        .is('deleted_at', null);
+      const newestQuery = supabase
+        .from('google_reviews')
+        .select('google_created_at')
+        .eq('status', 'active')
+        .order('google_created_at', { ascending: false })
+        .limit(1);
 
-        supabase
-          .from('review_replies')
-          .select('status')
-          .is('deleted_at', null),
-
-        /* Neueste Bewertung — für den Aktualitätsfaktor im
-           Gesundheitswert. Nur ein Feld, eine Zeile. */
-        supabase
-          .from('google_reviews')
-          .select('google_created_at')
-          .eq('status', 'active')
-          .order('google_created_at', { ascending: false })
-          .limit(1),
-
-        /* Fotoanzahl. head + count überträgt keine Zeilen, nur die
-           Zahl im Content-Range-Header. */
-        supabase
-          .from('business_photos')
-          .select('id', { count: 'exact', head: true }),
-      ]);
+      const [reviewsResult, jobsResult, repliesResult, newestResult] = selectedLocation
+        ? await Promise.all([
+            reviewsQuery.eq('location_id', selectedLocation.id),
+            jobsQuery.eq('location_id', selectedLocation.id),
+            repliesQuery.eq('location_id', selectedLocation.id),
+            newestQuery.eq('location_id', selectedLocation.id),
+          ])
+        : [
+            { data: [], error: null },
+            // Location-import jobs have no location_id and are safe to show.
+            await jobsQuery.is('location_id', null),
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
 
       for (const result of [locationsResult, reviewsResult, jobsResult, repliesResult]) {
         if (result.error) throw result.error;
       }
-      /* newestResult und photoResult bewusst ohne Abbruch: fehlen sie,
-         fällt nur ein Faktor des Gesundheitswerts weg. Der Rest der
-         Seite soll deswegen nicht leer bleiben. */
+      /* newestResult bewusst ohne Abbruch: fehlt es, fällt nur ein Faktor
+         des Gesundheitswerts weg. Der Rest der Seite bleibt nutzbar. */
 
       if (!mountedRef.current) return;
 
@@ -119,7 +133,7 @@ export function useGoogleBusinessData() {
       const total = reviews.length;
       const sum = reviews.reduce((acc, r) => acc + (r.star_rating ?? 0), 0);
 
-      setLocations(locationsResult.data ?? []);
+      setLocations(loadedLocations);
       setSyncJobs(jobsResult.data ?? []);
 
       setStats({
@@ -133,7 +147,8 @@ export function useGoogleBusinessData() {
           return acc;
         }, {}),
         newestReviewAt: newestResult?.data?.[0]?.google_created_at ?? null,
-        photoCount: photoResult?.count ?? 0,
+        photoCount: Array.isArray(selectedLocation?.google_media)
+          ? selectedLocation.google_media.length : 0,
       });
 
       const counts = { draft: 0, approved: 0, published: 0, failed: 0 };
@@ -151,7 +166,7 @@ export function useGoogleBusinessData() {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -207,23 +222,19 @@ export function useGoogleBusinessData() {
     await load();
   }, [load, triggerSync]);
 
-  /* Zuletzt erfolgreich synchronisiert — über alle Standorte der
-     ÄLTESTE Zeitpunkt, nicht der neueste. Sonst sähe alles frisch aus,
-     solange ein einziger Standort läuft. */
-  const lastSyncedAt = locations.length > 0
-    ? locations.reduce((oldest, l) => {
-        if (!l.last_synced_at) return null;
-        if (oldest === null) return null;
-        return !oldest || l.last_synced_at < oldest ? l.last_synced_at : oldest;
-      }, locations[0].last_synced_at)
-    : null;
+  const selectedLocation = locations.find((location) => location.selected_at) ?? null;
+  // Freshness belongs to the selected business, just like reviews and score.
+  const lastSyncedAt = selectedLocation?.last_synced_at ?? null;
 
   const runningJob = syncJobs.find((j) => j.status === 'running' || j.status === 'queued') ?? null;
   const lastFailedJob = syncJobs.find((j) => j.status === 'failed') ?? null;
+  const locationImportCompleted = syncJobs.some(
+    (job) => job.job_type === 'sync_locations' && job.status === 'succeeded',
+  );
 
   return {
     locations, stats, syncJobs, replyCounts,
-    lastSyncedAt, runningJob, lastFailedJob,
+    lastSyncedAt, runningJob, lastFailedJob, locationImportCompleted,
     loading, error,
     reload: load,
     triggerSync, updateLocation, selectLocation,
