@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
-import { CheckCircle, AlertTriangle, ArrowRight, TrendingDown } from 'lucide-react';
+import { CheckCircle, ArrowRight } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
+import { loadPublicFunnel } from '../utils/publicFunnel';
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
@@ -13,7 +14,6 @@ const checkPop = keyframes`
   70% { transform: scale(1.15); }
   100%{ opacity:1; transform: scale(1); }
 `;
-const pulse = keyframes`0%,100%{opacity:1}50%{opacity:.55}`;
 
 /* ─────────────────────────────────────────────
    STYLED
@@ -96,30 +96,9 @@ const UrgencyBox = styled.div`
   animation: ${fadeUp} .6s ease .15s both;
 `;
 
-const UrgencyRow = styled.div`
-  display: flex; align-items: flex-start; gap: 12px;
-`;
-
-const UrgencyIcon = styled.div`
-  color: #D93025; flex-shrink: 0; margin-top: 2px;
-  animation: ${pulse} 2s ease infinite;
-`;
-
-const UrgencyTitle = styled.p`
-  font-family: var(--font-body); font-weight: 700;
-  font-size: .95rem; color: #1A1A1A; margin-bottom: 4px;
-`;
-
 const UrgencyText = styled.p`
   font-family: var(--font-body); font-size: .85rem;
   color: #5A1A1A; line-height: 1.55;
-`;
-
-const LossNumber = styled.span`
-  font-family: var(--font-display);
-  font-weight: var(--heading-weight);
-  font-size: 1.15rem;
-  color: #D93025;
 `;
 
 /* Score chip */
@@ -197,18 +176,14 @@ export default function Success() {
   const { pricing, brand }  = useIndustry();
 
   // Get data passed from AnalysisSection via navigate state
-  const { email, result } = location.state || {};
+  const stored = loadPublicFunnel();
+  const { email, result } = location.state || stored || {};
 
   // Redirect back if no state (direct URL access)
   if (!result) {
     navigate('/', { replace: true });
     return null;
   }
-
-  // Urgency calculation: unanswered reviews * avgOrderValue * 0.1 * 12 months factor
-  const monthlyLoss = Math.round(
-    (result.unanswered || 2) * pricing.roi.avgOrderValue * 0.1
-  );
 
   return (
     <Page>
@@ -218,17 +193,17 @@ export default function Success() {
           <CheckCircle size={64} strokeWidth={1.5} />
         </CheckWrap>
 
-        <Eyebrow>Report wird erstellt</Eyebrow>
+        <Eyebrow>Analyse gespeichert</Eyebrow>
 
         <Headline>
-          Moin! Dein Report für{' '}
+          Moin! Deine Analyse für{' '}
           <HeadlineAccent>{result.name}</HeadlineAccent>{' '}
-          ist unterwegs.
+          ist bereit.
         </Headline>
 
         {/* Email confirmation */}
         <SubText>
-          Er ist unterwegs an:
+          Gespeichert für:
         </SubText>
 
         <EmailConfirm>
@@ -237,32 +212,20 @@ export default function Success() {
         </EmailConfirm>
 
         {/* Score chip */}
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        {result.score !== null && <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <ScoreChip>
-            <TrendingDown size={15} color="#D48A00" />
             <ScoreLabel>Aktueller Score:</ScoreLabel>
             <ScoreNum $score={result.score}>{result.score} / 100</ScoreNum>
           </ScoreChip>
-        </div>
+        </div>}
 
-        {/* Urgency block — the loss hook */}
         <UrgencyBox>
-          <UrgencyRow>
-            <UrgencyIcon>
-              <AlertTriangle size={20} />
-            </UrgencyIcon>
-            <div>
-              <UrgencyTitle>
-                Achtung: {result.unanswered} unbeantwortete Bewertungen gefunden.
-              </UrgencyTitle>
-              <UrgencyText>
-                Du verlierst aktuell schätzungsweise{' '}
-                <LossNumber>~{monthlyLoss.toLocaleString('de-DE')} €</LossNumber>{' '}
-                Umsatz pro Monat — weil potenzielle Kunden dein Profil sehen
-                und zur Konkurrenz wechseln. Das lässt sich heute noch ändern.
-              </UrgencyText>
-            </div>
-          </UrgencyRow>
+          <UrgencyText>
+            Der Check nutzt öffentliche Google-Profildaten und einen berechneten
+            Sichtbarkeits-Score. Ein PDF wurde nicht erzeugt oder versendet. Nach
+            der Registrierung kannst du dein Google-Unternehmensprofil separat
+            per OAuth verbinden und deine Verwaltungsberechtigung nachweisen.
+          </UrgencyText>
         </UrgencyBox>
 
         <Divider />
@@ -277,7 +240,7 @@ export default function Success() {
         </CTABtn>
 
         <SecondaryLink to="/">
-          Erstmal den Report abwarten →
+          Zurück zur Startseite →
         </SecondaryLink>
       </Card>
     </Page>

@@ -13,6 +13,7 @@ export default function HomePage() {
     fetchErr,
     selectedPlace,
     runAnalysis,
+    runManualAnalysis,
     reset,
     markSent,
   } = usePlacesAnalysis();
@@ -22,6 +23,7 @@ export default function HomePage() {
       <Hero
         onPlaceSelect={runAnalysis}
         fetchErr={fetchErr}
+        onNoResults={runManualAnalysis}
       />
       <AnalysisSection
         phase={phase}
