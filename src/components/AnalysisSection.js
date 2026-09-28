@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import styled, { keyframes, css } from 'styled-components';
 import {
   Star, AlertTriangle, MessageSquare, Globe, MapPin,
@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   scoreColor, scoreBg, scoreLabel,
-  buildAlerts, SCAN_STEPS, saveLeadToSupabase,
+  buildAlerts, SCAN_STEPS,
 } from '../hooks/usePlacesAnalysis';
 import { useIndustry } from '../context/IndustryContext';
 import { savePublicFunnel } from '../utils/publicFunnel';
@@ -20,11 +20,6 @@ const fadeIn  = keyframes`from{opacity:0}to{opacity:1}`;
 const scanBar = keyframes`0%{width:0%}85%{width:90%}100%{width:100%}`;
 const pulse   = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
 const spin    = keyframes`to{transform:rotate(360deg)}`;
-const stampIn = keyframes`
-  0%  { opacity:0; transform:scale(1.3) rotate(-4deg); }
-  60% { opacity:1; transform:scale(0.97) rotate(1deg); }
-  100%{ opacity:1; transform:scale(1) rotate(0deg); }
-`;
 
 /* ─────────────────────────────────────────────
    STYLES — CSS vars throughout
@@ -189,22 +184,6 @@ const LTit = styled.h4`
   color:var(--color-primary);margin-bottom:5px;
 `;
 const LSub = styled.p`font-family:var(--font-body);font-size:.83rem;color:var(--color-text-muted);margin-bottom:14px;line-height:1.55;`;
-const ERow = styled.div`display:flex;@media(max-width:500px){flex-direction:column;}`;
-const EInput = styled.input`
-  flex:1;padding:13px 15px;
-  border:2px solid ${({ $e }) => $e?'#E53E3E':'var(--color-border)'};
-  border-right:none;background:var(--color-white);
-  font-family:var(--font-body);font-size:.95rem;color:var(--color-text);
-  outline:none;border-radius:var(--radius-card) 0 0 var(--radius-card);
-  transition:border-color .2s;
-  &:focus{border-color:var(--color-primary);}
-  &::placeholder{color:#A0ADB8;}
-  @media(max-width:500px){
-    border-right:2px solid ${({ $e }) => $e?'#E53E3E':'var(--color-border)'};
-    border-bottom:none;
-    border-radius:var(--radius-card) var(--radius-card) 0 0;
-  }
-`;
 const SBtn = styled.button`
   display:flex;align-items:center;gap:7px;padding:13px 20px;
   background:${({ disabled }) => disabled?'rgba(var(--color-accent-rgb),.6)':'var(--color-accent)'};
@@ -220,42 +199,6 @@ const SBtn = styled.button`
   .spin{animation:${spin} .8s linear infinite;}
   @media(max-width:500px){width:100%;justify-content:center;border-radius:0 0 var(--radius-button) var(--radius-button);}
 `;
-const FErr = styled.p`margin-top:5px;font-family:var(--font-body);font-size:.76rem;color:#E53E3E;`;
-
-/* Success */
-const SuccessWrap = styled.div`animation:${fadeIn} .3s ease both;`;
-const SuccessStamp = styled.div`
-  display:inline-flex;align-items:center;gap:12px;
-  background:var(--color-primary);padding:16px 20px;
-  border-radius:var(--radius-card);
-  margin-bottom:20px;width:100%;
-  animation:${stampIn} .5s cubic-bezier(.22,1,.36,1) both;
-`;
-const SuccessIcon = styled.div`
-  width:44px;height:44px;background:var(--color-accent);
-  border-radius:var(--radius-button);
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-`;
-const SuccessTitle = styled.p`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.2rem;text-transform:var(--text-transform);
-  color:var(--color-white);letter-spacing:.04em;line-height:1.1;
-`;
-const SuccessSub = styled.p`font-family:var(--font-body);font-size:.82rem;color:rgba(255,255,255,.62);margin-top:3px;line-height:1.5;`;
-
-/* Upsell */
-const UpsellBox = styled.div`
-  background:rgba(var(--color-accent-rgb),.08);
-  border-left:4px solid var(--color-accent);
-  border-radius:0 var(--radius-card) var(--radius-card) 0;
-  padding:16px 18px;margin-bottom:16px;
-`;
-const UpsellTitle = styled.p`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1rem;text-transform:var(--text-transform);
-  color:var(--color-primary);margin-bottom:4px;letter-spacing:.03em;
-`;
-const UpsellText = styled.p`font-family:var(--font-body);font-size:.83rem;color:var(--color-text-muted);line-height:1.55;margin-bottom:12px;`;
 const UpsellLink = styled(Link)`
   display:inline-flex;align-items:center;gap:6px;
   padding:10px 20px;background:var(--color-accent);color:var(--color-white);
@@ -305,33 +248,13 @@ function AlertIcon({ idx }) {
 const AnalysisSection = ({
   phase, scanStep, result, selectedPlace, onReset,
 }) => {
-  const { key: industryKey, copy, design } = useIndustry();
-  const { analysis: analysisCopy } = copy;
+  const { design } = useIndustry();
 
-  const navigate = useNavigate();
-  const [email,   setEmail]   = useState('');
-  const [emailErr,setEmailErr]= useState('');
-  const [sending, setSending] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailErr('Bitte eine gültige E-Mail eingeben.');
-      return;
-    }
-    setEmailErr('');
-    setSending(true);
-    try {
-      await saveLeadToSupabase({ email, result, industryKey });
-    } catch (err) {
-      console.error('Supabase:', err);
-      setEmailErr('Deine Anfrage konnte nicht gespeichert werden. Bitte versuche es erneut.');
-      setSending(false);
-      return;
-    }
-    savePublicFunnel({ email, result });
-    setSending(false);
-    navigate('/success', { state: { email, result } });
+  const handleSubmit = () => {
+    document.getElementById('form')?.scrollIntoView({ behavior: 'smooth' });
   };
+
+
 
   const alerts = result ? buildAlerts(result) : [];
   const signupState = result ? { result } : undefined;
@@ -462,57 +385,14 @@ const AnalysisSection = ({
               </UpsellLink>
               <LSub>Danach: Konto erstellen, Google Business per OAuth verbinden, Standort bestätigen und den tatsächlichen Health Score mit priorisierten Aufgaben erhalten. Die öffentliche Auswahl weist keine Verwaltungsberechtigung nach.</LSub>
 
-              {/* Lead form */}
-              {phase === 'result' && (
-                <>
-                  <Divider />
-                  <LTit>Ergebnis freiwillig vormerken</LTit>
-                  <LSub>Optional: E-Mail für die bestehende Lead-Erfassung hinterlassen. Für die Registrierung oben ist das nicht nötig.</LSub>
-                  <ERow>
-                    <EInput
-                      type="email" placeholder="deine@email.de"
-                      value={email}
-                      onChange={e => { setEmail(e.target.value); setEmailErr(''); }}
-                      onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-                      $e={!!emailErr}
-                    />
-                    <SBtn onClick={handleSubmit} disabled={sending}>
-                      {sending
-                        ? <><Loader size={15} className="spin" />Wird gespeichert…</>
-                        : <>Analyse speichern<ChevronRight size={15} /></>
-                      }
-                    </SBtn>
-                  </ERow>
-                  {emailErr && <FErr>{emailErr}</FErr>}
-                </>
-              )}
-
-              {/* Success — Heavy Duty */}
-              {phase === 'sent' && (
-                <SuccessWrap>
-                  <Divider />
-                  <SuccessStamp>
-                    <SuccessIcon>
-                      <CheckCircle size={24} color="white" />
-                    </SuccessIcon>
-                    <div>
-                      <SuccessTitle>
-                        {analysisCopy.successGreeting} Dein persönlicher Report für {result.name} wird erstellt.
-                      </SuccessTitle>
-                      <SuccessSub>
-                        {analysisCopy.successSub} {email}.
-                      </SuccessSub>
-                    </div>
-                  </SuccessStamp>
-                  <UpsellBox>
-                    <UpsellTitle>{analysisCopy.upsellTitle}</UpsellTitle>
-                    <UpsellText>{analysisCopy.upsellText}</UpsellText>
-                    <UpsellLink to="/pricing">
-                      30 Tage gratis testen <ChevronRight size={14} />
-                    </UpsellLink>
-                  </UpsellBox>
-                </SuccessWrap>
-              )}
+              {/* Report request lives in the dedicated section so the same selected
+                  Place ID is reused and the browser never writes queue rows directly. */}
+              {phase === 'result' && <>
+                <Divider />
+                <LTit>Kostenlosen PDF-Bericht erhalten</LTit>
+                <LSub>Deine Auswahl wird übernommen. Für den Versand ist nur deine E-Mail-Adresse erforderlich.</LSub>
+                <SBtn onClick={handleSubmit}>PDF-Bericht anfordern <ChevronRight size={15}/></SBtn>
+              </>}
 
               <div style={{ textAlign: 'right' }}>
                 <RBtn onClick={onReset}><RotateCcw size={12} /> Anderen Betrieb prüfen</RBtn>

@@ -32,6 +32,12 @@ verify_jwt = false
 # Aufruf von pg_cron. Schutz: X-Worker-Secret.
 verify_jwt = false
 
+[functions.request-profile-report]
+# Public, registration-free endpoint. Protection is implemented in the
+# function: strict validation, atomic database rate limit, optional Turnstile,
+# daily deduplication and a server-side Places lookup.
+verify_jwt = false
+
 [functions.stripe-webhook]
 # Stripe sendet keinen Authorization-Header.
 # Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).
