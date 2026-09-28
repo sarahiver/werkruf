@@ -30,6 +30,9 @@ import supabase from '../supabaseClient';
 ───────────────────────────────────────────── */
 
 const FUNCTION_BASE = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business`;
+// React StrictMode remounts effects in development. Keep one redemption per
+// callback token at module scope; the token itself never leaves memory/logs.
+const confirmationRequests = new Map();
 
 /* Fehlercodes → Texte. Alles, was hier nicht steht, bekommt die
    generische Meldung — damit interne Codes nicht im Dashboard landen. */
@@ -90,7 +93,10 @@ export function useGoogleBusiness() {
   const [searchParams, setSearchParams] = useSearchParams();
   const mountedRef = useRef(true);
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   /* ── Status laden ── */
   const loadStatus = useCallback(async () => {
@@ -130,14 +136,24 @@ export function useGoogleBusiness() {
         clearCallbackParams();
         return;
       }
-
       // The one-time token is deliberately never logged. callFunction obtains
       // the restored Supabase session and the server binds it to auth.uid().
       setBusy(true);
-      callFunction('connect/confirm', { method: 'POST', body: { token } })
-        .then(async () => {
+      let confirmationRequest = confirmationRequests.get(token);
+      if (!confirmationRequest) {
+        confirmationRequest = callFunction('connect/confirm', { method: 'POST', body: { token } });
+        confirmationRequests.set(token, confirmationRequest);
+      }
+      confirmationRequest.then(async () => {
           if (!mountedRef.current) return;
-          setNotice('Google-Konto verbunden. Deine verwaltbaren Standorte werden jetzt geladen.');
+          // OAuth authorises a Google account, not one particular business.
+          // Import the locations managed by that account; the dashboard then
+          // lets the user choose exclusively from this authorised set.
+          const importStarted = await callFunction('sync/trigger', { method: 'POST', body: {} })
+            .then(() => true).catch(() => false);
+          setNotice(importStarted
+            ? 'Google-Konto verbunden. Deine verwaltbaren Betriebe werden geladen.'
+            : 'Google-Konto verbunden. Starte das Laden deiner Betriebe bitte erneut.');
           setError(null);
           await loadStatus();
         })
@@ -145,6 +161,9 @@ export function useGoogleBusiness() {
           if (mountedRef.current) setError(messageForCode(err.code));
         })
         .finally(() => {
+          if (confirmationRequests.get(token) === confirmationRequest) {
+            confirmationRequests.delete(token);
+          }
           clearCallbackParams();
           if (mountedRef.current) setBusy(false);
         });

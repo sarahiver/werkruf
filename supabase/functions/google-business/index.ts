@@ -4349,6 +4349,23 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
   return jsonResponse(request, { location: confirmed, updateMask, confirmed: true });
 }
 
+/** Selects the customer's working location from Google's authorised results. */
+async function handleLocationSelect(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const { locationId } = await readJsonBody<{ locationId?: string }>(request);
+  if (!locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(locationId, user.id);
+
+  const { data: selected, error } = await adminClient().rpc('select_google_location', {
+    p_location_id: location.id, p_user_id: user.id,
+  });
+  if (error) throw new GbpError('internal_error', 'Standortauswahl nicht speicherbar', { cause: error });
+  if (!selected) throw new GbpError('not_found', 'Standort nicht gefunden');
+
+  await writeAuditLog({ userId: user.id, action: 'location.selected', entityType: 'google_location', entityId: location.id });
+  return jsonResponse(request, { selected: true, locationId: location.id });
+}
+
 /** Exposes Google's serving-data proposal without accepting or rejecting it. */
 async function handleGoogleUpdated(request: Request): Promise<Response> {
   const user = await requireUser(request);
@@ -5189,6 +5206,7 @@ const REPLY_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Reques
 
 const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   update: { method: 'POST', handler: handleLocationUpdate },
+  select: { method: 'POST', handler: handleLocationSelect },
   'google-updated': { method: 'GET', handler: handleGoogleUpdated },
 };
 

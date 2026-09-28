@@ -29,7 +29,7 @@ Die Ausgabe darf keine Grants auf `oauth_tokens` für `anon` oder `authenticated
 ## Staging-Ablauf
 
 1. Point-in-time Backup beziehungsweise Staging-Snapshot erstellen und Wiederherstellung testen.
-2. Migrationen in Versionsreihenfolge anwenden: zuerst `20260928143000_google_customer_isolation.sql`, dann `20260928160000_customer_isolation_hardening.sql`.
+2. Migrationen in Versionsreihenfolge anwenden: `20260928143000_google_customer_isolation.sql`, `20260928160000_customer_isolation_hardening.sql`, danach `20260928170000_google_location_selection.sql`.
 3. `psql "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/customer_isolation.sql` ausführen. Das Skript läuft in einer Transaktion und rollt alle Testdaten zurück.
 4. Mit echten Supabase-Sessions der Nutzer A und B zusätzlich REST-Aufrufe gegen PostgREST durchführen. Fremde IDs müssen leere Ergebnismengen beziehungsweise 403 liefern.
 5. Edge-Endpunkte für Location-Update, Medien, Sync-Trigger und Replies mit eigenen und fremden IDs prüfen. Fremde IDs müssen 404 liefern und dürfen keine Jobs erzeugen.

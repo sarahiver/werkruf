@@ -4,7 +4,6 @@ import {
   Link2, CheckCircle, AlertTriangle, Loader, RefreshCw, Unlink, Shield,
 } from 'lucide-react';
 import { useIndustry } from '../../context/IndustryContext';
-import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 
 /* ─────────────────────────────────────────────
    GoogleBusinessConnect
@@ -122,12 +121,12 @@ const Skeleton = styled.div`
   background: var(--color-bg); margin-bottom: 18px;
 `;
 
-export default function GoogleBusinessConnect() {
+export default function GoogleBusinessConnect({ googleBusiness }) {
   const { brand } = useIndustry();
   const {
     activeConnection, brokenConnection, isConnected, needsReauth,
     loading, busy, error, notice, connect, disconnect,
-  } = useGoogleBusiness();
+  } = googleBusiness;
 
   if (loading) return <Skeleton />;
 
