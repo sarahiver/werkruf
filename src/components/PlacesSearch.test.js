@@ -23,12 +23,32 @@ describe('PlacesSearch', () => {
     await waitFor(() => expect(listener).toBeTruthy());
 
     currentPlace = { place_id: 'one', name: 'Erster Betrieb', formatted_address: 'Hamburg', rating: 4.5, user_ratings_total: 12, website: 'https://one.test' };
-    listener();
+    act(() => listener());
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ placeId: 'one', name: 'Erster Betrieb', reviewCount: 12 }));
 
     currentPlace = { place_id: 'two', name: 'Zweiter Betrieb', rating: 4, user_ratings_total: 3 };
-    listener();
+    act(() => listener());
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ placeId: 'two', name: 'Zweiter Betrieb' }));
+  });
+
+  it('preserves true zero values and marks omitted fields unavailable', async () => {
+    const onSelect = jest.fn();
+    render(<PlacesSearch onSelect={onSelect} />);
+    await waitFor(() => expect(listener).toBeTruthy());
+    currentPlace = { place_id: 'new', name: 'WERKRUF', user_ratings_total: 0 };
+    act(() => listener());
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({
+      reviewCount: 0, reviewCountAvailable: true, rating: null,
+      ratingAvailable: false, websiteAvailable: false,
+    }));
+  });
+
+  it('clears the field when the funnel is reset', async () => {
+    const { rerender } = render(<PlacesSearch resetKey={0} />);
+    await waitFor(() => expect(listener).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Betrieb suchen'), { target: { value: 'Firma' } });
+    rerender(<PlacesSearch resetKey={1} />);
+    expect(screen.getByLabelText('Betrieb suchen')).toHaveValue('');
   });
 
   it('hands a typed, not-found business to the manual fallback', async () => {

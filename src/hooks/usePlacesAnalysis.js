@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
-import { calculateVisibilityScore } from '../utils/visibilityScore';
+import { calculateProfileScore } from '../utils/visibilityScore';
 
 export {
   calculateVisibilityScore as calcScore,
@@ -8,11 +8,6 @@ export {
   scoreColor,
   scoreLabel,
 } from '../utils/visibilityScore';
-
-/* ─────────────────────────────────────────────
-   SCORE ALGORITHM — industry-agnostic
-───────────────────────────────────────────── */
-const calcScore = calculateVisibilityScore;
 
 /* ─────────────────────────────────────────────
    GOOGLE PLACES — getDetails
@@ -82,13 +77,20 @@ export function normaliseLegacyPlace(place) {
     addressComponents: place.addressComponents || place.address_components || [],
     address_components:place.addressComponents || place.address_components || [],
     // Rating
-    rating:            place.rating || 0,
+    rating:            typeof place.rating === 'number' ? place.rating : null,
+    ratingAvailable:   typeof place.rating === 'number',
     // Review count — v1 = userRatingCount, legacy = user_ratings_total
-    userRatingCount:   place.userRatingCount   || place.user_ratings_total || 0,
-    user_ratings_total:place.userRatingCount   || place.user_ratings_total || 0,
+    userRatingCount:   typeof place.userRatingCount === 'number' ? place.userRatingCount :
+                       typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null,
+    user_ratings_total:typeof place.userRatingCount === 'number' ? place.userRatingCount :
+                       typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null,
+    reviewCountAvailable: typeof place.userRatingCount === 'number' || typeof place.user_ratings_total === 'number',
     // Website — v1 = websiteUri, legacy = website
     websiteUri:        place.websiteUri || place.websiteURI || place.website || null,
     website:           place.websiteUri || place.websiteURI || place.website || null,
+    websiteAvailable:  Object.prototype.hasOwnProperty.call(place, 'websiteUri') ||
+                       Object.prototype.hasOwnProperty.call(place, 'websiteURI') ||
+                       Object.prototype.hasOwnProperty.call(place, 'website'),
   };
 }
 
@@ -107,11 +109,6 @@ export function extractCity(components) {
   }
 }
 
-export function estimateUnanswered(count) {
-  if (!count) return 0;
-  return Math.max(1, Math.round(count * (0.38 + (count % 9) * 0.02)));
-}
-
 /* ─────────────────────────────────────────────
    ALERTS — industry-agnostic
 ───────────────────────────────────────────── */
@@ -124,51 +121,37 @@ export function buildAlerts(r) {
     desc: 'Es sind keine öffentlichen Google-Profildaten verfügbar. Nach der Registrierung kannst du das Profil per Google OAuth nachweisen und verbinden.',
   }];
 
-  if (r.unansweredEstimate > 0)
-    list.push({
-      t: 'warn',
-      title: `Geschätzt etwa ${r.unansweredEstimate} Rezensionen ohne Antwort.`,
-      desc: 'Dieser Näherungswert wurde aus der öffentlichen Rezensionszahl berechnet und nicht von Google geliefert.',
-    });
-
-  if (!r.hasWebsite)
+  if (r.websiteAvailable && !r.hasWebsite)
     list.push({
       t: 'err',
       title: 'Keine Website im Google-Profil hinterlegt.',
-      desc: 'Du verlierst jeden Kunden, der vor dem Anruf kurz recherchieren will.',
+      desc: 'Ergänze eine verlässliche Zielseite, damit Interessierte weitere Informationen finden.',
     });
 
-  if (r.reviewCount < 20)
+  if (r.reviewCountAvailable && r.reviewCount > 0 && r.reviewCount < 5)
     list.push({
       t: r.reviewCount < 5 ? 'err' : 'warn',
-      title: `Nur ${r.reviewCount} Bewertungen — unter dem Marktstandard.`,
-      desc: 'Wenige Rezensionen können die Vertrauenswirkung des Profils begrenzen.',
+      title: `${r.reviewCount} öffentliche Rezension${r.reviewCount === 1 ? '' : 'en'}.`,
+      desc: 'Bitte zufriedene Kundschaft um ehrliches Feedback, ohne Anreize oder Vorgaben.',
     });
 
-  if (r.rating > 0 && r.rating < 4.0)
+  if (r.ratingAvailable && r.rating < 4.0)
     list.push({
       t: 'err',
-      title: `Rating ${r.rating.toFixed(1)} — unter dem kritischen Schwellenwert.`,
+      title: `Öffentliche Bewertung: ${r.rating.toFixed(1)} von 5.`,
       desc: 'Eine niedrigere Bewertung kann die Entscheidung potenzieller Kunden beeinflussen.',
     });
-  else if (r.rating >= 4.0 && r.rating < 4.5)
-    list.push({
-      t: 'warn',
-      title: `Rating ${r.rating.toFixed(1)} — noch Luft nach oben.`,
-      desc: 'Die Bewertung ist ein öffentlich sichtbares Vertrauenssignal.',
-    });
+  list.push({ t: 'info', title: 'Antwortquote nach Profilverknüpfung prüfen.', desc: 'Öffentliche Places-Daten enthalten keine verlässliche tatsächliche Antwortquote.' });
 
-  return list;
+  return list.slice(0, 3);
 }
 
 /* ─────────────────────────────────────────────
    SCAN STEPS — labels stay generic
 ───────────────────────────────────────────── */
 export const SCAN_STEPS = [
-  { lbl: ()  => 'Google Business Profil abrufen…',               ms: 800 },
-  { lbl: ()  => 'Öffentliche Profildaten prüfen…',               ms: 900 },
-  { lbl: ()  => 'Bewertungsdaten einordnen…',                    ms: 600 },
-  { lbl: ()  => 'Sichtbarkeits-Score berechnen…',                ms: 400 },
+  { lbl: ()  => 'Ausgewählte Google-Daten übernehmen…', ms: 150 },
+  { lbl: ()  => 'Öffentlichen Profil-Score berechnen…', ms: 150 },
 ];
 
 /* ─────────────────────────────────────────────
@@ -186,8 +169,6 @@ export async function saveLeadToSupabase({ email, result, industryKey }) {
     status:              'new',
     industry_key:        industryKey || 'handwerk',   // ← NEW
     google_place_id:     result.placeId     || null,
-    google_rating:       result.rating      || null,
-    google_review_count: result.reviewCount || null,
     visibility_score:    result.score       || null,
   }]);
   if (error) throw error;
@@ -258,9 +239,11 @@ export function usePlacesAnalysis() {
   const [result,        setResult]        = useState(null);
   const [fetchErr,      setFetchErr]      = useState('');
   const [selectedPlace, setSelectedPlace] = useState(null);
+  const requestRef = useRef(0);
 
   const runAnalysis = useCallback(async (placeOption) => {
     if (!placeOption) return;
+    const requestId = ++requestRef.current;
 
     setSelectedPlace(placeOption);
     setPhase('scanning');
@@ -301,7 +284,8 @@ export function usePlacesAnalysis() {
     } catch (err) {
       console.error('[usePlacesAnalysis] Failed to resolve place:', err);
       setFetchErr('Google Places konnte diesen Betrieb nicht laden. Bitte einen anderen auswählen.');
-      setPhase('idle');
+      if (requestId !== requestRef.current) return;
+      setPhase('error');
       setSelectedPlace(null);
       return;
     }
@@ -309,7 +293,7 @@ export function usePlacesAnalysis() {
     // Null-check — pd must have at minimum a name or id
     if (!pd || (!pd.placeId && !pd.name)) {
       setFetchErr('Kein gültiger Betrieb gefunden. Bitte einen anderen auswählen.');
-      setPhase('idle');
+      setPhase('error');
       setSelectedPlace(null);
       return;
     }
@@ -318,7 +302,7 @@ export function usePlacesAnalysis() {
     let acc = 0;
     SCAN_STEPS.forEach((s, i) => {
       acc += s.ms;
-      setTimeout(() => setScanStep(i + 1), acc);
+      setTimeout(() => { if (requestId === requestRef.current) setScanStep(i + 1); }, acc);
     });
     await new Promise(r => setTimeout(r, acc + 200));
 
@@ -326,11 +310,13 @@ export function usePlacesAnalysis() {
     try {
       // Use canonical field names (set by normaliseLegacyPlace)
       const city        = extractCity(pd.addressComponents || pd.address_components || []);
-      const rating      = pd.rating                || 0;
-      const reviewCount = pd.userRatingCount       || pd.user_ratings_total || 0;
+      if (requestId !== requestRef.current) return;
+      const rating      = pd.rating;
+      const reviewCount = pd.userRatingCount;
       const hasWebsite  = !!(pd.websiteUri         || pd.website);
-      const unansweredEstimate = estimateUnanswered(reviewCount);
-      const score       = calcScore({ rating, reviewCount, hasWebsite });
+      const scoreResult = calculateProfileScore({ rating, reviewCount, hasWebsite,
+        ratingAvailable: pd.ratingAvailable, reviewCountAvailable: pd.reviewCountAvailable,
+        websiteAvailable: pd.websiteAvailable });
 
       setResult({
         placeId:     pd.placeId  || pd.place_id || placeOption.placeId || '',
@@ -341,8 +327,11 @@ export function usePlacesAnalysis() {
         reviewCount,
         hasWebsite,
         website:     pd.websiteUri || pd.website || null,
-        unansweredEstimate,
-        score,
+        ratingAvailable: pd.ratingAvailable,
+        reviewCountAvailable: pd.reviewCountAvailable,
+        websiteAvailable: pd.websiteAvailable,
+        score: scoreResult.score,
+        scoreCriteria: scoreResult.criteria,
         dataSource: 'google',
       });
       setPhase('result');
@@ -350,7 +339,7 @@ export function usePlacesAnalysis() {
     } catch (err) {
       console.error('[usePlacesAnalysis] Result build error:', err);
       setFetchErr('Fehler beim Verarbeiten der Ortsdaten. Bitte nochmal versuchen.');
-      setPhase('idle');
+      setPhase('error');
     }
   }, []);
 
@@ -365,12 +354,14 @@ export function usePlacesAnalysis() {
     setResult({
       placeId: '', name, city: '', address: '', rating: null,
       reviewCount: null, hasWebsite: null, website: null,
-      unansweredEstimate: null, score: null, dataSource: 'manual',
+      ratingAvailable: false, reviewCountAvailable: false, websiteAvailable: false,
+      scoreCriteria: [], score: null, dataSource: 'manual',
     });
     setPhase('result');
   }, []);
 
   const reset = useCallback(() => {
+    requestRef.current += 1;
     setPhase('idle');
     setSelectedPlace(null);
     setResult(null);
