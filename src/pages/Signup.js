@@ -233,7 +233,6 @@ export default function Signup() {
       industry_key:    brand.key,
       google_place_id: prefillResult?.placeId   || null,
       company_name:    prefillResult?.name       || null,
-      visibility_score:prefillResult?.score      || null,
     };
 
     const { data, error: signUpErr } = await signUpEmail(email, password, meta);
@@ -298,8 +297,8 @@ export default function Signup() {
         {prefillEmail && prefillResult && (
           <PrefillBanner>
             <PrefillText>
-              Wir haben deine Analyse für <strong>{prefillResult.name}</strong> gespeichert —
-              nach dem Signup direkt im Dashboard verfügbar.
+              <strong>{prefillResult.name}</strong> ist für die Einrichtung vorausgewählt.
+              Die Auswahl bestätigt noch keine Verwaltungsberechtigung.
             </PrefillText>
           </PrefillBanner>
         )}
