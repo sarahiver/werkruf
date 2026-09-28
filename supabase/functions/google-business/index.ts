@@ -4322,7 +4322,11 @@ async function loadOwnLocation(locationId: string, userId: string): Promise<Loca
     .eq('id', locationId).eq('user_id', userId).is('deleted_at', null).maybeSingle();
   if (error) throw new GbpError('internal_error', 'Standort nicht ladbar', { cause: error });
   if (!data) throw new GbpError('not_found', 'Standort nicht gefunden');
-  return data as LocationRow;
+  const location = data as LocationRow;
+  // A copied user_id alone is not ownership. Validate the parent account as
+  // well because this query uses the service role and therefore bypasses RLS.
+  await getConnection(userId, location.account_id);
+  return location;
 }
 
 /** PATCH Location, then read it back. Only Google's confirmed state is persisted. */
@@ -4720,7 +4724,18 @@ async function loadOwnReply(replyId: string, userId: string): Promise<ReplyRow> 
 
   if (error) throw new GbpError('internal_error', 'Antwort nicht ladbar', { cause: error });
   if (!data) throw new GbpError('not_found', 'Antwort nicht gefunden');
-  return data as ReplyRow;
+  const reply = data as ReplyRow;
+  const location = await loadOwnLocation(reply.location_id, userId);
+  const { data: review, error: reviewError } = await adminClient()
+    .from('google_reviews').select('id')
+    .eq('id', reply.review_id)
+    .eq('user_id', userId)
+    .eq('location_id', location.id)
+    .eq('account_id', location.account_id)
+    .maybeSingle();
+  if (reviewError) throw new GbpError('internal_error', 'Bewertung nicht ladbar', { cause: reviewError });
+  if (!review) throw new GbpError('not_found', 'Antwort nicht gefunden');
+  return reply;
 }
 
 /**
@@ -4847,7 +4862,9 @@ async function handleReplyApprove(request: Request): Promise<Response> {
   }
 
   const { data: review } = await adminClient()
-    .from('google_reviews').select('account_id').eq('id', reply.review_id).maybeSingle();
+    .from('google_reviews').select('account_id')
+    .eq('id', reply.review_id).eq('user_id', user.id)
+    .eq('location_id', reply.location_id).maybeSingle();
 
   const jobId = await createSyncScheduler().enqueue({
     jobType: 'publish_reply',

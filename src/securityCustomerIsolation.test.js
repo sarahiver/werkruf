@@ -19,6 +19,8 @@ describe('GBP tenant isolation release blocker', () => {
   it('checks manipulated location ids against the authenticated identity', () => {
     expect(edge).toMatch(/\.eq\('id', payload\.locationId\)\.eq\('user_id', user\.id\)/);
     expect(edge).toMatch(/\.eq\('id', locationId\)\.eq\('user_id', userId\)/);
+    expect(edge).toMatch(/await getConnection\(userId, location\.account_id\)/);
+    expect(edge).toMatch(/\.eq\('account_id', location\.account_id\)/);
   });
 
   it('does not expose public Places linking in the managed-business dashboard', () => {
