@@ -6,6 +6,7 @@ import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import supabase from '../supabaseClient';
 import { loadPublicFunnel, savePublicFunnel } from '../utils/publicFunnel';
+import { getPostAuthDestination } from '../utils/postAuthDestination';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -210,9 +211,15 @@ export default function Signup() {
   const [fieldErr, setFieldErr] = useState({});
   const [confirmationEmail, setConfirmationEmail] = useState('');
 
-  // Already logged in → go to dashboard
+  // Existing sessions use the same central decision as regular login.
   useEffect(() => {
-    if (isAuthenticated && !recoveryMode) navigate('/dashboard', { replace: true });
+    let cancelled = false;
+    if (isAuthenticated && !recoveryMode) {
+      getPostAuthDestination().then((target) => {
+        if (!cancelled) navigate(target, { replace: true });
+      });
+    }
+    return () => { cancelled = true; };
   }, [isAuthenticated, recoveryMode, navigate]);
 
   const validate = () => {
@@ -231,8 +238,6 @@ export default function Signup() {
     /* Meta passed to Supabase — handle_new_user trigger picks this up */
     const meta = {
       industry_key:    brand.key,
-      google_place_id: prefillResult?.placeId   || null,
-      company_name:    prefillResult?.name       || null,
     };
 
     const { data, error: signUpErr } = await signUpEmail(email, password, meta);
