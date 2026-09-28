@@ -237,7 +237,12 @@ export default function Onboarding() {
     try {
       await refreshProfile();
       clearPublicFunnel();
-      navigate('/dashboard');
+      /* Direkt zur Verbindungsseite statt auf die Dashboard-Startseite.
+         Der Landingpage-CTA verspricht die Google-Verbindung; ein
+         Zwischenhalt, von dem aus der Nutzer selbst weiterklicken muss,
+         waere genau der unnoetige Schritt, den die Umstellung
+         beseitigen soll. */
+      navigate('/dashboard/google');
     } catch (err) {
       console.error('Profile refresh error:', err);
       setSaveError('Dein Profil konnte nicht geladen werden. Bitte versuche es erneut.');

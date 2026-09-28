@@ -1,7 +1,8 @@
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
-import PlacesSearch from './PlacesSearch';
-import { CheckCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CheckCircle, ArrowRight } from 'lucide-react';
+import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 
 const fadeUp = keyframes`
@@ -159,73 +160,41 @@ const CardSub = styled.p`
   line-height: 1.5;
 `;
 
-const Hint = styled.p`
-  font-family: var(--font-body);
-  font-size: 0.73rem;
-  color: #A0ADB8;
-  margin-bottom: 22px;
+const CtaButton = styled(Link)`
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 16px 20px; margin-top: 6px;
+  background: var(--color-accent); color: #fff;
+  border-radius: var(--radius-button); text-decoration: none;
+  font-weight: 800; font-size: 1rem; line-height: 1.3;
+  transition: filter .15s ease;
+  &:hover { filter: brightness(1.07); }
 `;
 
-const ErrTxt = styled.p`
-  font-family: var(--font-body);
-  font-size: 0.78rem;
-  color: #D93025;
-  margin-top: 5px; margin-bottom: 10px;
+const CtaHinweis = styled.p`
+  font-size: .78rem; color: #66717e; line-height: 1.55; margin: 14px 0 0;
 `;
 
-const NoBanner = styled.div`
-  padding: 14px 16px;
-  border: 2px dashed #D93025;
-  background: #FDECEA;
-  font-family: var(--font-body);
-  font-size: 0.85rem; color: #D93025;
+const Anmeldung = styled.p`
+  font-size: .82rem; color: #66717e; margin: 16px 0 0;
+  padding-top: 14px; border-top: 1px solid var(--color-border);
 `;
 
-/* Stats */
-const StatsStrip = styled.div`
-  border-top: 1px solid var(--color-border);
-  padding-top: 20px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-`;
-
-const StatItem = styled.div`
-  text-align: center; padding: 0 8px;
-  border-right: 1px solid var(--color-border);
-  &:last-child { border-right: none; }
-`;
-
-const StatNum = styled.div`
-  font-family: var(--font-display);
-  font-weight: var(--heading-weight);
-  font-size: 1.6rem; line-height: 1;
-  color: var(--color-primary);
-`;
-
-const StatAccent = styled.span`color: var(--color-accent);`;
-
-const StatLabel = styled.div`
-  font-family: var(--font-body);
-  font-size: 0.68rem; color: var(--color-text-muted);
-  margin-top: 3px; line-height: 1.3;
+const AnmeldeLink = styled(Link)`
+  color: var(--color-accent); font-weight: 700; text-decoration: underline;
 `;
 
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
-const Hero = ({ onPlaceSelect, onNoResults, fetchErr, searchResetKey = 0 }) => {
-  const { copy, places, design } = useIndustry();
-  const { hero: heroCopy, check: checkCopy } = copy;
+const Hero = () => {
+  const { copy, design } = useIndustry();
+  const { hero: heroCopy } = copy;
+  const { isAuthenticated } = useAuthContext();
 
-  const apiKey = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
-
-  const handleSelect = (result) => {
-    if (!result) return;
-    const el = document.getElementById('analysis');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // PlacesSearch returns normalised data — pass directly to parent
-    setTimeout(() => onPlaceSelect(result), 350);
-  };
+  /* Ein Ziel, zwei Ausgangslagen. Angemeldete Nutzer landen direkt auf
+     der Verbindungsseite, alle anderen bei der Registrierung — von dort
+     fuehrt das Onboarding weiter zur selben Seite. */
+  const ctaZiel = isAuthenticated ? '/dashboard/google' : '/signup';
 
   return (
     <HeroSection id="hero">
@@ -255,44 +224,29 @@ const Hero = ({ onPlaceSelect, onNoResults, fetchErr, searchResetKey = 0 }) => {
 
         <Right>
           <SearchCard>
-            <CardTitle>{checkCopy.cardTitle}</CardTitle>
-            <CardSub>{checkCopy.cardSub}</CardSub>
+            <CardTitle>Dein Unternehmensprofil verbinden</CardTitle>
+            <CardSub>
+              Eine Berechtigung, zwei Minuten. Danach prüft WERKRUF dein Profil
+              laufend und sagt dir, was zu tun ist.
+            </CardSub>
 
-            {apiKey ? (
-              <PlacesSearch
-                resetKey={searchResetKey}
-                onSelect={handleSelect}
-                onNoResults={(query) => {
-                  const el = document.getElementById('analysis');
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  onNoResults(query);
-                }}
-                placeholder={places.searchPlaceholder}
-                dark={false}
-              />
-            ) : (
-              <NoBanner>⚠ REACT_APP_GOOGLE_PLACES_API_KEY fehlt in .env</NoBanner>
-            )}
+            <CtaButton to={ctaZiel}>
+              Jetzt Google-Unternehmensprofil verbinden
+              <ArrowRight size={18} />
+            </CtaButton>
 
-            {fetchErr && <ErrTxt>{fetchErr}</ErrTxt>}
-            <Hint>{places.searchHint}</Hint>
+            <CtaHinweis>
+              WERKRUF liest dein Unternehmensprofil und schlägt Änderungen vor.
+              Veröffentlicht wird nur, was du freigibst. Kein Zugriff auf E-Mails,
+              Kontakte oder Dateien.
+            </CtaHinweis>
 
-            <StatsStrip>
-              <StatItem>
-                <StatNum>3<StatAccent>×</StatAccent></StatNum>
-                <StatLabel>mehr Anfragen</StatLabel>
-              </StatItem>
-              <StatItem>
-                <StatNum>48<StatAccent>h</StatAccent></StatNum>
-                <StatLabel>bis du sichtbarer bist</StatLabel>
-              </StatItem>
-              <StatItem>
-                <StatNum>0<StatAccent>€</StatAccent></StatNum>
-                <StatLabel>für den Check</StatLabel>
-              </StatItem>
-            </StatsStrip>
+            <Anmeldung>
+              Schon registriert? <AnmeldeLink to="/login">Anmelden</AnmeldeLink>
+            </Anmeldung>
           </SearchCard>
         </Right>
+
       </Inner>
     </HeroSection>
   );
