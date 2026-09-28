@@ -1,338 +1,67 @@
-import React, { useState } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { Send, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import styled from 'styled-components';
+import { AlertCircle, CheckCircle, FileText, Loader } from 'lucide-react';
+import PlacesSearch from './PlacesSearch';
 import supabase from '../supabaseClient';
 import { useIndustry } from '../context/IndustryContext';
+import { savePublicFunnel } from '../utils/publicFunnel';
 
-const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
-const fadeIn = keyframes`from{opacity:0}to{opacity:1}`;
-const spin   = keyframes`to{transform:rotate(360deg)}`;
+const Section=styled.section`background:var(--color-primary);padding:90px 24px`;
+const Inner=styled.div`max-width:1050px;margin:auto;display:grid;grid-template-columns:1fr 1fr;gap:70px;@media(max-width:850px){grid-template-columns:1fr}`;
+const H2=styled.h2`color:white;font-size:clamp(2rem,4vw,3rem);margin:8px 0 20px`;
+const Accent=styled.span`color:var(--color-accent)`;
+const Copy=styled.p`color:rgba(255,255,255,.7);line-height:1.7`;
+const Steps=styled.ol`color:white;line-height:2.4;margin-top:24px;padding-left:24px`;
+const Card=styled.div`background:white;border-top:5px solid var(--color-accent);padding:32px;border-radius:var(--radius-card)`;
+const Label=styled.label`display:block;font-weight:700;font-size:.8rem;margin:20px 0 7px;color:var(--color-primary)`;
+const Input=styled.input`width:100%;padding:13px;border:2px solid ${p=>p.$error?'#d93025':'var(--color-border)'};border-radius:var(--radius-card);font:inherit`;
+const Button=styled.button`width:100%;border:0;border-radius:var(--radius-button);padding:15px;margin-top:20px;background:var(--color-accent);color:white;font-weight:800;cursor:pointer;display:flex;gap:9px;align-items:center;justify-content:center;&:disabled{opacity:.6;cursor:not-allowed}`;
+const Selected=styled.div`padding:14px;background:#f4f6f8;border-radius:6px;color:var(--color-primary);display:flex;justify-content:space-between;gap:12px`;
+const LinkButton=styled.button`border:0;background:none;color:var(--color-accent);text-decoration:underline;cursor:pointer`;
+const Note=styled.p`font-size:.78rem;color:#66717e;line-height:1.5;margin-top:12px`;
+const Message=styled.div`padding:20px;text-align:center;color:var(--color-primary);svg{margin-bottom:10px}`;
+const Captcha=styled.div`min-height:65px;margin-top:18px`;
 
-const Section = styled.section`
-  background: var(--color-primary);
-  padding: 100px 24px;
-  position: relative;
-  overflow: hidden;
-`;
+const TURNSTILE_SCRIPT_ID='werkruf-turnstile-script';
+function loadTurnstile() {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  return new Promise((resolve,reject)=>{
+    let script=document.getElementById(TURNSTILE_SCRIPT_ID);
+    const ready=()=>window.turnstile?resolve(window.turnstile):reject(new Error('turnstile_unavailable'));
+    if(script){script.addEventListener('load',ready,{once:true});script.addEventListener('error',reject,{once:true});return;}
+    script=document.createElement('script');script.id=TURNSTILE_SCRIPT_ID;script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;script.defer=true;
+    script.addEventListener('load',ready,{once:true});script.addEventListener('error',reject,{once:true});document.head.appendChild(script);
+  });
+}
 
-const DiagStripes = styled.div`
-  position: absolute; inset: 0;
-  background: repeating-linear-gradient(
-    -45deg, transparent, transparent 30px,
-    rgba(var(--color-accent-rgb), 0.03) 30px,
-    rgba(var(--color-accent-rgb), 0.03) 60px
-  );
-  pointer-events: none;
-  display: ${({ $show }) => $show ? 'block' : 'none'};
-`;
-
-const Inner = styled.div`
-  max-width: 1100px; margin: 0 auto;
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 80px; align-items: start;
-  @media (max-width: 860px) { grid-template-columns: 1fr; gap: 48px; }
-`;
-
-const InfoCol = styled.div`animation: ${fadeUp} 0.6s ease both;`;
-
-const Eyebrow = styled.p`
-  font-family: var(--font-body); font-weight: 700; font-size: 0.75rem;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--color-accent); margin-bottom: 16px;
-`;
-
-const Title = styled.h2`
-  font-size: clamp(2rem, 3.5vw, 2.8rem);
-  text-transform: var(--text-transform);
-  color: var(--color-white); line-height: 1.05; margin-bottom: 20px;
-`;
-
-const TitleAccent = styled.span`color: var(--color-accent);`;
-
-const InfoText = styled.p`
-  font-family: var(--font-body); font-size: 0.98rem;
-  color: rgba(255,255,255,0.62); line-height: 1.78; margin-bottom: 40px;
-`;
-
-const ProcessList = styled.ol`list-style: none; counter-reset: step;`;
-
-const ProcessItem = styled.li`
-  counter-increment: step;
-  display: grid; grid-template-columns: 36px 1fr;
-  gap: 16px; padding: 18px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  &:last-child { border-bottom: none; }
-  &::before {
-    content: counter(step, decimal-leading-zero);
-    font-family: var(--font-display); font-weight: var(--heading-weight);
-    font-size: 1.05rem; color: var(--color-accent); line-height: 1.5;
-  }
-`;
-
-const ProcessText = styled.div`
-  font-family: var(--font-body); font-size: 0.92rem;
-  color: rgba(255,255,255,0.65); line-height: 1.5;
-`;
-
-const ProcessStrong = styled.strong`
-  display: block; color: var(--color-white);
-  font-weight: 600; font-size: 0.98rem; margin-bottom: 2px;
-`;
-
-const FormCol = styled.div`animation: ${fadeUp} 0.6s ease 0.15s both;`;
-
-const FormCard = styled.div`
-  background: var(--color-white);
-  padding: 40px 36px;
-  border-top: 5px solid var(--color-accent);
-  border-radius: var(--radius-card);
-  @media (max-width: 560px) { padding: 28px 20px; }
-`;
-
-const FormTitle = styled.h3`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.5rem; text-transform: var(--text-transform);
-  color: var(--color-primary); margin-bottom: 4px;
-`;
-
-const FormSubtitle = styled.p`
-  font-family: var(--font-body); font-size: 0.85rem;
-  color: var(--color-text-muted); margin-bottom: 30px;
-`;
-
-const Field = styled.div`margin-bottom: 18px;`;
-
-const Label = styled.label`
-  display: block; font-family: var(--font-body); font-weight: 600;
-  font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--color-primary); margin-bottom: 7px;
-`;
-
-const Input = styled.input`
-  width: 100%; padding: 12px 15px;
-  border: 2px solid ${({ $error }) => $error ? '#E53E3E' : 'var(--color-border)'};
-  background: ${({ $error }) => $error ? '#FFF5F5' : 'var(--color-bg)'};
-  color: var(--color-text);
-  font-family: var(--font-body); font-size: 0.98rem;
-  outline: none; border-radius: var(--radius-card);
-  transition: border-color 0.2s, background 0.2s;
-  &:focus { border-color: var(--color-primary); background: var(--color-white); }
-  &::placeholder { color: #A0ADB8; }
-`;
-
-const Select = styled.select`
-  width: 100%; padding: 12px 15px;
-  border: 2px solid var(--color-border);
-  background: var(--color-bg); color: var(--color-text);
-  font-family: var(--font-body); font-size: 0.98rem;
-  outline: none; cursor: pointer;
-  border-radius: var(--radius-card);
-  transition: border-color 0.2s;
-  &:focus { border-color: var(--color-primary); background: var(--color-white); }
-`;
-
-const ErrorText = styled.span`
-  display: block; margin-top: 4px;
-  font-family: var(--font-body); font-size: 0.78rem; color: #E53E3E;
-`;
-
-const SubmitBtn = styled.button`
-  width: 100%; display: flex; align-items: center;
-  justify-content: center; gap: 10px; padding: 15px;
-  background: ${({ disabled }) => disabled ? 'rgba(var(--color-accent-rgb), .6)' : 'var(--color-accent)'};
-  color: var(--color-white);
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.1rem; letter-spacing: 0.08em;
-  text-transform: var(--text-transform);
-  border: none; margin-top: 8px;
-  cursor: ${({ disabled }) => disabled ? 'not-allowed' : 'pointer'};
-  border-radius: var(--radius-button);
-  transition: filter 0.2s, transform 0.15s;
-  &:hover:not(:disabled) { filter: brightness(0.9); transform: translateY(-1px); }
-  .spin { animation: ${spin} 0.8s linear infinite; }
-`;
-
-const PrivacyNote = styled.p`
-  font-family: var(--font-body); font-size: 0.75rem;
-  color: #A0ADB8; text-align: center; margin-top: 12px; line-height: 1.5;
-`;
-
-const StatusBox = styled.div`
-  display: flex; flex-direction: column;
-  align-items: center; gap: 16px;
-  padding: 40px 20px; text-align: center;
-  animation: ${fadeIn} .3s ease;
-  svg { color: ${({ $type }) => $type === 'success' ? '#38A169' : '#E53E3E'}; }
-`;
-
-const StatusTitle = styled.h4`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.6rem; text-transform: var(--text-transform);
-  color: var(--color-primary);
-`;
-
-const StatusText = styled.p`
-  font-family: var(--font-body); font-size: 0.92rem;
-  color: var(--color-text-muted); line-height: 1.6;
-`;
-
-const RetryBtn = styled.button`
-  padding: 12px 28px; background: var(--color-accent);
-  color: var(--color-white);
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1rem; letter-spacing: 0.08em; text-transform: var(--text-transform);
-  border: none; cursor: pointer; border-radius: var(--radius-button);
-  &:hover { filter: brightness(0.9); }
-`;
-
-const INITIAL = { company_name: '', contact_person: '', phone: '', trade: '', city: '' };
-
-const LeadForm = () => {
-  const { key: industryKey, design } = useIndustry();
-  const [form,    setForm]    = useState(INITIAL);
-  const [errors,  setErrors]  = useState({});
-  const [status,  setStatus]  = useState('idle');
-  const [errorMsg,setErrorMsg]= useState('');
-
-  const validate = () => {
-    const e = {};
-    if (!form.company_name.trim())   e.company_name   = 'Pflichtfeld';
-    if (!form.contact_person.trim()) e.contact_person = 'Pflichtfeld';
-    if (!form.phone.trim())          e.phone = 'Pflichtfeld';
-    else if (!/^[\d\s+\-()]{6,}$/.test(form.phone)) e.phone = 'Keine gültige Nummer';
-    return e;
+export default function LeadForm({ result, onPlaceSelect, onNoResults, onReset, searchResetKey=0 }) {
+  const { key: industryKey }=useIndustry();
+  const [email,setEmail]=useState(''); const [error,setError]=useState(''); const [status,setStatus]=useState('idle');
+  const [captchaToken,setCaptchaToken]=useState(''); const [captchaReady,setCaptchaReady]=useState(false);
+  const captchaElement=useRef(null); const widgetId=useRef(null);
+  const selected=result?.dataSource!=='manual'&&result?.placeId?result:null;
+  const resetCaptcha=()=>{setCaptchaToken('');setCaptchaReady(false);if(window.turnstile&&widgetId.current!==null)window.turnstile.reset(widgetId.current);};
+  useEffect(()=>{
+    let active=true; const sitekey=process.env.REACT_APP_TURNSTILE_SITE_KEY;
+    if(!sitekey){setError('Der Sicherheitscheck ist nicht konfiguriert. Bitte versuche es später erneut.');return undefined;}
+    loadTurnstile().then(turnstile=>{if(!active||!captchaElement.current)return;widgetId.current=turnstile.render(captchaElement.current,{sitekey,callback:token=>{setCaptchaToken(token);setCaptchaReady(true);setError('');},'expired-callback':()=>{setCaptchaToken('');setCaptchaReady(false);setError('Der Sicherheitscheck ist abgelaufen. Bitte bestätige ihn erneut.');},'error-callback':()=>{setCaptchaToken('');setCaptchaReady(false);setError('Der Sicherheitscheck konnte nicht geladen werden. Bitte lade die Seite neu.');}});}).catch(()=>active&&setError('Der Sicherheitscheck konnte nicht geladen werden. Bitte lade die Seite neu.'));
+    return()=>{active=false;if(window.turnstile&&widgetId.current!==null)window.turnstile.remove(widgetId.current);widgetId.current=null;};
+  },[]);
+  const submit=async()=>{
+    if(!selected){setError('Bitte wähle einen Betrieb aus der Google-Vorschlagsliste.');return;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError('Bitte gib eine gültige E-Mail-Adresse ein.');return;}
+    if(!captchaToken){setError('Bitte bestätige zuerst den Sicherheitscheck.');return;}
+    setStatus('loading');setError('');
+    const {data,error:invokeError}=await supabase.functions.invoke('request-profile-report',{body:{email:email.trim(),placeId:selected.placeId,industryKey,captchaToken}});
+    let code=data?.error;
+    if(invokeError?.context instanceof Response){try{code=(await invokeError.context.clone().json()).error||code;}catch(_){/* response without JSON */}}
+    if(invokeError||!data?.requestId){setStatus('error');resetCaptcha();const messages={legal_gate_closed:'Der PDF-Versand ist noch nicht rechtlich freigegeben. Bitte versuche es später erneut.',captcha_required:'Der Sicherheitscheck war ungültig oder abgelaufen. Bitte bestätige ihn erneut.',rate_limited:'Zu viele Anfragen. Bitte versuche es später erneut.',previous_request_failed:'Die vorherige Berichtsanforderung ist fehlgeschlagen und wird nicht als erfolgreich bestätigt. Bitte kontaktiere uns oder versuche es morgen erneut.'};setError(messages[code]||'Die Anfrage konnte nicht angenommen werden. Bitte versuche es erneut.');return;}
+    savePublicFunnel({email,result:selected,reportRequestId:data.requestId}); setStatus('success');
   };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
-    if (errors[name]) setErrors(prev => ({ ...prev, [name]: undefined }));
-  };
-
-  const handleSubmit = async () => {
-    const ve = validate();
-    if (Object.keys(ve).length > 0) { setErrors(ve); return; }
-    setStatus('loading'); setErrorMsg('');
-    try {
-      const { error } = await supabase.from('leads').insert([{
-        company_name:   form.company_name.trim(),
-        contact_person: form.contact_person.trim(),
-        phone:          form.phone.trim(),
-        trade:          form.trade.trim() || null,
-        city:           form.city.trim()  || null,
-        source:         'lead_form',
-        industry_key:   industryKey,
-        status:         'new',
-      }]);
-      if (error) throw error;
-      setStatus('success');
-      setForm(INITIAL);
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-      setErrorMsg(err.message || 'Unbekannter Fehler. Bitte versuch es nochmal.');
-    }
-  };
-
-  return (
-    <Section id="form">
-      <DiagStripes $show={design.accentStripePattern} />
-      <Inner>
-        <InfoCol>
-          <Eyebrow>Kostenloser Einstieg</Eyebrow>
-          <Title>Dein <TitleAccent>Sichtbarkeits-</TitleAccent>Check</Title>
-          <InfoText>
-            Der Check liest die öffentlichen Google-Daten deines Betriebs —
-            und sagen dir ehrlich, was du verpasst. Kein Pitch, kein Druck.
-          </InfoText>
-          <ProcessList>
-            <ProcessItem>
-              <ProcessText><ProcessStrong>Formular ausfüllen</ProcessStrong>Dauert 60 Sekunden.</ProcessText>
-            </ProcessItem>
-            <ProcessItem>
-              <ProcessText><ProcessStrong>Automatische Prüfung</ProcessStrong>Der Befund entsteht sofort aus deinen öffentlichen Google-Daten.</ProcessText>
-            </ProcessItem>
-            <ProcessItem>
-              <ProcessText><ProcessStrong>Klartext-Gespräch</ProcessStrong>Du kriegst ein konkretes Ergebnis — ohne Marketing-Sprech.</ProcessText>
-            </ProcessItem>
-          </ProcessList>
-        </InfoCol>
-
-        <FormCol>
-          <FormCard>
-            <FormTitle>Jetzt eintragen</FormTitle>
-            <FormSubtitle>Kostenlos · Unverbindlich · Kein Spam</FormSubtitle>
-
-            {status === 'success' ? (
-              <StatusBox $type="success">
-                <CheckCircle size={48} />
-                <StatusTitle>Alles klar!</StatusTitle>
-                <StatusText>Der Befund ist unterwegs — schau in dein Postfach.</StatusText>
-              </StatusBox>
-            ) : status === 'error' ? (
-              <StatusBox $type="error">
-                <AlertCircle size={48} />
-                <StatusTitle>Hoppla.</StatusTitle>
-                <StatusText>{errorMsg}</StatusText>
-                <RetryBtn onClick={() => setStatus('idle')}>Nochmal versuchen</RetryBtn>
-              </StatusBox>
-            ) : (
-              <>
-                <Field>
-                  <Label>Betriebsname *</Label>
-                  <Input type="text" name="company_name" value={form.company_name}
-                    onChange={handleChange} placeholder="Sanitär Müller GmbH"
-                    $error={!!errors.company_name} />
-                  {errors.company_name && <ErrorText>{errors.company_name}</ErrorText>}
-                </Field>
-                <Field>
-                  <Label>Ansprechpartner *</Label>
-                  <Input type="text" name="contact_person" value={form.contact_person}
-                    onChange={handleChange} placeholder="Max Müller"
-                    $error={!!errors.contact_person} />
-                  {errors.contact_person && <ErrorText>{errors.contact_person}</ErrorText>}
-                </Field>
-                <Field>
-                  <Label>Telefon *</Label>
-                  <Input type="tel" name="phone" value={form.phone}
-                    onChange={handleChange} placeholder="+49 40 123456"
-                    $error={!!errors.phone} />
-                  {errors.phone && <ErrorText>{errors.phone}</ErrorText>}
-                </Field>
-                <Field>
-                  <Label>Gewerk</Label>
-                  <Select name="trade" value={form.trade} onChange={handleChange}>
-                    <option value="">Bitte wählen (optional)</option>
-                    <option value="sanitaer">Sanitär / Heizung</option>
-                    <option value="elektro">Elektro</option>
-                    <option value="maler">Maler / Lackierer</option>
-                    <option value="schreiner">Schreiner / Tischler</option>
-                    <option value="dachdecker">Dachdecker</option>
-                    <option value="garten">Garten / Landschaftsbau</option>
-                    <option value="reinigung">Reinigung</option>
-                    <option value="kfz">KFZ</option>
-                    <option value="sonstiges">Sonstiges</option>
-                  </Select>
-                </Field>
-                <Field>
-                  <Label>Stadt / Region</Label>
-                  <Input type="text" name="city" value={form.city}
-                    onChange={handleChange} placeholder="Hamburg" />
-                </Field>
-                <SubmitBtn onClick={handleSubmit} disabled={status === 'loading'}>
-                  {status === 'loading'
-                    ? <><Loader size={18} className="spin" />Wird gesendet…</>
-                    : <><Send size={18} />Check starten — kostenlos</>
-                  }
-                </SubmitBtn>
-                <PrivacyNote>Deine Daten bleiben bei uns. Kein Newsletter, keine Weitergabe.</PrivacyNote>
-              </>
-            )}
-          </FormCard>
-        </FormCol>
-      </Inner>
-    </Section>
-  );
-};
-
-export default LeadForm;
+  return <Section id="form"><Inner><div><Copy>Kostenloser Bericht</Copy><H2>Dein kostenloser <Accent>Google-Profil-Bericht</Accent></H2><Copy>Nur die im öffentlichen Check tatsächlich verfügbaren Angaben werden ausgewertet. Kein Ranking, keine behauptete Sichtbarkeitsmessung.</Copy><Steps><li>Betrieb auswählen</li><li>Profil-Check prüfen</li><li>PDF-Bericht per E-Mail erhalten</li></Steps></div><Card>
+    {status==='success'?<Message role="status"><CheckCircle size={46} color="#1e7e34"/><h3>Anfrage angenommen</h3><p>Dein Bericht wurde zuverlässig gespeichert und zur Erstellung und Zustellung an <strong>{email}</strong> angenommen. Die E-Mail ist damit noch nicht als zugestellt bestätigt.</p><p><a href="/signup">Vollständigen Health Score per Google-Business-Verbindung freischalten</a></p></Message>:<>
+      <h3>PDF-Bericht anfordern</h3>{selected?<Selected><span><strong>{selected.name}</strong><br/><small>Aus dem öffentlichen Profil-Check übernommen</small></span><LinkButton type="button" onClick={()=>{onReset();setStatus('idle')}}>Betrieb ändern</LinkButton></Selected>:<><Label>Betrieb *</Label><PlacesSearch onSelect={onPlaceSelect} onNoResults={onNoResults} resetKey={searchResetKey}/>{result?.dataSource==='manual'&&<Note><AlertCircle size={14}/> Für eine manuelle Eingabe erzeugen wir keinen Bericht mit fingierten Google-Daten. Wähle einen bestätigten Vorschlag oder verbinde dein verwaltetes Profil nach der Registrierung.</Note>}</>}
+      <Label htmlFor="report-email">E-Mail-Adresse *</Label><Input id="report-email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setError('')}} $error={!!error}/><Captcha ref={captchaElement} aria-label="Sicherheitscheck"/>{error&&<Note role="alert">{error}</Note>}
+      <Button onClick={submit} disabled={status==='loading'||!captchaReady}>{status==='loading'?<><Loader size={18}/>Anfrage wird angenommen…</>:<><FileText size={18}/>Kostenlosen PDF-Bericht anfordern</>}</Button><Note>Transaktionsmail zur angeforderten Leistung. Keine Newsletter-Anmeldung und keine Marketing-Einwilligung.</Note>
+    </>}</Card></Inner></Section>;
+}
