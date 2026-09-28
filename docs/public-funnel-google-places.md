@@ -1,54 +1,90 @@
-# Öffentlicher Funnel: Google Places und Report-Status
+# Öffentlicher Funnel: Google-Profil-Check
 
-## Aktuelle Integration
+## Fachliche Abgrenzung
 
-Der Browser lädt die **Maps JavaScript API** einmalig aus `public/index.html`
-mit `libraries=places`, deutscher Sprache und Region DE. `PlacesSearch` wartet
-auf `google.maps.places.Autocomplete`, beschränkt Vorschläge auf deutsche
-Betriebe (`establishment`) und fordert nur die im Funnel verwendeten Felder an.
-Das Widget liefert dabei bereits Place Details; `PlacesService.getDetails` ist
-weiterhin der kompatible Fallback für ältere Aufrufer.
+Der öffentliche Check ist **kein Google-Ranking, keine Messung der lokalen
+Sichtbarkeit und nicht der kanonische eingeloggte Health Score**. Er nutzt nur
+die bei der Betriebsauswahl angeforderten öffentlichen Places-Felder. Der
+Health Score und `compute_health_score()` bleiben unverändert und werden erst
+nach Registrierung, Google-Business-OAuth und bestätigtem Standort verwendet.
 
-Die Integration verwendet bewusst das Legacy-Autocomplete-Widget. Für ein
-bestehendes Google-Cloud-Projekt, in dem das Widget verfügbar ist, ist keine
-Migration nötig. Google stellt das Widget neuen Kunden seit dem 1. März 2025
-nicht mehr bereit. Wenn das Produktionsprojekt danach neu angelegt wurde oder
-Google die Legacy-Freigabe beendet, muss separat auf
-`PlaceAutocompleteElement` migriert und dessen Browser-/Barrierefreiheits-
-Verhalten abgenommen werden. Eine Mischung beider APIs im Funnel ist zu
-vermeiden.
+## Abruf, Kosten und Attribution
 
-## Google-Cloud-Konfiguration für `werkruf.com`
+Das Legacy-Autocomplete-Widget fordert einmalig `place_id`, `name`,
+`formatted_address`, `address_components`, `rating`, `user_ratings_total` und
+`website` an. Diese Details aus der Auswahl werden wiederverwendet; nur alte
+Aufrufer, die ausschließlich eine Place ID liefern, lösen `getDetails` als
+Fallback aus. So gibt es im normalen öffentlichen Ablauf keinen doppelten
+Details-Abruf.
 
-1. Abrechnung für das Projekt aktivieren.
-2. **Maps JavaScript API** und **Places API** aktivieren. Für eine spätere
-   Migration zusätzlich **Places API (New)** aktivieren; das allein stellt das
-   aktuelle Legacy-Widget nicht um.
-3. `REACT_APP_GOOGLE_PLACES_API_KEY` beim Production-Build setzen.
-4. Den Key als Browser-Key auf HTTP-Referrer beschränken, mindestens auf
-   `https://werkruf.com/*` und `https://www.werkruf.com/*`; Preview-/Local-
-   Domains nur gezielt ergänzen.
-5. Die API-Beschränkung des Keys auf Maps JavaScript API und Places API setzen.
-6. In Google Cloud nach dem Deployment erfolgreiche Requests sowie
-   `RefererNotAllowedMapError`, `ApiNotActivatedMapError`, Quoten- und
-   Abrechnungsfehler kontrollieren.
+Google rechnet Place-Details nach den angeforderten Feldern/SKUs ab. Zusätzliche
+öffentliche Felder wie `business_status`, `opening_hours` und `types` könnten
+einen Status bzw. Öffnungszeiten erklären, verbessern diesen bewusst kleinen
+Profilvollständigkeits-Check aber nicht ausreichend, um zusätzliche Requests,
+Kosten und UI-Komplexität zu rechtfertigen. Fotos oder Rezensionstexte werden
+nicht angefordert. Vor einer Migration auf Places API (New) müssen Field Mask
+und aktuelle SKU-Zuordnung erneut geprüft werden.
 
-Bei nicht verfügbarem Script bleibt die manuelle Eingabe nutzbar. Eine
-ausgewählte Google-Firma wird normalisiert; Place ID, Name, Adresse, Rating,
-Rezensionszahl und Website werden übernommen. Die spätere Berechtigung zur
-Verwaltung wird dadurch **nicht** behauptet: Sie wird erst über die bestehende
-Google-Business-OAuth-Verbindung nachgewiesen.
+Offizielle Referenzen:
 
-## Datenaussagen und bekannte Produktlücke
+- [Place Data Fields und SKU-Kategorien](https://developers.google.com/maps/documentation/places/web-service/data-fields)
+- [Places API – Policies und Attribution](https://developers.google.com/maps/documentation/places/web-service/policies)
+- [Maps JavaScript API – Place Autocomplete](https://developers.google.com/maps/documentation/javascript/legacy/place-autocomplete)
+- [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms)
 
-Rating, Rezensionszahl, Website und Adresse sind öffentliche Google-Daten. Der
-Sichtbarkeits-Score wird von WERKRUF berechnet. Die Zahl unbeantworteter
-Rezensionen ist lediglich eine klar bezeichnete Schätzung. Der Funnel führt
-keine Wettbewerbersuche und keine belastbare Umsatzverlustrechnung aus.
+Die Google-Auswahl bleibt mit Google-Attribution sichtbar. In eigener
+Darstellung werden Google-Daten, WERKRUF-Berechnung und nicht verfügbare Werte
+explizit unterschieden.
 
-Der öffentliche Check speichert derzeit nur den Lead und die Analyse. Er ruft
-keinen Mail-Endpunkt auf, erzeugt kein PDF und hängt kein vierseitiges Dokument
-an. Die vorhandene `visibility_report`-Mailvorlage und der Fahrplan-Download im
-authentifizierten Dashboard ändern diese Lücke nicht. Deshalb verspricht der
-öffentliche Funnel bis zur Implementierung einer serverseitigen, beobachtbaren
-Queue inklusive PDF-Erzeugung und Zustellstatus keinen PDF-Versand.
+## Datenzustände
+
+`0` Rezensionen ist ein echter Wert. Ein nicht geliefertes Feld bleibt dagegen
+`null` und erhält ein separates `…Available: false`. Ein fehlender Datensatz,
+ein unvollständiger API-Response und ein API-Fehler sind damit unterscheidbar:
+
+- manuelle Eingabe: keine öffentlichen Google-Daten, kein Score;
+- ausgelassenes Feld: „nicht verfügbar“, kein Malus;
+- bestätigter Nullwert: fachlich verarbeitet (insbesondere neues Profil);
+- API-Fehler: eigener `error`-Zustand mit erneuter Auswahl/manueller Alternative.
+
+## Endgültige Definition des öffentlichen Scores
+
+Der **vorläufige öffentliche Profil-Score** normalisiert ausschließlich die
+verfügbaren Kriterien auf 0–100:
+
+| Kriterium | Gewicht | Punkte |
+| --- | ---: | --- |
+| öffentliche Bewertung | 45 | ≥4,5: 45; ≥4,0: 36; ≥3,5: 27; ≥3,0: 18; sonst 9 |
+| öffentliche Rezensionen | 30 | 0: 24 (neutraler Start); 1–4: 18; 5–19: 22; 20–49: 26; ≥50: 30 |
+| Website-Verknüpfung | 25 | vorhanden: 25; bestätigt fehlend: 0 |
+
+Bei null Rezensionen ist eine Bewertung nicht anwendbar und wird aus dem Nenner
+entfernt. Nicht gelieferte Felder werden ebenfalls aus Zähler und Nenner
+entfernt. Sind keine Kriterien verfügbar, wird kein Score angezeigt. Die
+Gewichte priorisieren das sichtbare Vertrauenssignal Bewertung, ohne neue
+Profile allein für ihre kurze Historie abzuwerten. Jede Ergebnisansicht zeigt
+die tatsächlich verwendeten Kriterien und Teilpunkte.
+
+Die frühere Berechnung startete bei 100 und zog bis zu 35 Punkte für fehlendes
+Rating, 25 für null Rezensionen und 15 für eine fehlende Website ab. Ihre
+Schwächen: `0` und nicht geliefert waren vermischt, junge Profile erhielten
+doppelte Abzüge, der Name „Sichtbarkeits-Score“ suggerierte eine nicht gemessene
+Auffindbarkeit, Schwellen wurden als Marktstandard dargestellt, und eine
+Antwortlücke wurde aus der Rezensionszahl erfunden. Diese Schätzung ist
+entfernt; die echte Antwortquote wird erst autorisiert geprüft.
+
+## Speicherung und Übergabe
+
+Im `sessionStorage` werden für den Hand-off nur E-Mail (falls freiwillig
+angegeben), Name, Datenquelle und Place ID gehalten. Rating, Rezensionszahl,
+Adresse, Website und öffentlicher Score werden nicht dauerhaft gespeichert.
+Google erlaubt Place IDs als Ausnahme von allgemeinen Caching-Beschränkungen;
+vor jeder weitergehenden Speicherung muss die zulässige Nutzung gesondert
+geklärt werden. Auch Onboarding persistiert keine öffentlichen Bewertungsdaten
+als kanonischen Health Score. Eine Places-Auswahl ist nur eine Vorauswahl und
+kein Nachweis, dass der Nutzer den Standort verwaltet.
+
+Der primäre CTA führt ohne vorgeschaltete Pflicht-E-Mail und ohne separate
+Erfolgsseite direkt zu Signup. Die freiwillige Lead-Erfassung bleibt sekundär
+erhalten. Danach folgen Google-Business-OAuth, Standortbestätigung und der
+autorisierte Health Score mit priorisierten Aufgaben.

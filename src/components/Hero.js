@@ -213,7 +213,7 @@ const StatLabel = styled.div`
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
-const Hero = ({ onPlaceSelect, onNoResults, fetchErr }) => {
+const Hero = ({ onPlaceSelect, onNoResults, fetchErr, searchResetKey = 0 }) => {
   const { copy, places, design } = useIndustry();
   const { hero: heroCopy, check: checkCopy } = copy;
 
@@ -260,6 +260,7 @@ const Hero = ({ onPlaceSelect, onNoResults, fetchErr }) => {
 
             {apiKey ? (
               <PlacesSearch
+                resetKey={searchResetKey}
                 onSelect={handleSelect}
                 onNoResults={(query) => {
                   const el = document.getElementById('analysis');
