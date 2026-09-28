@@ -193,17 +193,17 @@ export default function Success() {
           <CheckCircle size={64} strokeWidth={1.5} />
         </CheckWrap>
 
-        <Eyebrow>Analyse gespeichert</Eyebrow>
+        <Eyebrow>Bericht angefordert</Eyebrow>
 
         <Headline>
-          Moin! Deine Analyse für{' '}
+          Deine Berichtsanforderung für{' '}
           <HeadlineAccent>{result.name}</HeadlineAccent>{' '}
-          ist bereit.
+          wurde angenommen.
         </Headline>
 
         {/* Email confirmation */}
         <SubText>
-          Gespeichert für:
+          Angefordert für:
         </SubText>
 
         <EmailConfirm>
@@ -214,7 +214,7 @@ export default function Success() {
         {/* Score chip */}
         {result.score !== null && <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <ScoreChip>
-            <ScoreLabel>Aktueller Score:</ScoreLabel>
+            <ScoreLabel>Vorläufiger öffentlicher Profil-Score:</ScoreLabel>
             <ScoreNum $score={result.score}>{result.score} / 100</ScoreNum>
           </ScoreChip>
         </div>}
@@ -222,7 +222,7 @@ export default function Success() {
         <UrgencyBox>
           <UrgencyText>
             Der Check nutzt öffentliche Google-Profildaten und einen berechneten
-            vorläufigen öffentlichen Profil-Score, nicht Ranking oder gemessene Sichtbarkeit. Ein PDF wurde nicht erzeugt oder versendet. Nach
+            vorläufigen öffentlichen Profil-Score, nicht Ranking oder gemessene Sichtbarkeit. Die Anfrage ist gespeichert und zur Verarbeitung angenommen; eine Zustellung ist damit noch nicht bestätigt. Nach
             der Registrierung kannst du dein Google-Unternehmensprofil separat
             per OAuth verbinden und deine Verwaltungsberechtigung nachweisen.
           </UrgencyText>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import styled, { keyframes, css } from 'styled-components';
 import {
   Star, AlertTriangle, MessageSquare, Globe, MapPin,
@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   scoreColor, scoreBg, scoreLabel,
-  buildAlerts, SCAN_STEPS, saveLeadToSupabase,
+  buildAlerts, SCAN_STEPS,
 } from '../hooks/usePlacesAnalysis';
 import { useIndustry } from '../context/IndustryContext';
 import { savePublicFunnel } from '../utils/publicFunnel';
@@ -305,33 +305,13 @@ function AlertIcon({ idx }) {
 const AnalysisSection = ({
   phase, scanStep, result, selectedPlace, onReset,
 }) => {
-  const { key: industryKey, copy, design } = useIndustry();
-  const { analysis: analysisCopy } = copy;
+  const { design } = useIndustry();
 
-  const navigate = useNavigate();
-  const [email,   setEmail]   = useState('');
-  const [emailErr,setEmailErr]= useState('');
-  const [sending, setSending] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailErr('Bitte eine gültige E-Mail eingeben.');
-      return;
-    }
-    setEmailErr('');
-    setSending(true);
-    try {
-      await saveLeadToSupabase({ email, result, industryKey });
-    } catch (err) {
-      console.error('Supabase:', err);
-      setEmailErr('Deine Anfrage konnte nicht gespeichert werden. Bitte versuche es erneut.');
-      setSending(false);
-      return;
-    }
-    savePublicFunnel({ email, result });
-    setSending(false);
-    navigate('/success', { state: { email, result } });
+  const handleSubmit = () => {
+    document.getElementById('form')?.scrollIntoView({ behavior: 'smooth' });
   };
+
+
 
   const alerts = result ? buildAlerts(result) : [];
   const signupState = result ? { result } : undefined;
@@ -462,57 +442,14 @@ const AnalysisSection = ({
               </UpsellLink>
               <LSub>Danach: Konto erstellen, Google Business per OAuth verbinden, Standort bestätigen und den tatsächlichen Health Score mit priorisierten Aufgaben erhalten. Die öffentliche Auswahl weist keine Verwaltungsberechtigung nach.</LSub>
 
-              {/* Lead form */}
-              {phase === 'result' && (
-                <>
-                  <Divider />
-                  <LTit>Ergebnis freiwillig vormerken</LTit>
-                  <LSub>Optional: E-Mail für die bestehende Lead-Erfassung hinterlassen. Für die Registrierung oben ist das nicht nötig.</LSub>
-                  <ERow>
-                    <EInput
-                      type="email" placeholder="deine@email.de"
-                      value={email}
-                      onChange={e => { setEmail(e.target.value); setEmailErr(''); }}
-                      onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-                      $e={!!emailErr}
-                    />
-                    <SBtn onClick={handleSubmit} disabled={sending}>
-                      {sending
-                        ? <><Loader size={15} className="spin" />Wird gespeichert…</>
-                        : <>Analyse speichern<ChevronRight size={15} /></>
-                      }
-                    </SBtn>
-                  </ERow>
-                  {emailErr && <FErr>{emailErr}</FErr>}
-                </>
-              )}
-
-              {/* Success — Heavy Duty */}
-              {phase === 'sent' && (
-                <SuccessWrap>
-                  <Divider />
-                  <SuccessStamp>
-                    <SuccessIcon>
-                      <CheckCircle size={24} color="white" />
-                    </SuccessIcon>
-                    <div>
-                      <SuccessTitle>
-                        {analysisCopy.successGreeting} Dein persönlicher Report für {result.name} wird erstellt.
-                      </SuccessTitle>
-                      <SuccessSub>
-                        {analysisCopy.successSub} {email}.
-                      </SuccessSub>
-                    </div>
-                  </SuccessStamp>
-                  <UpsellBox>
-                    <UpsellTitle>{analysisCopy.upsellTitle}</UpsellTitle>
-                    <UpsellText>{analysisCopy.upsellText}</UpsellText>
-                    <UpsellLink to="/pricing">
-                      30 Tage gratis testen <ChevronRight size={14} />
-                    </UpsellLink>
-                  </UpsellBox>
-                </SuccessWrap>
-              )}
+              {/* Report request lives in the dedicated section so the same selected
+                  Place ID is reused and the browser never writes queue rows directly. */}
+              {phase === 'result' && <>
+                <Divider />
+                <LTit>Kostenlosen PDF-Bericht erhalten</LTit>
+                <LSub>Deine Auswahl wird übernommen. Für den Versand ist nur deine E-Mail-Adresse erforderlich.</LSub>
+                <SBtn onClick={handleSubmit}>PDF-Bericht anfordern <ChevronRight size={15}/></SBtn>
+              </>}
 
               <div style={{ textAlign: 'right' }}>
                 <RBtn onClick={onReset}><RotateCcw size={12} /> Anderen Betrieb prüfen</RBtn>

@@ -39,7 +39,13 @@ export default function HomePage() {
         onReset={resetAll}
       />
       <Features />
-      <LeadForm />
+      <LeadForm
+        result={result}
+        onPlaceSelect={runAnalysis}
+        onNoResults={runManualAnalysis}
+        onReset={resetAll}
+        searchResetKey={searchResetKey}
+      />
     </main>
   );
 }
