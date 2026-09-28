@@ -1,5 +1,9 @@
 import fs from 'fs';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { createReportPdf } from './utils/reportPdf';
+import { calculateProfileScore } from './utils/visibilityScore';
 const read = p => fs.readFileSync(p, 'utf8');
+const pdfSignatur = (bytes) => Array.from(bytes.slice(0, 5)).map((c) => String.fromCharCode(c)).join('');
 const endpoint=read('supabase/functions/request-profile-report/index.ts');
 const worker=read('supabase/functions/send-email/index.ts');
 const migration=read('supabase/migrations/20260928100000_public_profile_reports.sql');
@@ -47,10 +51,17 @@ describe('public profile report pipeline',()=>{
     expect(endpoint).toContain('reportPath:path');
     expect(endpoint).not.toContain('pdfBytes');
   });
-  it('creates a two-page PDF and reports unavailable fields',()=>{
-    expect(endpoint.match(/doc\.addPage/g)).toHaveLength(2);
-    expect(endpoint).toContain("'Score: nicht verfuegbar'");
-    expect(endpoint).toContain("'nicht verfuegbar'");
+  /* Verhaltenspruefung statt Quelltextsuche: Seit dem 28.09. liegt der
+     Aufbau in src/utils/reportPdf.js, damit Tests dieselbe Funktion
+     ausfuehren wie der Produktivpfad. Geprueft wird das Ergebnis. */
+  it('creates a two-page PDF and reports unavailable fields',async()=>{
+    expect(endpoint).toContain("createReportPdf(pdfLib,company,score");
+    const facts={rating:null,count:null,website:null};
+    const score=calculateProfileScore({rating:null,ratingAvailable:false,reviewCount:null,reviewCountAvailable:false,hasWebsite:false,websiteAvailable:false});
+    expect(score.score).toBeNull();
+    const bytes=await createReportPdf({PDFDocument,StandardFonts,rgb},'Unbekannt GmbH',score,facts);
+    expect(pdfSignatur(bytes)).toBe('%PDF-');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
   });
   it('attaches a validated PDF to Brevo and preserves retries',()=>{
     expect(worker).toContain("data.type !== 'application/pdf'");
