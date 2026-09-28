@@ -173,8 +173,8 @@ export default function Onboarding() {
               <FeatureItem>
                 <FeatureIcon><CheckCircle size={16} /></FeatureIcon>
                 <FeatureText>
-                  <FeatureName>Persönlicher Fahrplan</FeatureName>
-                  <FeatureDesc>4-seitiges PDF zum Download</FeatureDesc>
+                  <FeatureName>Priorisierte Aufgaben</FeatureName>
+                  <FeatureDesc>Nach dem ersten Abgleich siehst du, was als Nächstes zählt</FeatureDesc>
                 </FeatureText>
               </FeatureItem>
             </FeatureList>

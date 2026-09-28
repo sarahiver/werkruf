@@ -20,6 +20,8 @@ const completeLocation = {
   average_rating: 5,
   last_synced_at: '2026-09-22T00:00:00Z',
   is_primary: true,
+  selected_at: '2026-09-22T00:00:00Z',
+  google_media: [],
 };
 
 function query(result) {
@@ -91,5 +93,27 @@ describe('Google location health-score flow', () => {
       points: 4,
       action: 'Angaben ergänzen',
     });
+  });
+
+  it('scopes score inputs to the persisted business selection', async () => {
+    mockDashboardQueries();
+
+    const { result } = renderHook(() => useGoogleBusinessData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(supabase.from.mock.results[1].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[2].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[3].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+    expect(supabase.from.mock.results[4].value.eq).toHaveBeenCalledWith('location_id', 'location-1');
+  });
+
+  it('does not calculate business metrics before a location is selected', async () => {
+    mockDashboardQueries({ ...completeLocation, selected_at: null });
+
+    const { result } = renderHook(() => useGoogleBusinessData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.stats).toMatchObject({ totalReviews: 0, averageRating: null });
+    expect(result.current.replyCounts).toEqual({ draft: 0, approved: 0, published: 0, failed: 0 });
   });
 });
