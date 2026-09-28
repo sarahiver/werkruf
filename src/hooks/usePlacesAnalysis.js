@@ -118,11 +118,17 @@ export function estimateUnanswered(count) {
 export function buildAlerts(r) {
   const list = [];
 
-  if (r.unanswered > 0)
+  if (r.dataSource === 'manual') return [{
+    t: 'warn',
+    title: 'Kein Google-Eintrag ausgewählt.',
+    desc: 'Es sind keine öffentlichen Google-Profildaten verfügbar. Nach der Registrierung kannst du das Profil per Google OAuth nachweisen und verbinden.',
+  }];
+
+  if (r.unansweredEstimate > 0)
     list.push({
-      t: 'err',
-      title: `${r.unanswered} Rezensionen ohne Antwort.`,
-      desc: 'Potenzielle Kunden sehen das. Jede unbeantwortete Bewertung kostet Vertrauen.',
+      t: 'warn',
+      title: `Geschätzt etwa ${r.unansweredEstimate} Rezensionen ohne Antwort.`,
+      desc: 'Dieser Näherungswert wurde aus der öffentlichen Rezensionszahl berechnet und nicht von Google geliefert.',
     });
 
   if (!r.hasWebsite)
@@ -136,20 +142,20 @@ export function buildAlerts(r) {
     list.push({
       t: r.reviewCount < 5 ? 'err' : 'warn',
       title: `Nur ${r.reviewCount} Bewertungen — unter dem Marktstandard.`,
-      desc: 'Betriebe mit 50+ Rezensionen bekommen bis zu 3× mehr Klicks.',
+      desc: 'Wenige Rezensionen können die Vertrauenswirkung des Profils begrenzen.',
     });
 
   if (r.rating > 0 && r.rating < 4.0)
     list.push({
       t: 'err',
       title: `Rating ${r.rating.toFixed(1)} — unter dem kritischen Schwellenwert.`,
-      desc: 'Unter 4.0 Sterne filtert Google dein Profil in Suchergebnissen aus.',
+      desc: 'Eine niedrigere Bewertung kann die Entscheidung potenzieller Kunden beeinflussen.',
     });
   else if (r.rating >= 4.0 && r.rating < 4.5)
     list.push({
       t: 'warn',
       title: `Rating ${r.rating.toFixed(1)} — noch Luft nach oben.`,
-      desc: 'Ab 4.5 Sternen steigt die Klickrate messbar an.',
+      desc: 'Die Bewertung ist ein öffentlich sichtbares Vertrauenssignal.',
     });
 
   return list;
@@ -160,8 +166,8 @@ export function buildAlerts(r) {
 ───────────────────────────────────────────── */
 export const SCAN_STEPS = [
   { lbl: ()  => 'Google Business Profil abrufen…',               ms: 800 },
-  { lbl: (c) => `Wettbewerb in ${c || 'deiner Region'} prüfen…`, ms: 900 },
-  { lbl: ()  => 'Bewertungs-Qualität analysieren…',              ms: 600 },
+  { lbl: ()  => 'Öffentliche Profildaten prüfen…',               ms: 900 },
+  { lbl: ()  => 'Bewertungsdaten einordnen…',                    ms: 600 },
   { lbl: ()  => 'Sichtbarkeits-Score berechnen…',                ms: 400 },
 ];
 
@@ -323,7 +329,7 @@ export function usePlacesAnalysis() {
       const rating      = pd.rating                || 0;
       const reviewCount = pd.userRatingCount       || pd.user_ratings_total || 0;
       const hasWebsite  = !!(pd.websiteUri         || pd.website);
-      const unanswered  = estimateUnanswered(reviewCount);
+      const unansweredEstimate = estimateUnanswered(reviewCount);
       const score       = calcScore({ rating, reviewCount, hasWebsite });
 
       setResult({
@@ -335,8 +341,9 @@ export function usePlacesAnalysis() {
         reviewCount,
         hasWebsite,
         website:     pd.websiteUri || pd.website || null,
-        unanswered,
+        unansweredEstimate,
         score,
+        dataSource: 'google',
       });
       setPhase('result');
 
@@ -345,6 +352,22 @@ export function usePlacesAnalysis() {
       setFetchErr('Fehler beim Verarbeiten der Ortsdaten. Bitte nochmal versuchen.');
       setPhase('idle');
     }
+  }, []);
+
+  const runManualAnalysis = useCallback((companyName) => {
+    const name = companyName?.trim();
+    if (!name) {
+      setFetchErr('Bitte gib einen Firmennamen ein.');
+      return;
+    }
+    setSelectedPlace({ name, manual: true });
+    setFetchErr('');
+    setResult({
+      placeId: '', name, city: '', address: '', rating: null,
+      reviewCount: null, hasWebsite: null, website: null,
+      unansweredEstimate: null, score: null, dataSource: 'manual',
+    });
+    setPhase('result');
   }, []);
 
   const reset = useCallback(() => {
@@ -359,6 +382,6 @@ export function usePlacesAnalysis() {
 
   return {
     phase, scanStep, result, fetchErr, selectedPlace,
-    runAnalysis, reset, markSent,
+    runAnalysis, runManualAnalysis, reset, markSent,
   };
 }

@@ -5,6 +5,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import supabase from '../supabaseClient';
+import { loadPublicFunnel, savePublicFunnel } from '../utils/publicFunnel';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -193,8 +194,13 @@ export default function Signup() {
   const { brand, pricing } = useIndustry();
 
   // Pre-fill from SmartCheck success flow
-  const prefillEmail  = location.state?.prefillEmail  || '';
-  const prefillResult = location.state?.result        || null;
+  const storedFunnel = loadPublicFunnel();
+  const prefillEmail  = location.state?.prefillEmail || storedFunnel?.email || '';
+  const prefillResult = location.state?.result || storedFunnel?.result || null;
+
+  useEffect(() => {
+    if (prefillResult) savePublicFunnel({ email: prefillEmail, result: prefillResult });
+  }, [prefillEmail, prefillResult]);
 
   const [email,    setEmail]    = useState(prefillEmail);
   const [password, setPassword] = useState('');
@@ -250,7 +256,7 @@ export default function Signup() {
     // Projects may enable or disable email confirmation. Only enter the
     // protected onboarding route when signup actually yielded a session.
     if (data?.session) {
-      navigate('/onboarding', { replace: true });
+      navigate('/onboarding', { replace: true, state: { result: prefillResult } });
     } else {
       setConfirmationEmail(email);
     }
@@ -259,6 +265,7 @@ export default function Signup() {
   const handleGoogleSignup = async () => {
     setError('');
     setLoading(true);
+    if (prefillResult) savePublicFunnel({ email, result: prefillResult });
     const { error: oauthError } = await signInGoogle('/onboarding');
     if (oauthError) {
       setError(oauthError.message || 'Google-Anmeldung konnte nicht gestartet werden.');

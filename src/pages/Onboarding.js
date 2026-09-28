@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, CheckCircle, Search, Zap } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import PlacesSearch from '../components/PlacesSearch';
 import { extractCity, calcScore } from '../hooks/usePlacesAnalysis';
 import supabase from '../supabaseClient';
+import { clearPublicFunnel, loadPublicFunnel } from '../utils/publicFunnel';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -146,18 +147,20 @@ export default function Onboarding() {
   const { user, refreshProfile } = useAuthContext();
   const { brand, places }        = useIndustry();
   const navigate                 = useNavigate();
+  const location                 = useLocation();
+  const funnelResult             = location.state?.result || loadPublicFunnel()?.result || null;
 
-  const [step,     setStep]     = useState(1); // 1=welcome, 2=search, 3=score
-  const [selected, setSelected] = useState(null);
+  const [step,     setStep]     = useState(funnelResult?.placeId ? 3 : 1); // 1=welcome, 2=search, 3=score
+  const [selected, setSelected] = useState(funnelResult?.placeId ? funnelResult : null);
   const [saving,   setSaving]   = useState(false);
-  const [score,    setScore]    = useState(null);
+  const [score,    setScore]    = useState(funnelResult?.placeId ? funnelResult.score : null);
   const [showManual, setShowManual] = useState(false);
   const [saveError, setSaveError] = useState('');
 
   const saveSelection = async (result, calculatedScore) => {
     if (!user?.id) throw new Error('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
 
-    const city = extractCity(result.addressComponents || []);
+    const city = result.city || extractCity(result.addressComponents || []);
     const { error } = await supabase
       .from('user_profiles')
       .update({
@@ -172,6 +175,21 @@ export default function Onboarding() {
 
     if (error) throw error;
   };
+
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !funnelResult?.placeId || !user?.id) return;
+    restoredRef.current = true;
+    setSaving(true);
+    saveSelection(funnelResult, funnelResult.score)
+      .catch((err) => {
+        console.error('Onboarding restore save error:', err);
+        setSaveError('Dein vorausgewählter Betrieb konnte nicht gespeichert werden. Bitte versuche es erneut.');
+      })
+      .finally(() => setSaving(false));
+  // The persisted selection is intentionally consumed once after OAuth/auth restore.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handlePlaceSelect = async (result) => {
     if (!result) return;
@@ -218,6 +236,7 @@ export default function Onboarding() {
     setSaving(true);
     try {
       await refreshProfile();
+      clearPublicFunnel();
       navigate('/dashboard');
     } catch (err) {
       console.error('Profile refresh error:', err);

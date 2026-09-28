@@ -330,7 +330,7 @@ export default function PlacesSearch({
 
   const handleFallbackClick = useCallback(() => {
     setShowFallback(false);
-    if (onNoResults) onNoResults();
+    if (onNoResults) onNoResults(latestQuery.current.trim());
   }, [onNoResults]);
 
   /* ── Render ── */
@@ -352,7 +352,7 @@ export default function PlacesSearch({
           type="text"
           value={query}
           placeholder={placeholderText}
-          disabled={!ready || initError}
+          disabled={!ready && !initError}
           $dark={dark}
           onChange={handleChange}
           onBlur={handleBlur}

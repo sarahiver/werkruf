@@ -10,6 +10,7 @@ import {
   buildAlerts, SCAN_STEPS, saveLeadToSupabase,
 } from '../hooks/usePlacesAnalysis';
 import { useIndustry } from '../context/IndustryContext';
+import { savePublicFunnel } from '../utils/publicFunnel';
 
 /* ─────────────────────────────────────────────
    ANIMATIONS
@@ -336,13 +337,17 @@ const AnalysisSection = ({
       await saveLeadToSupabase({ email, result, industryKey });
     } catch (err) {
       console.error('Supabase:', err);
+      setEmailErr('Deine Anfrage konnte nicht gespeichert werden. Bitte versuche es erneut.');
+      setSending(false);
+      return;
     }
+    savePublicFunnel({ email, result });
     setSending(false);
     navigate('/success', { state: { email, result } });
   };
 
   const alerts = result ? buildAlerts(result) : [];
-  const scanningName = selectedPlace?.label?.split(',')[0] || '…';
+  const scanningName = selectedPlace?.name || selectedPlace?.label?.split(',')[0] || '…';
 
   return (
     <Section id="analysis">
@@ -407,10 +412,10 @@ const AnalysisSection = ({
                     }
                   </CoMeta>
                 </div>
-                <ScBadge $s={result.score}>
+                {result.score !== null && <ScBadge $s={result.score}>
                   <ScNum $s={result.score}>{result.score}</ScNum>
-                  <ScLbl>/ 100 · {scoreLabel(result.score)}</ScLbl>
-                </ScBadge>
+                  <ScLbl>/ 100 · {scoreLabel(result.score)} · berechnet</ScLbl>
+                </ScBadge>}
               </ResHead>
 
               {/* Real Google metrics */}
@@ -426,14 +431,14 @@ const AnalysisSection = ({
                   <MLbl>Ø Bewertung</MLbl>
                 </MCell>
                 <MCell>
-                  <MVal $w={result.reviewCount < 10}>
-                    {result.reviewCount.toLocaleString('de-DE')}
+                  <MVal $w={result.reviewCount !== null && result.reviewCount < 10}>
+                    {result.reviewCount === null ? '—' : result.reviewCount.toLocaleString('de-DE')}
                   </MVal>
                   <MLbl>Rezensionen</MLbl>
                 </MCell>
                 <MCell>
-                  <MVal $w={result.unanswered > 0}>{result.unanswered}</MVal>
-                  <MLbl>Ohne Antwort*</MLbl>
+                  <MVal $w={result.unansweredEstimate > 0}>{result.unansweredEstimate ?? '—'}</MVal>
+                  <MLbl>Ohne Antwort (Schätzung)*</MLbl>
                 </MCell>
               </MGrid>
 
@@ -458,7 +463,7 @@ const AnalysisSection = ({
                     <TLock>
                       <LPill>
                         <ChevronRight size={13} />
-                        {alerts.length - 2} weitere Befunde im PDF-Report
+                        {alerts.length - 2} weitere Hinweise nach der Registrierung
                       </LPill>
                     </TLock>
                   </TBlk>
@@ -469,8 +474,8 @@ const AnalysisSection = ({
               {phase === 'result' && (
                 <>
                   <Divider />
-                  <LTit>Dein vollständiger 4-seitiger Report</LTit>
-                  <LSub>Wohin sollen wir deinen persönlichen Sichtbarkeits-Report (PDF) schicken?</LSub>
+                  <LTit>Deine Analyse speichern</LTit>
+                  <LSub>Hinterlasse deine E-Mail, um das Ergebnis zur Registrierung zu übernehmen. Ein PDF-Versand ist derzeit nicht Bestandteil dieses Checks.</LSub>
                   <ERow>
                     <EInput
                       type="email" placeholder="deine@email.de"
@@ -481,8 +486,8 @@ const AnalysisSection = ({
                     />
                     <SBtn onClick={handleSubmit} disabled={sending}>
                       {sending
-                        ? <><Loader size={15} className="spin" />Wird gesendet…</>
-                        : <>Report anfordern<ChevronRight size={15} /></>
+                        ? <><Loader size={15} className="spin" />Wird gespeichert…</>
+                        : <>Analyse speichern<ChevronRight size={15} /></>
                       }
                     </SBtn>
                   </ERow>
@@ -521,7 +526,7 @@ const AnalysisSection = ({
                 <RBtn onClick={onReset}><RotateCcw size={12} /> Anderen Betrieb prüfen</RBtn>
               </div>
               {phase === 'result' && (
-                <Footnote>* Geschätzter Wert basierend auf öffentlichen Google-Daten.</Footnote>
+                <Footnote>* Schätzung aus der öffentlichen Rezensionszahl; Google liefert hier keine Zahl unbeantworteter Rezensionen. „—“ bedeutet: nicht verfügbar.</Footnote>
               )}
             </CardBody>
           </Card>

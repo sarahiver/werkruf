@@ -213,7 +213,7 @@ const StatLabel = styled.div`
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
-const Hero = ({ onPlaceSelect, fetchErr }) => {
+const Hero = ({ onPlaceSelect, onNoResults, fetchErr }) => {
   const { copy, places, design } = useIndustry();
   const { hero: heroCopy, check: checkCopy } = copy;
 
@@ -261,9 +261,10 @@ const Hero = ({ onPlaceSelect, fetchErr }) => {
             {apiKey ? (
               <PlacesSearch
                 onSelect={handleSelect}
-                onNoResults={() => {
+                onNoResults={(query) => {
                   const el = document.getElementById('analysis');
                   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  onNoResults(query);
                 }}
                 placeholder={places.searchPlaceholder}
                 dark={false}
