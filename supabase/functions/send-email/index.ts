@@ -210,7 +210,7 @@ function layout(brand: Brand, title: string, body: string, cta?: { label: string
         ${escapeHtml(brand.name)} &middot;
         <a href="${brand.appUrl}/impressum" style="color:#7A8290;">Impressum</a> &middot;
         <a href="${brand.appUrl}/datenschutz" style="color:#7A8290;">Datenschutz</a><br>
-        Du bekommst diese E-Mail, weil du ein Konto bei ${escapeHtml(brand.name)} hast.
+        Du bekommst diese Transaktionsmail, weil du sie angefordert oder ein Konto bei ${escapeHtml(brand.name)} hast.
       </p>
     </td></tr>
 
@@ -513,60 +513,15 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
     }
 
     case 'visibility_report': {
-      /* Der Report aus dem Sichtbarkeits-Check.
-         Das ist die erste Mail, die ein Interessent überhaupt von uns
-         sieht — sie muss das Ergebnis zeigen, nicht Werbung. Die
-         Handlungsempfehlung ergibt sich aus dem Score selbst. */
-      const score = Number(payload.score ?? 0);
-      const rating = payload.rating;
-      const reviewCount = Number(payload.reviewCount ?? 0);
-      const city = payload.city ? ` in ${escapeHtml(payload.city)}` : '';
-
-      const verdict =
-        score >= 70 ? { label: 'GUT',          color: '#1E7E34', bg: '#E8F5E9' } :
-        score >= 45 ? { label: 'AUSBAUFÄHIG',  color: '#A66A00', bg: '#FFF4E0' } :
-                      { label: 'KRITISCH',     color: '#B3261E', bg: '#FDECEA' };
-
-      const finding =
-        score >= 70
-          ? 'Dein Profil ist gut aufgestellt. Der Abstand zu den ersten Plätzen entscheidet sich jetzt über Bewertungen und Aktualität.'
-          : score >= 45
-            ? 'Die Grundlagen stimmen, aber es bleibt Sichtbarkeit liegen. Meist fehlen Fotos, aktuelle Öffnungszeiten oder Antworten auf Bewertungen.'
-            : 'Dein Profil wird bei Google kaum ausgespielt. Wer dich sucht, findet dich — wer deine Leistung sucht, findet andere.';
-
-      const title = `Sichtbarkeits-Report: ${escapeHtml(payload.companyName ?? 'dein Betrieb')}`;
-
-      const scoreBox = `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${verdict.bg};border-radius:8px;margin:0 0 18px;">
-<tr>
-  <td style="padding:18px 20px;">
-    <span style="font-size:34px;font-weight:bold;color:${verdict.color};line-height:1;">${score}</span>
-    <span style="font-size:15px;color:${verdict.color};"> / 100</span>
-    <div style="margin-top:6px;font-size:12px;font-weight:bold;letter-spacing:1px;color:${verdict.color};">${verdict.label}</div>
-  </td>
-</tr>
-</table>`;
-
-      const facts = `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;border-top:1px solid #E8E9EC;">
-  <tr>
-    <td style="padding:11px 0;border-bottom:1px solid #E8E9EC;font-size:14px;color:#333A45;">Bewertung bei Google</td>
-    <td style="padding:11px 0;border-bottom:1px solid #E8E9EC;font-size:14px;color:#333A45;text-align:right;font-weight:bold;">${rating ? `${escapeHtml(rating)} von 5` : 'keine'}</td>
-  </tr>
-  <tr>
-    <td style="padding:11px 0;border-bottom:1px solid #E8E9EC;font-size:14px;color:#333A45;">Anzahl Bewertungen</td>
-    <td style="padding:11px 0;border-bottom:1px solid #E8E9EC;font-size:14px;color:#333A45;text-align:right;font-weight:bold;">${reviewCount}</td>
-  </tr>
-</table>`;
-
+      const title = `Dein kostenloser Google-Profil-Bericht für ${escapeHtml(payload.companyName ?? 'deinen Betrieb')}`;
+      const score = typeof payload.score === 'number' ? payload.score : null;
       const html = layout(brand, title,
-        p(`hier ist das Ergebnis für <strong>${company}</strong>${city}.`) +
-        scoreBox +
-        p(finding) +
-        facts +
-        p(`Der Wert setzt sich aus Bewertungen, Aktualität und Vollständigkeit deines Profils zusammen — den Punkten, nach denen Google entscheidet, wer bei einer Suche oben steht.`) +
-        p(`Verbindest du dein Profil mit ${escapeHtml(brand.name)}, siehst du diese Lücken nicht nur: du schliesst sie direkt aus dem Dashboard, und zu jeder neuen Bewertung liegt ein Antwortvorschlag bereit.`),
-        { label: 'Profil verbinden und Lücken schliessen', url: `${brand.appUrl}/pricing` },
+        p(`dein angeforderter Bericht für <strong>${company}</strong> wurde erstellt und ist als PDF angehängt.`) +
+        (score === null ? p('Für die verfügbaren Felder konnte kein belastbarer vorläufiger Profil-Score berechnet werden.') :
+          p(`Der vorläufige öffentliche Profil-Score beträgt <strong>${score} von 100</strong>. Kriterien und tatsächlich verwendete Daten stehen nachvollziehbar im PDF.`)) +
+        p('Der Check ist eine WERKRUF-Auswertung ausgewählter öffentlicher Profildaten. Er ist kein Google-Ranking und keine Messung der Sichtbarkeit.') +
+        p('Eine autorisierte Google-Business-Verbindung ist separat erforderlich, um verwaltete Standorte und weitere Profildaten zu prüfen.'),
+        { label: 'Vollständigen Health Score freischalten', url: `${brand.appUrl}/signup` },
       );
       return { subject: title, html, text: toPlainText(html) };
     }
@@ -730,11 +685,25 @@ interface SendResult {
   retryable: boolean;
 }
 
+async function reportAttachment(row: EmailRow): Promise<Array<{ name: string; content: string }> | undefined> {
+  if (row.template !== 'visibility_report') return undefined;
+  const path = typeof row.payload.reportPath === 'string' ? row.payload.reportPath : '';
+  if (!path || !path.endsWith('.pdf')) throw new Error('invalid_report_reference');
+  const { data, error } = await adminClient().storage.from('profile-reports').download(path);
+  if (error || !data) throw new Error('report_download_failed');
+  if (data.type !== 'application/pdf' || data.size < 5 || data.size > 5_000_000) throw new Error('invalid_report_file');
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') throw new Error('invalid_report_signature');
+  let binary = ''; for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return [{ name: 'WERKRUF-Google-Profil-Bericht.pdf', content: btoa(binary) }];
+}
+
 async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand): Promise<SendResult> {
   let response: Response;
 
   try {
     const recipient = deliveryRecipient(row.to_email);
+    const attachment = await reportAttachment(row);
     response = await fetch(BREVO_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -751,6 +720,7 @@ async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand
         // Landet in Brevos Statistik — so lässt sich pro Vorlage
         // auswerten, ohne dass wir selbst zählen müssen.
         tags: [row.template],
+        ...(attachment ? { attachment } : {}),
       }),
     });
   } catch (cause) {
@@ -787,6 +757,15 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
   const db = adminClient();
   const startedAt = Date.now();
 
+  // Best-effort expiry cleanup. Reports are private and short-lived; cleanup
+  // uses the Storage API rather than exposing signed/public URLs.
+  const { data: expired } = await db.from('profile_report_requests')
+    .select('id,report_path').lt('expires_at', new Date().toISOString()).not('report_path', 'is', null).limit(100);
+  for (const report of expired ?? []) {
+    const { error: removeError } = await db.storage.from('profile-reports').remove([report.report_path]);
+    if (!removeError) await db.from('profile_report_requests').update({ report_path: null, updated_at: new Date().toISOString() }).eq('id', report.id);
+  }
+
   const { data, error } = await db.rpc('claim_emails', {
     p_worker: options.workerId,
     p_limit:  options.limit,
@@ -817,6 +796,7 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
         await db.rpc('finish_email', {
           p_id: row.id, p_success: true, p_provider_id: result.providerId ?? null,
         });
+        if (row.template === 'visibility_report' && row.payload.reportRequestId) await db.from('profile_report_requests').update({ status: 'provider_accepted', provider_message_id: result.providerId ?? null, updated_at: new Date().toISOString() }).eq('id', row.payload.reportRequestId);
         sent++;
         log('debug', 'email_sent', { template: row.template, id: row.id });
       } else {
@@ -832,6 +812,7 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
           p_error_code: result.errorCode ?? null,
           p_error_message: result.errorMessage ?? null,
         });
+        if (row.template === 'visibility_report' && row.payload.reportRequestId && !result.retryable) await db.from('profile_report_requests').update({ status: 'failed', failure_stage: 'brevo', error_code: result.errorCode ?? null, updated_at: new Date().toISOString() }).eq('id', row.payload.reportRequestId);
         failed++;
         log('warn', 'email_failed', {
           template: row.template, id: row.id,
