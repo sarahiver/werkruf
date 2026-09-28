@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle, Search, Zap } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import PlacesSearch from '../components/PlacesSearch';
-import { extractCity, calcScore } from '../hooks/usePlacesAnalysis';
+import { calcScore } from '../hooks/usePlacesAnalysis';
 import supabase from '../supabaseClient';
 import { clearPublicFunnel, loadPublicFunnel } from '../utils/publicFunnel';
 
@@ -150,26 +150,23 @@ export default function Onboarding() {
   const location                 = useLocation();
   const funnelResult             = location.state?.result || loadPublicFunnel()?.result || null;
 
-  const [step,     setStep]     = useState(funnelResult?.placeId ? 3 : 1); // 1=welcome, 2=search, 3=score
-  const [selected, setSelected] = useState(funnelResult?.placeId ? funnelResult : null);
+  const [step,     setStep]     = useState(funnelResult?.placeId ? 2 : 1); // public selection still requires authorised connection
+  const [selected, setSelected] = useState(null);
   const [saving,   setSaving]   = useState(false);
-  const [score,    setScore]    = useState(funnelResult?.placeId ? funnelResult.score : null);
+  const [score,    setScore]    = useState(null);
   const [showManual, setShowManual] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const saveSelection = async (result, calculatedScore) => {
+  const saveSelection = async (result) => {
     if (!user?.id) throw new Error('Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.');
 
-    const city = result.city || extractCity(result.addressComponents || []);
+    // This records the user's candidate selection only. It does not persist
+    // Google rating/review/address/website data and does not prove ownership.
     const { error } = await supabase
       .from('user_profiles')
       .update({
         google_place_id:     result.placeId,
         company_name:        result.name,
-        city,
-        google_rating:       result.rating      || null,
-        google_review_count: result.reviewCount || null,
-        visibility_score:    calculatedScore,
       })
       .eq('id', user.id);
 
@@ -181,7 +178,7 @@ export default function Onboarding() {
     if (restoredRef.current || !funnelResult?.placeId || !user?.id) return;
     restoredRef.current = true;
     setSaving(true);
-    saveSelection(funnelResult, funnelResult.score)
+    saveSelection(funnelResult)
       .catch((err) => {
         console.error('Onboarding restore save error:', err);
         setSaveError('Dein vorausgewählter Betrieb konnte nicht gespeichert werden. Bitte versuche es erneut.');
@@ -197,9 +194,12 @@ export default function Onboarding() {
 
     // Calculate score immediately
     const s = calcScore({
-      rating:      result.rating      || 0,
-      reviewCount: result.reviewCount || 0,
-      hasWebsite:  result.hasWebsite  || false,
+      rating: result.rating,
+      reviewCount: result.reviewCount,
+      hasWebsite: result.hasWebsite,
+      ratingAvailable: result.ratingAvailable,
+      reviewCountAvailable: result.reviewCountAvailable,
+      websiteAvailable: result.websiteAvailable,
     });
     setScore(s);
     setStep(3);
@@ -208,7 +208,7 @@ export default function Onboarding() {
     // Save to profile
     setSaving(true);
     try {
-      await saveSelection(result, s);
+      await saveSelection(result);
     } catch (err) {
       console.error('Onboarding save error:', err);
       setSaveError('Dein Betrieb konnte nicht gespeichert werden. Bitte versuche es erneut.');
@@ -222,7 +222,7 @@ export default function Onboarding() {
     setSaving(true);
     setSaveError('');
     try {
-      await saveSelection(selected, score);
+      await saveSelection(selected);
     } catch (err) {
       console.error('Onboarding retry error:', err);
       setSaveError('Speichern weiterhin nicht möglich. Deine Auswahl bleibt erhalten.');
@@ -267,16 +267,16 @@ export default function Onboarding() {
             <StepBadge>Schritt 1 von 3</StepBadge>
             <Title>Willkommen,{'\n'}{firstName}!</Title>
             <Sub>
-              In 2 Minuten siehst du wie gut dein Betrieb bei Google dasteht —
-              und wo Lücken sind.
+              Verbinde dein Google-Unternehmensprofil, bestätige den Standort
+              und erhalte danach den tatsächlichen Health Score.
             </Sub>
 
             <FeatureList>
               <FeatureItem>
                 <FeatureIcon><Search size={16} /></FeatureIcon>
                 <FeatureText>
-                  <FeatureName>Sichtbarkeits-Score</FeatureName>
-                  <FeatureDesc>Wie gut findest du bei Google?</FeatureDesc>
+                  <FeatureName>Autorisierter Health Score</FeatureName>
+                  <FeatureDesc>Erst nach Google-Business-OAuth und Standortbestätigung</FeatureDesc>
                 </FeatureText>
               </FeatureItem>
               <FeatureItem>
@@ -307,8 +307,8 @@ export default function Onboarding() {
             <StepBadge>Schritt 2 von 3</StepBadge>
             <Title>Welches ist dein Betrieb?</Title>
             <Sub>
-              Suche deinen Google-Eintrag — WERKRUF prüft
-              deinen aktuellen Stand in Sekunden.
+              {funnelResult?.name ? `${funnelResult.name} ist vorausgewählt. ` : ''}
+              Wähle den Eintrag zur Einrichtung. Die Auswahl allein bestätigt keine Verwaltungsberechtigung.
             </Sub>
 
             <PlacesSearch
@@ -341,18 +341,17 @@ export default function Onboarding() {
         {step === 3 && selected && (
           <>
             <StepBadge>Schritt 3 von 3</StepBadge>
-            <Title>Dein Ergebnis ist da!</Title>
+            <Title>Auswahl übernommen</Title>
 
             <ScorePreview>
               <ScoreNum $s={score}>{score}</ScoreNum>
               <ScoreLabel>
-                von 100 Punkten · {score >= 70 ? 'Gut' : score >= 45 ? 'Ausbaufähig' : 'Kritisch'}
+                vorläufiger öffentlicher Profil-Score
               </ScoreLabel>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem',
                 color: 'var(--color-text)', marginTop: 12, lineHeight: 1.6 }}>
                 <strong>{selected.name}</strong>
-                {score < 70 && ' — da gehen Anfragen verloren. Das lässt sich ändern.'}
-                {score >= 70 && ' — guter Stand. Da geht trotzdem noch mehr.'}
+                {' — der tatsächliche Health Score folgt nach autorisierter Profilverknüpfung und Standortbestätigung.'}
               </p>
             </ScorePreview>
 

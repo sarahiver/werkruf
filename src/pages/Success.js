@@ -222,7 +222,7 @@ export default function Success() {
         <UrgencyBox>
           <UrgencyText>
             Der Check nutzt öffentliche Google-Profildaten und einen berechneten
-            Sichtbarkeits-Score. Ein PDF wurde nicht erzeugt oder versendet. Nach
+            vorläufigen öffentlichen Profil-Score, nicht Ranking oder gemessene Sichtbarkeit. Ein PDF wurde nicht erzeugt oder versendet. Nach
             der Registrierung kannst du dein Google-Unternehmensprofil separat
             per OAuth verbinden und deine Verwaltungsberechtigung nachweisen.
           </UrgencyText>

@@ -84,7 +84,7 @@ function waitForGoogle(timeout = 10000) {
    to a clean, consistent object.
    Handles BOTH legacy (snake_case) AND v1 (camelCase).
 ───────────────────────────────────────────── */
-function normalisePlace(place) {
+export function normalisePlace(place) {
   if (!place) return null;
 
   // ID — Autocomplete gives place_id (legacy), v1 gives id
@@ -105,19 +105,23 @@ function normalisePlace(place) {
   const addressComponents = place.addressComponents || place.address_components || [];
 
   // Rating — same in both APIs
-  const rating = typeof place.rating === 'number' ? place.rating : 0;
+  const rating = typeof place.rating === 'number' ? place.rating : null;
+  const ratingAvailable = typeof place.rating === 'number';
 
   // Review count — Autocomplete = user_ratings_total, v1 = userRatingCount
   const reviewCount =
     (typeof place.userRatingCount   === 'number' ? place.userRatingCount   : null)
-    ?? (typeof place.user_ratings_total === 'number' ? place.user_ratings_total : 0);
+    ?? (typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null);
+  const reviewCountAvailable = typeof reviewCount === 'number';
 
   // Website — Autocomplete = website, v1 = websiteUri / websiteURI
   const website    = place.websiteUri || place.websiteURI || place.website || null;
   const hasWebsite = !!website;
+  const websiteAvailable = Object.prototype.hasOwnProperty.call(place, 'website') ||
+    Object.prototype.hasOwnProperty.call(place, 'websiteUri') || Object.prototype.hasOwnProperty.call(place, 'websiteURI');
 
-  const result = { placeId, name, address, addressComponents, rating, reviewCount, hasWebsite, website };
-  console.log('[PlacesSearch] Normalised result:', result);
+  const result = { placeId, name, address, addressComponents, rating, ratingAvailable,
+    reviewCount, reviewCountAvailable, hasWebsite, website, websiteAvailable };
   return result;
 }
 
@@ -327,6 +331,15 @@ export default function PlacesSearch({
     if (inputRef.current) inputRef.current.value = '';
     if (onSelect) onSelect(null);
   }, [onSelect]);
+
+  useEffect(() => {
+    const clear = () => {
+      setQuery(''); latestQuery.current = ''; setShowFallback(false);
+      if (inputRef.current) inputRef.current.value = '';
+    };
+    window.addEventListener('werkruf:reset-place-search', clear);
+    return () => window.removeEventListener('werkruf:reset-place-search', clear);
+  }, []);
 
   const handleFallbackClick = useCallback(() => {
     setShowFallback(false);

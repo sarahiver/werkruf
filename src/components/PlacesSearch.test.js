@@ -31,6 +31,26 @@ describe('PlacesSearch', () => {
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ placeId: 'two', name: 'Zweiter Betrieb' }));
   });
 
+  it('preserves true zero values and marks omitted fields unavailable', async () => {
+    const onSelect = jest.fn();
+    render(<PlacesSearch onSelect={onSelect} />);
+    await waitFor(() => expect(listener).toBeTruthy());
+    currentPlace = { place_id: 'new', name: 'WERKRUF', user_ratings_total: 0 };
+    listener();
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({
+      reviewCount: 0, reviewCountAvailable: true, rating: null,
+      ratingAvailable: false, websiteAvailable: false,
+    }));
+  });
+
+  it('clears the field when the funnel is reset', async () => {
+    render(<PlacesSearch />);
+    await waitFor(() => expect(listener).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Betrieb suchen'), { target: { value: 'Firma' } });
+    act(() => window.dispatchEvent(new Event('werkruf:reset-place-search')));
+    expect(screen.getByLabelText('Betrieb suchen')).toHaveValue('');
+  });
+
   it('hands a typed, not-found business to the manual fallback', async () => {
     const onNoResults = jest.fn();
     render(<PlacesSearch onNoResults={onNoResults} />);

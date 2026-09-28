@@ -17,6 +17,11 @@ export default function HomePage() {
     reset,
     markSent,
   } = usePlacesAnalysis();
+  const resetAll = () => {
+    reset();
+    window.dispatchEvent(new Event('werkruf:reset-place-search'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <main>
@@ -30,7 +35,7 @@ export default function HomePage() {
         scanStep={scanStep}
         result={result}
         selectedPlace={selectedPlace}
-        onReset={reset}
+        onReset={resetAll}
         onMarkSent={markSent}
       />
       <Features />

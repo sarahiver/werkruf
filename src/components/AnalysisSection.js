@@ -347,14 +347,15 @@ const AnalysisSection = ({
   };
 
   const alerts = result ? buildAlerts(result) : [];
+  const signupState = result ? { result } : undefined;
   const scanningName = selectedPlace?.name || selectedPlace?.label?.split(',')[0] || '…';
 
   return (
     <Section id="analysis">
       <TopStripe $show={design.topStripe} />
       <Inner>
-        <Eyebrow>{analysisCopy.eyebrow}</Eyebrow>
-        <H2>{analysisCopy.title} <Accent>{analysisCopy.titleAccent}</Accent></H2>
+        <Eyebrow>Öffentlicher Schnellcheck</Eyebrow>
+        <H2>Google-<Accent>Profil-Check</Accent></H2>
         <SubText>
           {phase === 'idle'    ? 'Betrieb oben eingeben — hier erscheinen deine Ergebnisse.'
           : phase === 'scanning' ? `Analysiere ${scanningName}…`
@@ -368,6 +369,14 @@ const AnalysisSection = ({
             <IdleIcon><Star size={26} /></IdleIcon>
             <IdleTxt>Noch kein Betrieb ausgewählt</IdleTxt>
             <IdleSub>Scroll nach oben und gib deinen Firmennamen ein.</IdleSub>
+          </IdleBox>
+        )}
+
+        {phase === 'error' && (
+          <IdleBox role="alert">
+            <IdleIcon><AlertTriangle size={26} /></IdleIcon>
+            <IdleTxt>Google-Daten konnten nicht geladen werden</IdleTxt>
+            <IdleSub>Bitte wähle den Betrieb erneut oder nutze die manuelle Eingabe.</IdleSub>
           </IdleBox>
         )}
 
@@ -406,7 +415,9 @@ const AnalysisSection = ({
                   <CoName>{result.name}</CoName>
                   <CoMeta>
                     {result.city && <Chip><MapPin size={11} />{result.city}</Chip>}
-                    {result.hasWebsite
+                    {result.websiteAvailable === false
+                      ? <Chip><Globe size={11} />Website: nicht verfügbar</Chip>
+                      : result.hasWebsite
                       ? <Chip><Globe size={11} />Website vorhanden</Chip>
                       : <Chip style={{ color: '#D93025' }}><Globe size={11} />Keine Website</Chip>
                     }
@@ -414,68 +425,62 @@ const AnalysisSection = ({
                 </div>
                 {result.score !== null && <ScBadge $s={result.score}>
                   <ScNum $s={result.score}>{result.score}</ScNum>
-                  <ScLbl>/ 100 · {scoreLabel(result.score)} · berechnet</ScLbl>
+                  <ScLbl>/ 100 · {scoreLabel(result.score)}</ScLbl>
                 </ScBadge>}
               </ResHead>
 
               {/* Real Google metrics */}
               <MGrid>
                 <MCell>
-                  {result.rating > 0
+                  {result.ratingAvailable
                     ? <Stars v={result.rating} />
                     : <div style={{fontSize:'.7rem',color:'#D93025',marginBottom:3}}>KEIN RATING</div>
                   }
                   <MVal $w={result.rating > 0 && result.rating < 4.0}>
-                    {result.rating > 0 ? result.rating.toFixed(1) : '—'}
+                    {result.ratingAvailable ? result.rating.toFixed(1) : '—'}
                   </MVal>
                   <MLbl>Ø Bewertung</MLbl>
                 </MCell>
                 <MCell>
                   <MVal $w={result.reviewCount !== null && result.reviewCount < 10}>
-                    {result.reviewCount === null ? '—' : result.reviewCount.toLocaleString('de-DE')}
+                    {result.reviewCountAvailable ? result.reviewCount.toLocaleString('de-DE') : '—'}
                   </MVal>
                   <MLbl>Rezensionen</MLbl>
                 </MCell>
                 <MCell>
-                  <MVal $w={result.unansweredEstimate > 0}>{result.unansweredEstimate ?? '—'}</MVal>
-                  <MLbl>Ohne Antwort (Schätzung)*</MLbl>
+                  <MVal>nach Login</MVal>
+                  <MLbl>Tatsächliche Antwortquote</MLbl>
                 </MCell>
               </MGrid>
 
+              {result.scoreCriteria?.map(c => (
+                <Footnote key={c.key}><strong>{c.label} ({c.weight} %):</strong>{' '}
+                  {c.available ? `${c.points}/${c.weight} Punkte – ${c.detail}` : c.detail}
+                </Footnote>
+              ))}
+              <Footnote>Google-Daten: Bewertung, Rezensionszahl, Website und Adresse. WERKRUF-Berechnung: vorläufiger öffentlicher Profil-Score. Kein Google-Ranking und keine Messung der Sichtbarkeit.</Footnote>
+
               {/* Alerts */}
               <AList>
-                {alerts.slice(0, 2).map((a, i) => (
+                {alerts.map((a, i) => (
                   <AItem key={i} $t={a.t}>
                     <AIco $t={a.t}><AlertIcon idx={i} /></AIco>
                     <div><ATit>{a.title}</ATit><ADesc>{a.desc}</ADesc></div>
                   </AItem>
                 ))}
-                {alerts.length > 2 && phase !== 'sent' && (
-                  <TBlk>
-                    <Blur>
-                      {alerts.slice(2).map((a, i) => (
-                        <AItem key={i} $t={a.t} style={{ marginBottom: i < alerts.slice(2).length - 1 ? 8 : 0 }}>
-                          <AIco $t={a.t}><AlertIcon idx={i + 2} /></AIco>
-                          <div><ATit>{a.title}</ATit><ADesc>{a.desc}</ADesc></div>
-                        </AItem>
-                      ))}
-                    </Blur>
-                    <TLock>
-                      <LPill>
-                        <ChevronRight size={13} />
-                        {alerts.length - 2} weitere Hinweise nach der Registrierung
-                      </LPill>
-                    </TLock>
-                  </TBlk>
-                )}
               </AList>
+
+              <UpsellLink to="/signup" state={signupState} onClick={() => savePublicFunnel({ result })}>
+                Vollständigen Profil-Check starten <ChevronRight size={14} />
+              </UpsellLink>
+              <LSub>Danach: Konto erstellen, Google Business per OAuth verbinden, Standort bestätigen und den tatsächlichen Health Score mit priorisierten Aufgaben erhalten. Die öffentliche Auswahl weist keine Verwaltungsberechtigung nach.</LSub>
 
               {/* Lead form */}
               {phase === 'result' && (
                 <>
                   <Divider />
-                  <LTit>Deine Analyse speichern</LTit>
-                  <LSub>Hinterlasse deine E-Mail, um das Ergebnis zur Registrierung zu übernehmen. Ein PDF-Versand ist derzeit nicht Bestandteil dieses Checks.</LSub>
+                  <LTit>Ergebnis freiwillig vormerken</LTit>
+                  <LSub>Optional: E-Mail für die bestehende Lead-Erfassung hinterlassen. Für die Registrierung oben ist das nicht nötig.</LSub>
                   <ERow>
                     <EInput
                       type="email" placeholder="deine@email.de"
@@ -525,9 +530,7 @@ const AnalysisSection = ({
               <div style={{ textAlign: 'right' }}>
                 <RBtn onClick={onReset}><RotateCcw size={12} /> Anderen Betrieb prüfen</RBtn>
               </div>
-              {phase === 'result' && (
-                <Footnote>* Schätzung aus der öffentlichen Rezensionszahl; Google liefert hier keine Zahl unbeantworteter Rezensionen. „—“ bedeutet: nicht verfügbar.</Footnote>
-              )}
+              <Footnote>„—“ bedeutet: von der Places API nicht bereitgestellt. Google-Attribution: Google Maps.</Footnote>
             </CardBody>
           </Card>
         )}
