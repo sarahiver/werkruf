@@ -724,10 +724,11 @@ async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand
       }),
     });
   } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
     return {
       ok: false, retryable: true,
-      errorCode: 'network_error',
-      errorMessage: cause instanceof Error ? cause.message : String(cause),
+      errorCode: message.startsWith('report_') || message.startsWith('invalid_report_') ? message : 'network_error',
+      errorMessage: message,
     };
   }
 
@@ -776,6 +777,14 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
   const rows = (data ?? []) as EmailRow[];
   let sent = 0, failed = 0;
 
+  const markReportFailed = async (row: EmailRow, stage: string, code: string | null) => {
+    if (row.template !== 'visibility_report' || !row.payload.reportRequestId) return;
+    await db.from('profile_report_requests').update({
+      status: 'failed', failure_stage: stage, error_code: code,
+      updated_at: new Date().toISOString(),
+    }).eq('id', row.payload.reportRequestId);
+  };
+
   for (const row of rows) {
     if (Date.now() - startedAt > options.budgetMs) {
       // Rest zurück in die Schlange — der nächste Lauf nimmt ihn.
@@ -783,6 +792,7 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
         p_id: row.id, p_success: false,
         p_error_code: 'budget_exhausted', p_error_message: 'Zeitbudget erschöpft',
       });
+      if (row.attempts >= row.max_attempts) await markReportFailed(row, 'worker_budget', 'budget_exhausted');
       failed++;
       continue;
     }
@@ -812,7 +822,10 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
           p_error_code: result.errorCode ?? null,
           p_error_message: result.errorMessage ?? null,
         });
-        if (row.template === 'visibility_report' && row.payload.reportRequestId && !result.retryable) await db.from('profile_report_requests').update({ status: 'failed', failure_stage: 'brevo', error_code: result.errorCode ?? null, updated_at: new Date().toISOString() }).eq('id', row.payload.reportRequestId);
+        if (!result.retryable || row.attempts >= row.max_attempts) {
+          const stage = result.errorCode?.includes('report') ? 'pdf_attachment' : 'brevo';
+          await markReportFailed(row, stage, result.errorCode ?? null);
+        }
         failed++;
         log('warn', 'email_failed', {
           template: row.template, id: row.id,
@@ -825,6 +838,7 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
         p_error_code: 'render_error',
         p_error_message: err instanceof Error ? err.message : String(err),
       });
+      if (row.attempts >= row.max_attempts) await markReportFailed(row, 'worker', 'render_error');
       failed++;
       log('error', 'email_error', { id: row.id, message: String(err) });
     }

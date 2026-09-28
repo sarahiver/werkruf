@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { AlertCircle, CheckCircle, FileText, Loader } from 'lucide-react';
 import PlacesSearch from './PlacesSearch';
@@ -20,23 +20,48 @@ const Selected=styled.div`padding:14px;background:#f4f6f8;border-radius:6px;colo
 const LinkButton=styled.button`border:0;background:none;color:var(--color-accent);text-decoration:underline;cursor:pointer`;
 const Note=styled.p`font-size:.78rem;color:#66717e;line-height:1.5;margin-top:12px`;
 const Message=styled.div`padding:20px;text-align:center;color:var(--color-primary);svg{margin-bottom:10px}`;
+const Captcha=styled.div`min-height:65px;margin-top:18px`;
+
+const TURNSTILE_SCRIPT_ID='werkruf-turnstile-script';
+function loadTurnstile() {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  return new Promise((resolve,reject)=>{
+    let script=document.getElementById(TURNSTILE_SCRIPT_ID);
+    const ready=()=>window.turnstile?resolve(window.turnstile):reject(new Error('turnstile_unavailable'));
+    if(script){script.addEventListener('load',ready,{once:true});script.addEventListener('error',reject,{once:true});return;}
+    script=document.createElement('script');script.id=TURNSTILE_SCRIPT_ID;script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;script.defer=true;
+    script.addEventListener('load',ready,{once:true});script.addEventListener('error',reject,{once:true});document.head.appendChild(script);
+  });
+}
 
 export default function LeadForm({ result, onPlaceSelect, onNoResults, onReset, searchResetKey=0 }) {
   const { key: industryKey }=useIndustry();
   const [email,setEmail]=useState(''); const [error,setError]=useState(''); const [status,setStatus]=useState('idle');
+  const [captchaToken,setCaptchaToken]=useState(''); const [captchaReady,setCaptchaReady]=useState(false);
+  const captchaElement=useRef(null); const widgetId=useRef(null);
   const selected=result?.dataSource!=='manual'&&result?.placeId?result:null;
+  const resetCaptcha=()=>{setCaptchaToken('');setCaptchaReady(false);if(window.turnstile&&widgetId.current!==null)window.turnstile.reset(widgetId.current);};
+  useEffect(()=>{
+    let active=true; const sitekey=process.env.REACT_APP_TURNSTILE_SITE_KEY;
+    if(!sitekey){setError('Der Sicherheitscheck ist nicht konfiguriert. Bitte versuche es später erneut.');return undefined;}
+    loadTurnstile().then(turnstile=>{if(!active||!captchaElement.current)return;widgetId.current=turnstile.render(captchaElement.current,{sitekey,callback:token=>{setCaptchaToken(token);setCaptchaReady(true);setError('');},'expired-callback':()=>{setCaptchaToken('');setCaptchaReady(false);setError('Der Sicherheitscheck ist abgelaufen. Bitte bestätige ihn erneut.');},'error-callback':()=>{setCaptchaToken('');setCaptchaReady(false);setError('Der Sicherheitscheck konnte nicht geladen werden. Bitte lade die Seite neu.');}});}).catch(()=>active&&setError('Der Sicherheitscheck konnte nicht geladen werden. Bitte lade die Seite neu.'));
+    return()=>{active=false;if(window.turnstile&&widgetId.current!==null)window.turnstile.remove(widgetId.current);widgetId.current=null;};
+  },[]);
   const submit=async()=>{
     if(!selected){setError('Bitte wähle einen Betrieb aus der Google-Vorschlagsliste.');return;}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError('Bitte gib eine gültige E-Mail-Adresse ein.');return;}
+    if(!captchaToken){setError('Bitte bestätige zuerst den Sicherheitscheck.');return;}
     setStatus('loading');setError('');
-    const {data,error:invokeError}=await supabase.functions.invoke('request-profile-report',{body:{email:email.trim(),placeId:selected.placeId,industryKey}});
-    if(invokeError||!data?.requestId){setStatus('error');setError(data?.error==='legal_gate_closed'?'Der PDF-Versand ist noch nicht rechtlich freigegeben. Bitte versuche es später erneut.':'Die Anfrage konnte nicht angenommen werden. Bitte versuche es erneut.');return;}
+    const {data,error:invokeError}=await supabase.functions.invoke('request-profile-report',{body:{email:email.trim(),placeId:selected.placeId,industryKey,captchaToken}});
+    let code=data?.error;
+    if(invokeError?.context instanceof Response){try{code=(await invokeError.context.clone().json()).error||code;}catch(_){/* response without JSON */}}
+    if(invokeError||!data?.requestId){setStatus('error');resetCaptcha();const messages={legal_gate_closed:'Der PDF-Versand ist noch nicht rechtlich freigegeben. Bitte versuche es später erneut.',captcha_required:'Der Sicherheitscheck war ungültig oder abgelaufen. Bitte bestätige ihn erneut.',rate_limited:'Zu viele Anfragen. Bitte versuche es später erneut.',previous_request_failed:'Die vorherige Berichtsanforderung ist fehlgeschlagen und wird nicht als erfolgreich bestätigt. Bitte kontaktiere uns oder versuche es morgen erneut.'};setError(messages[code]||'Die Anfrage konnte nicht angenommen werden. Bitte versuche es erneut.');return;}
     savePublicFunnel({email,result:selected,reportRequestId:data.requestId}); setStatus('success');
   };
   return <Section id="form"><Inner><div><Copy>Kostenloser Bericht</Copy><H2>Dein kostenloser <Accent>Google-Profil-Bericht</Accent></H2><Copy>Nur die im öffentlichen Check tatsächlich verfügbaren Angaben werden ausgewertet. Kein Ranking, keine behauptete Sichtbarkeitsmessung.</Copy><Steps><li>Betrieb auswählen</li><li>Profil-Check prüfen</li><li>PDF-Bericht per E-Mail erhalten</li></Steps></div><Card>
     {status==='success'?<Message role="status"><CheckCircle size={46} color="#1e7e34"/><h3>Anfrage angenommen</h3><p>Dein Bericht wurde zuverlässig gespeichert und zur Erstellung und Zustellung an <strong>{email}</strong> angenommen. Die E-Mail ist damit noch nicht als zugestellt bestätigt.</p><p><a href="/signup">Vollständigen Health Score per Google-Business-Verbindung freischalten</a></p></Message>:<>
       <h3>PDF-Bericht anfordern</h3>{selected?<Selected><span><strong>{selected.name}</strong><br/><small>Aus dem öffentlichen Profil-Check übernommen</small></span><LinkButton type="button" onClick={()=>{onReset();setStatus('idle')}}>Betrieb ändern</LinkButton></Selected>:<><Label>Betrieb *</Label><PlacesSearch onSelect={onPlaceSelect} onNoResults={onNoResults} resetKey={searchResetKey}/>{result?.dataSource==='manual'&&<Note><AlertCircle size={14}/> Für eine manuelle Eingabe erzeugen wir keinen Bericht mit fingierten Google-Daten. Wähle einen bestätigten Vorschlag oder verbinde dein verwaltetes Profil nach der Registrierung.</Note>}</>}
-      <Label htmlFor="report-email">E-Mail-Adresse *</Label><Input id="report-email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setError('')}} $error={!!error}/>{error&&<Note role="alert">{error}</Note>}
-      <Button onClick={submit} disabled={status==='loading'}>{status==='loading'?<><Loader size={18}/>Anfrage wird angenommen…</>:<><FileText size={18}/>Kostenlosen PDF-Bericht anfordern</>}</Button><Note>Transaktionsmail zur angeforderten Leistung. Keine Newsletter-Anmeldung und keine Marketing-Einwilligung.</Note>
+      <Label htmlFor="report-email">E-Mail-Adresse *</Label><Input id="report-email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setError('')}} $error={!!error}/><Captcha ref={captchaElement} aria-label="Sicherheitscheck"/>{error&&<Note role="alert">{error}</Note>}
+      <Button onClick={submit} disabled={status==='loading'||!captchaReady}>{status==='loading'?<><Loader size={18}/>Anfrage wird angenommen…</>:<><FileText size={18}/>Kostenlosen PDF-Bericht anfordern</>}</Button><Note>Transaktionsmail zur angeforderten Leistung. Keine Newsletter-Anmeldung und keine Marketing-Einwilligung.</Note>
     </>}</Card></Inner></Section>;
 }
