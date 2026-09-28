@@ -31,7 +31,12 @@ describe('MVP email delivery', () => {
   it('rejects missing recipients before Brevo and keeps failed sends observable', () => {
     expect(baseline).toMatch(/p_to_email is null or p_to_email !~/i);
     expect(sender).toContain("message: 'Kein E-Mail-Adresse in der Session.'");
-    expect(sender).toContain("errorCode: 'network_error'");
+    /* Regex statt toContain: Die Zuweisung ist nicht mehr fest, seit
+       sendViaBrevo Report-Fehler (report_*, invalid_report_*) mit
+       eigenem Code durchreicht und nur sonst auf 'network_error'
+       zurueckfaellt. Geprueft wird die Zuordnung, nicht ihre
+       Schreibweise. */
+    expect(sender).toMatch(/errorCode:[^\n]*'network_error'/);
     expect(sender).toMatch(/p_error_code: result\.errorCode/);
     expect(baseline).toMatch(/status = 'failed', error_code = p_error_code/);
   });
