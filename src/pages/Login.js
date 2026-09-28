@@ -4,6 +4,7 @@ import styled, { keyframes } from 'styled-components';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
+import { getPostAuthDestination } from '../utils/postAuthDestination';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -147,7 +148,13 @@ export default function Login() {
   const [fieldErr, setFieldErr] = useState({});
 
   useEffect(() => {
-    if (isAuthenticated && !recoveryMode) navigate(from, { replace: true });
+    let cancelled = false;
+    if (isAuthenticated && !recoveryMode) {
+      getPostAuthDestination(from).then((target) => {
+        if (!cancelled) navigate(target, { replace: true });
+      });
+    }
+    return () => { cancelled = true; };
   }, [isAuthenticated, recoveryMode, navigate, from]);
 
   const validate = () => {

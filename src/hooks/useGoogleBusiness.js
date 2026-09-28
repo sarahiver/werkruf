@@ -30,6 +30,9 @@ import supabase from '../supabaseClient';
 ───────────────────────────────────────────── */
 
 const FUNCTION_BASE = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business`;
+// React StrictMode remounts effects in development. Keep one redemption per
+// callback token at module scope; the token itself never leaves memory/logs.
+const confirmationRequests = new Map();
 
 /* Fehlercodes → Texte. Alles, was hier nicht steht, bekommt die
    generische Meldung — damit interne Codes nicht im Dashboard landen. */
@@ -42,6 +45,7 @@ const ERROR_MESSAGES = {
     'Google hat keinen dauerhaften Zugriff erteilt. Bitte noch einmal verbinden und die Freigabe bestätigen.',
   state_expired: 'Der Vorgang hat zu lange gedauert. Bitte noch einmal starten.',
   invalid_state: 'Die Verbindung konnte nicht bestätigt werden. Bitte noch einmal starten.',
+  confirmation_expired: 'Die Bestätigung ist abgelaufen. Bitte verbinde das Google-Konto erneut.',
   reauth_required: 'Die Verbindung zu Google ist abgelaufen. Bitte neu verbinden.',
   not_connected: 'Es ist noch kein Google-Konto verbunden.',
   rate_limited: 'Google drosselt gerade die Anfragen. Bitte in ein paar Minuten erneut versuchen.',
@@ -89,7 +93,10 @@ export function useGoogleBusiness() {
   const [searchParams, setSearchParams] = useSearchParams();
   const mountedRef = useRef(true);
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   /* ── Status laden ── */
   const loadStatus = useCallback(async () => {
@@ -109,16 +116,61 @@ export function useGoogleBusiness() {
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
   /* ── Rückkehr vom Callback auswerten ──
-     Der Callback redirectet auf …/dashboard?gbp=connected|error.
+     Der Callback redirectet auf …/dashboard?gbp=confirm|error.
      Parameter danach sofort aus der URL räumen, damit ein Reload nicht
      dieselbe Meldung erneut zeigt. */
   useEffect(() => {
     const result = searchParams.get('gbp');
     if (!result) return;
 
-    if (result === 'connected') {
-      const email = searchParams.get('gbp_email');
-      setNotice(email ? `Google-Konto ${email} verbunden.` : 'Google-Konto verbunden.');
+    const clearCallbackParams = () => {
+      const next = new URLSearchParams(searchParams);
+      ['gbp', 'gbp_code', 'gbp_email', 'gbp_token'].forEach((key) => next.delete(key));
+      setSearchParams(next, { replace: true });
+    };
+
+    if (result === 'confirm') {
+      const token = searchParams.get('gbp_token');
+      if (!token) {
+        setError(messageForCode('invalid_state'));
+        clearCallbackParams();
+        return;
+      }
+      // The one-time token is deliberately never logged. callFunction obtains
+      // the restored Supabase session and the server binds it to auth.uid().
+      setBusy(true);
+      let confirmationRequest = confirmationRequests.get(token);
+      if (!confirmationRequest) {
+        confirmationRequest = callFunction('connect/confirm', { method: 'POST', body: { token } });
+        confirmationRequests.set(token, confirmationRequest);
+      }
+      confirmationRequest.then(async () => {
+          if (!mountedRef.current) return;
+          // OAuth authorises a Google account, not one particular business.
+          // Import the locations managed by that account; the dashboard then
+          // lets the user choose exclusively from this authorised set.
+          const importStarted = await callFunction('sync/trigger', { method: 'POST', body: {} })
+            .then(() => true).catch(() => false);
+          setNotice(importStarted
+            ? 'Google-Konto verbunden. Deine verwaltbaren Betriebe werden geladen.'
+            : 'Google-Konto verbunden. Starte das Laden deiner Betriebe bitte erneut.');
+          setError(null);
+          await loadStatus();
+        })
+        .catch((err) => {
+          if (mountedRef.current) setError(messageForCode(err.code));
+        })
+        .finally(() => {
+          if (confirmationRequests.get(token) === confirmationRequest) {
+            confirmationRequests.delete(token);
+          }
+          clearCallbackParams();
+          if (mountedRef.current) setBusy(false);
+        });
+      return;
+    } else if (result === 'connected') {
+      // Backwards compatibility for callbacks already in flight during rollout.
+      setNotice('Google-Konto verbunden.');
       setError(null);
       loadStatus();
     } else if (result === 'error') {
@@ -126,9 +178,7 @@ export function useGoogleBusiness() {
       setNotice(null);
     }
 
-    const next = new URLSearchParams(searchParams);
-    ['gbp', 'gbp_code', 'gbp_email'].forEach((key) => next.delete(key));
-    setSearchParams(next, { replace: true });
+    clearCallbackParams();
   }, [searchParams, setSearchParams, loadStatus]);
 
   /* ── Verbinden / neu verbinden ──

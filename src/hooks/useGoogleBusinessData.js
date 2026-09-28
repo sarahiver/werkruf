@@ -37,7 +37,10 @@ export function useGoogleBusinessData() {
   const [error, setError]         = useState(null);
 
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -45,16 +48,28 @@ export function useGoogleBusinessData() {
     try {
       /* Alles parallel. Die Abfragen hängen nicht voneinander ab, und
          seriell wären es vier Roundtrips statt einem. */
+      let locationsQuery = await supabase
+        .from('google_locations')
+        .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary, selected_at, created_at, google_profile, google_updated, google_diff_mask')
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true });
+
+      // Rolling deployments can briefly run before optional profile columns
+      // exist. Keep the authorised location picker usable instead of failing
+      // the whole dashboard with a PostgREST 400.
+      if (locationsQuery.error?.code === '42703' || locationsQuery.error?.code === 'PGRST204') {
+        locationsQuery = await supabase
+          .from('google_locations')
+          .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary, created_at')
+          .order('is_primary', { ascending: false })
+          .order('created_at', { ascending: true });
+      }
+
       const [
         locationsResult, reviewsResult, jobsResult, repliesResult,
         newestResult, photoResult,
       ] = await Promise.all([
-        supabase
-          .from('google_locations')
-          .select('id, title, locality, primary_phone, website_uri, primary_category, place_id, review_count, average_rating, last_synced_at, is_primary, created_at, google_profile, google_updated, google_diff_mask')
-          .order('is_primary', { ascending: false })
-          // Gleiche Standortwahl wie compute_health_score().
-          .order('created_at', { ascending: true }),
+        Promise.resolve(locationsQuery),
 
         /* Nur die Felder, die in die Kennzahlen eingehen. Ein
            select('*') würde bei tausenden Bewertungen den ganzen
@@ -179,6 +194,19 @@ export function useGoogleBusinessData() {
     return payload;
   }, [load]);
 
+  const selectLocation = useCallback(async (locationId) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Keine aktive Session');
+    const response = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/location/select`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationId }),
+    });
+    if (!response.ok) throw new Error('Der Betrieb konnte nicht ausgewählt werden.');
+    await triggerSync(locationId).catch(() => null);
+    await load();
+  }, [load, triggerSync]);
+
   /* Zuletzt erfolgreich synchronisiert — über alle Standorte der
      ÄLTESTE Zeitpunkt, nicht der neueste. Sonst sähe alles frisch aus,
      solange ein einziger Standort läuft. */
@@ -198,7 +226,7 @@ export function useGoogleBusinessData() {
     lastSyncedAt, runningJob, lastFailedJob,
     loading, error,
     reload: load,
-    triggerSync, updateLocation,
+    triggerSync, updateLocation, selectLocation,
   };
 }
 

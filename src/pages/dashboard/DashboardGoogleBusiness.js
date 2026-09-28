@@ -9,7 +9,6 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
-import BusinessLinkCard from '../../components/dashboard/BusinessLinkCard';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -131,15 +130,32 @@ const FooterLink = styled(Link)`
 
 export default function DashboardGoogleBusiness() {
   const { brand } = useIndustry();
-  const { isConnected, loading: connectionLoading } = useGoogleBusiness();
+  const googleBusiness = useGoogleBusiness();
+  const { isConnected, loading: connectionLoading } = googleBusiness;
   const {
     locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
-    loading, error, reload, triggerSync, updateLocation,
+    loading, error, reload, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData();
 
   const [syncing, setSyncing] = React.useState(false);
 
   const [syncError, setSyncError] = React.useState(null);
+  const initialSyncRef = React.useRef(false);
+
+  /* Google OAuth grants an account. The actual businesses are fetched only
+     afterwards. Start that import automatically and poll while it is queued so
+     a freshly connected user does not have to discover the sync button. */
+  React.useEffect(() => {
+    if (!isConnected || connectionLoading || loading || locations.length > 0 || initialSyncRef.current) return;
+    initialSyncRef.current = true;
+    triggerSync(null).catch(() => setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
+  }, [isConnected, connectionLoading, loading, locations.length, triggerSync]);
+
+  React.useEffect(() => {
+    if (!isConnected || locations.length > 0) return undefined;
+    const timer = window.setInterval(reload, 2500);
+    return () => window.clearInterval(timer);
+  }, [isConnected, locations.length, reload]);
 
   /* Standortauswahl.
      'all' fasst zusammen — richtig bei mehreren Filialen desselben
@@ -173,6 +189,19 @@ export default function DashboardGoogleBusiness() {
     }
   };
 
+  const handleSelectLocation = async (locationId) => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      await selectLocation(locationId);
+      setSelectedLocation(locationId);
+    } catch (err) {
+      setSyncError(err.message || 'Der Betrieb konnte nicht ausgewählt werden.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   /* Ohne Verbindung gibt es nichts anzuzeigen — dann nur die Karte. */
   if (!connectionLoading && !isConnected) {
     return (
@@ -182,15 +211,7 @@ export default function DashboardGoogleBusiness() {
           Verbinde dein Profil, damit {brand.name} Bewertungen, Standortdaten
           und Sichtbarkeit auswerten kann.
         </PageSub>
-        <GoogleBusinessConnect />
-
-      {/* Betriebs-Verknüpfung über Google Places.
-          Lag früher auf der Startseite und hat sie überladen. Setzt
-          user_profiles.google_place_id und speist den Sichtbarkeits-
-          Score — etwas anderes als die OAuth-Verbindung darüber, die
-          Schreibzugriff erlaubt. Beides kann unabhängig bestehen,
-          deshalb stehen beide Karten nebeneinander. */}
-      <BusinessLinkCard />
+        <GoogleBusinessConnect googleBusiness={googleBusiness} />
 
       {/* Standortauswahl — erst ab zwei Standorten sinnvoll */}
       {locations.length > 1 && (
@@ -243,7 +264,28 @@ export default function DashboardGoogleBusiness() {
       <PageTitle>Google Business Profil</PageTitle>
       <PageSub>Standorte, Bewertungen und Antworten auf einen Blick.</PageSub>
 
-      <GoogleBusinessConnect />
+      <GoogleBusinessConnect googleBusiness={googleBusiness} />
+
+      {!loading && locations.length > 0 && !locations.some((location) => location.selected_at) && (
+        <Card>
+          <SectionTitle>Verwalteten Betrieb auswählen</SectionTitle>
+          <PageSub>
+            Google hat diese Betriebe für dein autorisiertes Konto zurückgegeben.
+            Wähle den Betrieb, den du mit WERKRUF verwalten möchtest.
+          </PageSub>
+          <LocationGrid>
+            {locations.map((location) => (
+              <LocationCard key={location.id}>
+                <LocationName>{location.title || 'Betrieb ohne Namen'}</LocationName>
+                <LocationMeta><MapPin size={13}/>{location.locality || 'Ort nicht angegeben'}</LocationMeta>
+                <GhostBtn onClick={() => handleSelectLocation(location.id)} disabled={syncing}>
+                  {syncing ? <Spinner size={14}/> : <>Diesen Betrieb auswählen <ArrowRight size={14}/></>}
+                </GhostBtn>
+              </LocationCard>
+            ))}
+          </LocationGrid>
+        </Card>
+      )}
 
       {error ? (
         <ErrorState message={error} onRetry={reload} busy={loading} />
