@@ -170,7 +170,7 @@ export default function DashboardGoogleBusiness() {
   const {
     locations, stats, replyCounts, lastSyncedAt, latestJob, runningJob, lastFailedJob,
     failedJobHistory, stalledJobs, loading, refreshing, error,
-    reload, refresh, triggerSync, updateLocation, selectLocation,
+    reload, refresh, triggerSync, refreshJobStatus, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
@@ -241,14 +241,32 @@ export default function DashboardGoogleBusiness() {
     let abgelaufen = false;
     let polls = 0;
 
-    const timer = window.setInterval(() => {
+    const timer = window.setInterval(async () => {
       if (abgelaufen) return;
       polls += 1;
-      refresh();
-      if (polls >= POLL_MAX) {
+
+      /* Die Obergrenze wird VOR dem Warten geprueft. Stuende sie
+         dahinter, wuerde eine haengende Abfrage das Intervall
+         unbegrenzt weiterlaufen lassen — der Zaehler kaeme nie an. */
+      if (polls > POLL_MAX) {
         abgelaufen = true;
         window.clearInterval(timer);
         setDelayedJobId(jobId);
+        return;
+      }
+
+      /* Waehrend der Job laeuft, wird NUR sein Status abgefragt — eine
+         Zeile statt fuenf Abfragen ueber Standorte, Bewertungen, Jobs,
+         Antworten und die neueste Rezension. */
+      const job = await refreshJobStatus(jobId);
+      if (abgelaufen) return;
+
+      /* Erst nach dem Abschluss die vollstaendigen Unternehmensdaten —
+         genau einmal, still im Hintergrund. */
+      if (job && job.status !== 'queued' && job.status !== 'running') {
+        abgelaufen = true;
+        window.clearInterval(timer);
+        refresh();
       }
     }, POLL_INTERVAL_MS);
 
@@ -256,7 +274,7 @@ export default function DashboardGoogleBusiness() {
       abgelaufen = true;
       window.clearInterval(timer);
     };
-  }, [runningJob?.id, refresh]);
+  }, [runningJob?.id, refreshJobStatus, refresh]);
 
   /* Der Verzoegerungshinweis gilt nur fuer den Job, der ihn ausgeloest
      hat. Sobald ein anderer Job laeuft oder keiner mehr offen ist,

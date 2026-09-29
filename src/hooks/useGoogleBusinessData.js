@@ -219,6 +219,34 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     return response.json();
   }, []);
 
+  /* ── Nur den Status EINES Jobs nachladen ──
+     Waehrend eines laufenden Abgleichs braucht die Seite nicht alle
+     Unternehmensdaten, sondern nur die Frage "ist er fertig?". Vorher
+     lud jeder Polling-Durchlauf Standorte, Bewertungen, Jobs, Antworten
+     und die neueste Rezension — fuenf Abfragen alle drei Sekunden.
+
+     Gibt den Job zurueck, damit der Aufrufer selbst entscheiden kann,
+     wann der vollstaendige Abruf faellig ist. */
+  const refreshJobStatus = useCallback(async (jobId) => {
+    if (!jobId) return null;
+    const { data, error: abfrageFehler } = await supabase
+      .from('sync_jobs')
+      .select('id, status, attempts, max_attempts, error_code, error_message, job_type, location_id, created_at, finished_at')
+      .eq('id', jobId)
+      .limit(1);
+
+    if (abfrageFehler) {
+      console.error('[useGoogleBusinessData] refreshJobStatus', { code: abfrageFehler.code });
+      return null;
+    }
+
+    const job = data?.[0] ?? null;
+    if (job && mountedRef.current) {
+      setSyncJobs((vorher) => vorher.map((j) => (j.id === job.id ? { ...j, ...job } : j)));
+    }
+    return job;
+  }, []);
+
   const updateLocation = useCallback(async (locationId, changes) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Keine aktive Session');
@@ -260,30 +288,16 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       );
     }
 
-    /* Der Bewertungs-Sync gilt genau diesem Betrieb — kein
-       Standortimport über alle Unternehmen.
-
-       Der Fehler wird NICHT mehr verschluckt: Vorher stand hier
-       .catch(() => null), und ein abgelehntes Einreihen blieb
-       unsichtbar. Die Auswahl selbst ist zu diesem Zeitpunkt bereits
-       serverseitig gespeichert, deshalb wird sie nicht zurückgerollt —
-       der Aufrufer erfährt aber, dass der Abgleich nicht angelaufen
-       ist. */
-    let syncError = null;
-    try {
-      await triggerSync(locationId);
-    } catch (err) {
-      syncError = err;
-    }
-
+    /* KEIN automatischer Google-Abgleich mehr.
+       Ein Betriebswechsel zeigt vorhandene Daten — Kennzahlen,
+       Bewertungen, Aufgaben und den letzten Sync-Status liegen bereits
+       in der Datenbank. Der frueher hier angestossene triggerSync
+       erzeugte bei jedem Hin- und Herwechseln einen neuen Job, kostete
+       Google-Quota und liess das Dashboard in ein Polling laufen, fuer
+       das es keinen Anlass gab. "Jetzt abgleichen" bleibt als eigene
+       Aktion bestehen. */
     await load();
-    if (syncError) {
-      throw Object.assign(
-        new Error('Der Betrieb wurde ausgewählt, der Abgleich konnte aber nicht gestartet werden.'),
-        { selectionPersisted: true, cause: syncError },
-      );
-    }
-  }, [load, triggerSync]);
+  }, [load]);
 
   /* Zuletzt erfolgreich synchronisiert.
 
@@ -350,7 +364,7 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     loading, refreshing, error,
     reload: load,
     refresh,
-    triggerSync, updateLocation, selectLocation,
+    triggerSync, refreshJobStatus, updateLocation, selectLocation,
   };
 }
 

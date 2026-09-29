@@ -117,9 +117,32 @@ describe('Betriebswechsel', () => {
 });
 
 describe('Betriebsspezifische Synchronisierung', () => {
-  it('reiht nach dem Wechsel genau einen Sync fuer diesen Betrieb ein', async () => {
+  /* Seit dem 29.09.: Ein Betriebswechsel loest KEINEN Google-Abgleich
+     mehr aus. Die Daten des gewaehlten Betriebs liegen bereits vor. */
+  it('startet beim Wechsel ueberhaupt keinen Sync', async () => {
     const { result } = await laden();
     await act(async () => { await result.current.selectLocation(SI); });
+
+    const syncAufrufe = global.fetch.mock.calls
+      .filter(([url]) => url.endsWith('/sync/trigger'));
+
+    expect(syncAufrufe).toHaveLength(0);
+  });
+
+  it('laedt beim Wechsel nur die vorhandenen Daten nach', async () => {
+    state.rows.google_reviews = [
+      { id: 'r1', location_id: SI, star_rating: 5, is_answered: true, status: 'active' },
+    ];
+    const { result } = await laden();
+    await act(async () => { await result.current.selectLocation(SI); });
+
+    expect(result.current.stats.totalReviews).toBe(1);
+    expect(global.fetch.mock.calls.filter(([u]) => u.endsWith('/sync/trigger'))).toHaveLength(0);
+  });
+
+  it('laesst "Jetzt abgleichen" als eigene Aktion unberuehrt', async () => {
+    const { result } = await laden();
+    await act(async () => { await result.current.triggerSync(SI); });
 
     const syncAufrufe = global.fetch.mock.calls
       .filter(([url]) => url.endsWith('/sync/trigger'))
@@ -127,46 +150,6 @@ describe('Betriebsspezifische Synchronisierung', () => {
 
     expect(syncAufrufe).toHaveLength(1);
     expect(syncAufrufe[0].locationId).toBe(SI);
-  });
-
-  it('startet keinen Standortimport ueber alle Betriebe', async () => {
-    const { result } = await laden();
-    await act(async () => { await result.current.selectLocation(SI); });
-
-    const syncAufrufe = global.fetch.mock.calls
-      .filter(([url]) => url.endsWith('/sync/trigger'))
-      .map(([, optionen]) => JSON.parse(optionen.body));
-
-    // Ein Aufruf ohne locationId waere der vollstaendige Standortimport.
-    expect(syncAufrufe.every((k) => Boolean(k.locationId))).toBe(true);
-  });
-
-  it('verschluckt einen fehlgeschlagenen Sync-Start nicht', async () => {
-    const { result } = await laden();
-    global.fetch = jest.fn((url) => Promise.resolve(
-      url.endsWith('/sync/trigger')
-        ? { ok: false, json: () => Promise.resolve({}) }
-        : { ok: true, json: () => Promise.resolve({}) },
-    ));
-
-    await expect(
-      act(async () => { await result.current.selectLocation(SI); }),
-    ).rejects.toThrow(/Abgleich konnte aber nicht gestartet werden/i);
-  });
-
-  it('haelt die Auswahl fest, wenn nur der Abgleich scheitert', async () => {
-    const { result } = await laden();
-    global.fetch = jest.fn((url) => Promise.resolve(
-      url.endsWith('/sync/trigger')
-        ? { ok: false, json: () => Promise.resolve({}) }
-        : { ok: true, json: () => Promise.resolve({}) },
-    ));
-
-    let fehler = null;
-    await act(async () => {
-      try { await result.current.selectLocation(SI); } catch (e) { fehler = e; }
-    });
-    expect(fehler?.selectionPersisted).toBe(true);
   });
 });
 
@@ -409,5 +392,41 @@ describe('Laufender Abgleich (Regression 29.09.)', () => {
 
     await act(async () => { await result.current.selectLocation(WERKRUF); });
     await waitFor(() => expect(result.current.runningJob?.id).toBe('wr-job'));
+  });
+});
+
+describe('Leichte Statusabfrage (Regression 29.09.)', () => {
+  it('fragt nur den einen Job ab und aktualisiert ihn', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: WERKRUF });
+    state.rows.sync_jobs = jobs([
+      { id: 'j1', location_id: WERKRUF, status: 'running', created_at: '2026-09-29T10:00:00Z' },
+    ]);
+    const { result } = await laden();
+    expect(result.current.runningJob?.id).toBe('j1');
+
+    // Der Job wird im Hintergrund fertig.
+    state.rows.sync_jobs = jobs([
+      { id: 'j1', location_id: WERKRUF, status: 'succeeded', created_at: '2026-09-29T10:00:00Z' },
+    ]);
+
+    let zurueck = null;
+    await act(async () => { zurueck = await result.current.refreshJobStatus('j1'); });
+
+    expect(zurueck.status).toBe('succeeded');
+    expect(result.current.runningJob).toBeNull();
+  });
+
+  it('kommt mit einer unbekannten Job-Kennung zurecht', async () => {
+    const { result } = await laden();
+    let zurueck = 'nicht gesetzt';
+    await act(async () => { zurueck = await result.current.refreshJobStatus('gibt-es-nicht'); });
+    expect(zurueck).toBeNull();
+  });
+
+  it('fragt ohne Job-Kennung gar nicht erst ab', async () => {
+    const { result } = await laden();
+    let zurueck = 'nicht gesetzt';
+    await act(async () => { zurueck = await result.current.refreshJobStatus(null); });
+    expect(zurueck).toBeNull();
   });
 });
