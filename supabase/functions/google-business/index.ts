@@ -400,7 +400,14 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function fromBase64Url(value: string): Uint8Array {
+/* Keine Rueckgabeangabe: Ein blankes "Uint8Array" bedeutet in neueren
+   TypeScript-Fassungen Uint8Array<ArrayBufferLike>, und das laesst
+   auch einen SharedArrayBuffer zu — womit der Wert nicht mehr als
+   BufferSource taugt (TS2322 in der Deno-Pruefung).
+
+   Die Ableitung trifft es genauer: new Uint8Array(laenge) traegt
+   garantiert einen gewoehnlichen ArrayBuffer. */
+function fromBase64Url(value: string) {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/');
   const binary = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, '='));
   const bytes = new Uint8Array(binary.length);
@@ -408,7 +415,7 @@ function fromBase64Url(value: string): Uint8Array {
   return bytes;
 }
 
-function fromBase64(value: string): Uint8Array {
+function fromBase64(value: string) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -416,7 +423,7 @@ function fromBase64(value: string): Uint8Array {
 }
 
 /** Base64-Dekodierung mit verständlicher Meldung statt roher atob-Ausnahme. */
-function decodeKeyMaterial(encoded: string, keyId: string): Uint8Array {
+function decodeKeyMaterial(encoded: string, keyId: string) {
   try {
     return fromBase64(encoded);
   } catch (cause) {
@@ -462,7 +469,8 @@ async function importKey(keyId: string): Promise<CryptoKey> {
     throw new GbpError('config_error', `Schlüssel ${keyId} ist ${rawKey.length} Byte, AES-256 braucht 32`);
   }
 
-  const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  const key = await crypto.subtle.importKey(
+    'raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
   keyCache.set(keyId, key);
   return key;
 }
