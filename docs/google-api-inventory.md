@@ -29,21 +29,46 @@ Monitoring-Function.
 
 ## Geprüfte Quellen
 
-| API | Discovery abrufbar | Revision | geprüft |
-|---|---|---|---|
-| My Business Business Information v1 | **ja**, HTTP 200 | `20260927` | 29.09.2026 |
-| My Business Account Management v1 | **ja**, HTTP 200 | `20260927` | 29.09.2026 |
-| Google My Business v4 | ungeprüft | — | — |
-| Place Actions v1 | ungeprüft | — | — |
-| Notifications v1 | ungeprüft | — | — |
-| Business Profile Performance v1 | ungeprüft | — | — |
-| Verifications v1 | ungeprüft | — | — |
-| Lodging v1 | ungeprüft | — | — |
+Ergebnis des Workflow-Laufs vom 29.09.2026, 11:06 UTC:
 
-Beide geprüften sind unauthentifiziert erreichbar und liefern gültiges
+| API | Spezifikation abrufbar | Revision | Methoden | Felder |
+|---|---|---|---|---|
+| My Business Business Information v1 | ja | `20260928` | 15 | 155 |
+| My Business Account Management v1 | ja | `20260928` | 16 | 43 |
+| My Business Place Actions v1 | ja | `20260928` | 6 | 14 |
+| My Business Notifications v1 | ja | `20260928` | 2 | 3 |
+| Business Profile Performance v1 | ja | `20260928` | 3 | 24 |
+| My Business Verifications v1 | ja | `20260928` | 6 | 56 |
+| My Business Lodging v1 | ja | `20260928` | 3 | 591 |
+| **Google My Business v4** | **nein**, HTTP 404 | — | — | — |
+
+Sieben der acht sind unauthentifiziert erreichbar und liefern gültiges
 JSON mit `revision`-Feld. **Dieses Feld ist der billigste
 Änderungsfilter für das Monitoring** — ändert es sich nicht, hat sich am
 Dokument nichts geändert.
+
+### Sonderfall Google My Business v4
+
+Der von Google dokumentierte Endpunkt
+`https://mybusiness.googleapis.com/$discovery/rest?version=v4`
+antwortet mit **404**. Das ist kein neues Problem — es ist seit Jahren
+gemeldet, und die Dokumentationsseite nennt die URL trotzdem.
+
+Google veröffentlicht stattdessen eine **statische Beispieldatei**:
+`https://developers.google.com/static/my-business/samples/mybusiness_google_rest_v4p9.json`
+
+Sie ist abrufbar (geprüft 29.09.2026), hat aber zwei Einschränkungen:
+
+| | |
+|---|---|
+| `revision` | `"0"` — **kein Änderungssignal**. Der billige Vorabfilter entfällt für diese API |
+| Aktualität | Älter als die Referenzdokumentation. Es fehlen unter anderem Felder auf `accounts.locations.reviews` |
+
+**Wirkung auf Paket 3:** Für v4 reicht der Prüfsummenvergleich der
+statischen Datei nicht. Dort muss zusätzlich der offizielle Change Log
+herangezogen werden. Das ist ausgerechnet die API, über die WERKRUF
+Bewertungen, Antworten und Medien abwickelt — also die mit dem höchsten
+Änderungsrisiko für den Produktivbetrieb.
 
 ---
 
@@ -206,6 +231,35 @@ ist dagegen sinnvoll.
 
 ---
 
+## Welche APIs WERKRUF tatsächlich aufruft
+
+Geprüft durch Suche nach dem Dienst-Hostnamen in
+`supabase/functions/google-business/`:
+
+| Dienst | Im Code | Wofür |
+|---|---|---|
+| `mybusinessaccountmanagement.googleapis.com` | **ja** | Konten auflisten |
+| `mybusinessbusinessinformation.googleapis.com` | **ja** | Standorte, Profilfelder |
+| `mybusiness.googleapis.com` (v4) | **ja** | Bewertungen, Antworten, Medien |
+| `mybusinessplaceactions.googleapis.com` | nein | — |
+| `mybusinessnotifications.googleapis.com` | nein | — |
+| `businessprofileperformance.googleapis.com` | nein | — |
+| `mybusinessverifications.googleapis.com` | nein | — |
+| `mybusinesslodging.googleapis.com` | nein | — |
+
+**Korrektur einer früheren Berichtsfassung:** Der erste Lauf meldete für
+Place Actions „6 von 6 in WERKRUF". Das war falsch. Der Abgleich suchte
+nach Pfadteilen wie `locations`, `accounts` oder `get` — und die stehen
+in jedem Google-Code. Der Abgleich prüft jetzt zuerst, ob der
+Dienst-Hostname überhaupt im Quelltext vorkommt, und danach nur noch auf
+markante Bezeichner.
+
+Die Spalte heißt im Bericht deshalb **„vermutlich in WERKRUF"**. Sie
+bleibt eine Textsuche, keine Analyse. Belegt sind allein die drei Hosts
+oben.
+
+---
+
 ## Google-Cloud-Freigaben
 
 ### Zwei Dinge, die nicht dasselbe sind
@@ -244,7 +298,11 @@ Information API als auch für die Verifications API heißt es, sie müsse
 | Place Actions | `mybusinessplaceactions` | Terminbuchung, Bestell-Links | ungeprüft |
 | Notifications | `mybusinessnotifications` | Pub/Sub-Benachrichtigungen | ungeprüft |
 | Performance | `businessprofileperformance` | Kennzahlen, Suchbegriffe | ungeprüft |
-| Lodging | `mybusinesslodging` | nur Beherbergung — für WERKRUF nicht relevant | nicht nötig |
+| Lodging | `mybusinesslodging` | nur Beherbergung — für Handwerk nicht relevant | nicht nötig |
+
+Die ersten drei ruft WERKRUF heute auf (siehe Abschnitt oben). Die
+übrigen wären erst nötig, wenn die entsprechenden Dashboard-Bereiche
+gebaut werden.
 
 „Ungeprüft" heißt hier: Es liegt kein Nachweis vor. Nicht, dass die API
 deaktiviert wäre.
@@ -295,3 +353,7 @@ ohne Anmeldedaten und darf keine bekommen.
 | Schreibzugriff mit korrigierter Maske | **ungeprüft gegen Google** |
 | Bedeutung von `hasVoiceOfMerchant` | **aus der offiziellen Referenz belegt** |
 | Cloud-Aktivierung außer Account Management | **ungeprüft** — braucht Console oder Funktionstest |
+| Sieben Discovery-Dokumente abrufbar, Revision `20260928` | **im Workflow ausgeführt** |
+| v4-Discovery-Endpunkt liefert 404 | **im Workflow ausgeführt** |
+| Statische v4-Datei abrufbar, revision `0` | **gegen Google geprüft** |
+| Drei von acht Diensten im WERKRUF-Code | **im Quelltext geprüft** |

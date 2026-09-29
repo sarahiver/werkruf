@@ -54,7 +54,20 @@ export const QUELLEN = [
 
   { id: 'mybusiness-v4',
     titel: 'Google My Business API v4 (Bewertungen, Medien, Beitraege)',
-    url: 'https://mybusiness.googleapis.com/$discovery/rest?version=v4',
+    /* Der reguläre Discovery-Endpunkt
+       https://mybusiness.googleapis.com/$discovery/rest?version=v4
+       antwortet seit Jahren mit 404 — die Dokumentationsseite nennt ihn
+       trotzdem. Google veroeffentlicht stattdessen eine statische
+       Beispieldatei.
+
+       ACHTUNG: Sie traegt revision "0", liefert also KEIN
+       Aenderungssignal, und ist aelter als die Referenzdokumentation —
+       es fehlen unter anderem Felder auf accounts.locations.reviews.
+       Fuer das Monitoring taugt sie nur eingeschraenkt; dort muss der
+       Change Log ergaenzend geprueft werden. */
+    url: 'https://developers.google.com/static/my-business/samples/mybusiness_google_rest_v4p9.json',
+    ersatzFuer: 'https://mybusiness.googleapis.com/$discovery/rest?version=v4',
+    hinweis: 'statische Beispieldatei, revision 0, aelter als die Referenz',
     doku: 'https://developers.google.com/my-business/reference/rest',
     inWerkruf: true },
 
@@ -219,12 +232,54 @@ function ladeCode() {
     .join('\n');
 }
 
-/** Sucht nach dem markantesten Bestandteil des Methodenpfads. */
-export function verwendetInWerkruf(code, methodenName, def) {
+/*
+ * Bezeichner, die in jedem Google-Code vorkommen und deshalb nichts
+ * ueber die Nutzung einer bestimmten API aussagen. Ohne diese Liste
+ * meldete der Abgleich fuer Place Actions "6 von 6 in WERKRUF",
+ * obwohl der Code diese API nie aufruft — "locations", "accounts" und
+ * "get" stehen nun einmal ueberall.
+ */
+const NICHTSSAGEND = new Set([
+  'accounts', 'locations', 'get', 'list', 'create', 'patch', 'delete',
+  'update', 'search', 'batchGet', 'media', 'admins', 'attributes',
+  'categories', 'reviews', 'name', 'parent', 'v1', 'v4', 'v2',
+]);
+
+/**
+ * Verwendet WERKRUF diese Methode?
+ *
+ * Zwei Stufen, beide muessen zutreffen:
+ *
+ *   1. Der Dienst-Hostname der API kommt im Code ueberhaupt vor.
+ *      Ruft WERKRUF eine API nie auf, kann keine ihrer Methoden
+ *      verwendet sein — egal wie die Pfadteile heissen.
+ *   2. Ein MARKANTER Bezeichner der Methode kommt im Code vor.
+ *      Markant heisst: nicht in NICHTSSAGEND und laenger als fuenf
+ *      Zeichen.
+ *
+ * Bleibt eine Schaetzung, aber eine, die nicht mehr systematisch zu
+ * hoch liegt. Der Wert heisst deshalb "vermutlich" — belegen laesst
+ * sich die Nutzung nur durch Lesen des Codes.
+ */
+export function verwendetInWerkruf(code, methodenName, def, dienstHost) {
+  if (dienstHost && !code.includes(dienstHost)) return false;
+
   const letzterTeil = methodenName.split('.').pop();
-  const pfadTeile = (def.path ?? '').split('/').filter((t) => t && !t.startsWith('{') && t !== 'v1' && t !== 'v4');
-  const kandidaten = [...pfadTeile, letzterTeil].filter(Boolean);
-  return kandidaten.some((k) => code.includes(k));
+  const pfadTeile = (def.path ?? '')
+    .split(/[/:]/)
+    .filter((t) => t && !t.startsWith('{'));
+
+  const markant = [...pfadTeile, letzterTeil]
+    .filter((k) => k && k.length > 5 && !NICHTSSAGEND.has(k));
+
+  return markant.some((k) => code.includes(k));
+}
+
+/** Dienst-Hostname aus dem Discovery-Dokument. */
+export function dienstHostAus(discovery) {
+  try {
+    return new URL(discovery.rootUrl ?? discovery.baseUrl ?? '').host;
+  } catch { return null; }
 }
 
 /* ─────────────────────────────────────────────
@@ -248,13 +303,16 @@ async function main() {
     const norm = normalisiere(antwort.discovery);
     const summe = await pruefsumme(norm);
 
+    const host = dienstHostAus(antwort.discovery);
+    const hostImCode = host ? code.includes(host) : false;
+
     const methoden = Object.entries(norm.ressourcen).map(([name, def]) => ({
       name,
       httpMethod: def.httpMethod,
       path: def.path,
       deprecated: def.deprecated,
       schreibend: ['POST', 'PATCH', 'PUT', 'DELETE'].includes(def.httpMethod),
-      inWerkruf: verwendetInWerkruf(code, name, def),
+      vermutlichInWerkruf: verwendetInWerkruf(code, name, def, host),
     }));
 
     const felder = [];
@@ -273,6 +331,7 @@ async function main() {
     process.stderr.write(`ok  rev ${norm.revision}  ${methoden.length} Methoden, ${felder.length} Felder\n`);
     ergebnis.apis.push({
       ...quelle, erreichbar: true,
+      dienstHost: host, hostImCode,
       revision: norm.revision, pruefsumme: summe,
       methoden, felder, normalisiert: norm,
     });
@@ -325,7 +384,7 @@ function alsMarkdown(ergebnis) {
     '## Überblick',
     '',
     '',
-    '| API | Spezifikation abrufbar | Revision | Methoden | davon schreibend | in WERKRUF | Felder |',
+    '| API | Spezifikation abrufbar | Revision | Methoden | davon schreibend | vermutlich in WERKRUF | Felder |',
     '|---|---|---|---|---|---|---|',
   );
 
@@ -335,20 +394,25 @@ function alsMarkdown(ergebnis) {
       continue;
     }
     const schreibend = a.methoden.filter((m) => m.schreibend).length;
-    const genutzt = a.methoden.filter((m) => m.inWerkruf).length;
+    const genutzt = a.hostImCode
+      ? String(a.methoden.filter((m) => m.vermutlichInWerkruf).length)
+      : '**0** (Host nicht im Code)';
     zeilen.push(`| ${a.titel} | ja | ${a.revision} | ${a.methoden.length} | ${schreibend} | ${genutzt} | ${a.felder.length} |`);
   }
 
   for (const a of ergebnis.apis) {
     if (!a.erreichbar) continue;
     zeilen.push('', `## ${a.titel}`, '',
-      `Discovery: ${a.url}`, `Dokumentation: ${a.doku}`,
+      `Discovery: ${a.url}`,
+      ...(a.ersatzFuer ? [`Ersatz für: ${a.ersatzFuer} — ${a.hinweis}`] : []),
+      `Dokumentation: ${a.doku}`,
+      `Dienst-Host: \`${a.dienstHost}\` — im WERKRUF-Code ${a.hostImCode ? 'vorhanden' : '**nicht vorhanden**'}`,
       `Revision: \`${a.revision}\` · Prüfsumme: \`${a.pruefsumme.slice(0, 16)}…\``, '',
       '### Methoden', '',
-      '| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |',
+      '| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |',
       '|---|---|---|---|---|---|');
     for (const m of a.methoden) {
-      zeilen.push(`| \`${m.name}\` | ${m.httpMethod} | \`${m.path}\` | ${m.schreibend ? 'ja' : '—'} | ${m.deprecated ? '**ja**' : '—'} | ${m.inWerkruf ? 'ja' : '—'} |`);
+      zeilen.push(`| \`${m.name}\` | ${m.httpMethod} | \`${m.path}\` | ${m.schreibend ? 'ja' : '—'} | ${m.deprecated ? '**ja**' : '—'} | ${m.vermutlichInWerkruf ? 'ja' : '—'} |`);
     }
 
     const schreibbar = a.felder.filter((f) => f.schreibbar);
@@ -369,7 +433,11 @@ function alsMarkdown(ergebnis) {
     'ob eine API im Google-Cloud-Projekt aktiviert ist, ob eine Quota vergeben wurde oder',
     'ob ein Aufruf mit echtem Token funktioniert. Das beantwortet nur die Cloud Console',
     'oder ein authentifizierter Funktionstest — siehe `docs/google-api-inventory.md`,',
-    'Abschnitt „Google-Cloud-Freigaben".');
+    'Abschnitt „Google-Cloud-Freigaben".', '',
+    'Die Spalte „vermutlich in WERKRUF" ist eine Textsuche im Quelltext, keine Analyse.',
+    'Sie zaehlt nur, wenn der Dienst-Host der API im Code vorkommt, und trifft danach',
+    'auf markante Bezeichner. Sie kann daneben liegen — gepruefte Aussagen zur Nutzung',
+    'stehen in `docs/google-api-inventory.md`.');
 
   return zeilen.join('\n') + '\n';
 }
