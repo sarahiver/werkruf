@@ -33,11 +33,25 @@ describe('authorised Google location selection', () => {
     expect(dashboard).not.toMatch(/!locations\.some\(\(location\) => location\.selected_at\)/);
   });
 
-  it('syncs only the selected business, not every imported one', () => {
-    /* Vorher: Promise.all(locations.map(l => triggerSync(l.id))) —
-       ein Klick verbrauchte doppelt Google-Quota. */
+  it('offers no customer-facing sync button at all', () => {
+    /* Produktentscheidung vom 29.09.2026: Der Kunde stoesst keine
+       Synchronisierung mehr an. Der Scheduler plant stuendlich, der
+       Worker arbeitet alle fuenf Minuten ab.
+
+       Vorher stand hier eine Zusicherung auf triggerSync(selectedLocation) —
+       der betriebsspezifische Abgleich, der den Sammelabgleich ueber
+       Promise.all(locations.map(...)) abgeloest hatte. Beide sind nun
+       hinfaellig. */
     expect(dashboard).not.toMatch(/Promise\.all\(locations\.map/);
-    expect(dashboard).toMatch(/triggerSync\(selectedLocation\)/);
+    expect(dashboard).not.toMatch(/Jetzt abgleichen<\/GhostBtn>|>\s*Jetzt abgleichen/);
+    expect(dashboard).not.toMatch(/const handleSync\s*=/);
+  });
+
+  it('keeps the one-time first import after connecting', () => {
+    /* §6: Der Erstimport bleibt — sonst wartet ein frisch verbundener
+       Kunde bis zum naechsten stuendlichen Scheduler-Lauf. */
+    expect(dashboard).toMatch(/triggerSync\(null\)/);
+    expect(dashboard).toMatch(/locationImport\.status !== 'none'/);
   });
 
   it('selects only a location belonging to the authenticated account', () => {

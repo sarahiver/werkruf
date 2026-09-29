@@ -41,10 +41,6 @@ const LocationHead = styled.div`
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
 `;
 
-const SyncAktionen = styled.div`
-  display: flex; align-items: center; gap: 12px;
-`;
-
 const RefreshMarke = styled.span`
   font-family: var(--font-body); font-size: .72rem;
   color: var(--color-text-muted); white-space: nowrap;
@@ -158,128 +154,78 @@ const FooterLink = styled(Link)`
   &:hover { text-decoration: underline; }
 `;
 
-/* 40 × 3 s = zwei Minuten. Danach fragt die Seite nicht weiter nach;
+/* Nur fuer den einmaligen Erstimport nach dem Verbinden.
+   48 × 2,5 s = zwei Minuten. Danach fragt die Seite nicht weiter nach;
    der Job im Backend laeuft davon unberuehrt weiter. */
-const POLL_INTERVAL_MS = 3000;
-const POLL_MAX = 40;
+const ERSTIMPORT_INTERVALL_MS = 2500;
+const ERSTIMPORT_MAX = 48;
 
 export default function DashboardGoogleBusiness() {
   const { brand } = useIndustry();
   const googleBusiness = useGoogleBusiness();
   const { isConnected, loading: connectionLoading } = googleBusiness;
   const {
-    locations, stats, replyCounts, lastSyncedAt, latestJob, runningJob, lastFailedJob,
-    failedJobHistory, stalledJobs, loading, refreshing, error,
-    reload, refresh, triggerSync, refreshJobStatus, updateLocation, selectLocation,
+    locations, stats, replyCounts, lastSyncedAt, latestJob, lastFailedJob,
+    failedJobHistory, stalledJobs, locationImport, loading, refreshing, error,
+    reload, refresh, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
 
   const [syncError, setSyncError] = React.useState(null);
-  const initialSyncRef = React.useRef(false);
+  const erstimportRef = React.useRef(false);
 
-  /* Google OAuth grants an account. The actual businesses are fetched only
-     afterwards. Start that import automatically and poll while it is queued so
-     a freshly connected user does not have to discover the sync button. */
+  /*
+   * EINMALIGER ERSTIMPORT nach dem Verbinden.
+   *
+   * OAuth autorisiert ein Konto, nicht einen Betrieb. Welche
+   * Unternehmen das Konto verwaltet, holt erst der Standortimport.
+   * Darauf bis zum naechsten stuendlichen Scheduler-Lauf zu warten,
+   * waere fuer einen frisch verbundenen Kunden unzumutbar.
+   *
+   * Der Zustand kommt aus locationImport, nicht aus einer Ref: Eine Ref
+   * wird bei jedem Seitenaufbau zurueckgesetzt, und ein erfolgreicher
+   * Import, der null Betriebe fand, loeste dadurch bei jedem Reload
+   * einen neuen aus.
+   */
   React.useEffect(() => {
-    if (!isConnected || connectionLoading || loading || locations.length > 0 || initialSyncRef.current) return;
-    initialSyncRef.current = true;
-    triggerSync(null).catch(() => setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
-  }, [isConnected, connectionLoading, loading, locations.length, triggerSync]);
+    if (!isConnected || connectionLoading || loading) return;
+    if (locations.length > 0) return;
+    if (locationImport.status !== 'none') return;   // schon gelaufen
+    if (erstimportRef.current) return;              // nur einmal je Seitenaufbau
+    erstimportRef.current = true;
+    triggerSync(null).catch(() =>
+      setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
+  }, [isConnected, connectionLoading, loading, locations.length, locationImport.status, triggerSync]);
 
-  /* Wartet auf den ersten Standortimport nach dem Verbinden.
-     refresh() statt reload(): still nachladen, ohne die Seite auf
-     Skeletons zurueckzusetzen. */
+  /*
+   * Fortschritt NUR fuer diesen Einrichtungsschritt.
+   *
+   * Das ist der einzige verbliebene Fortschrittsanzeiger im
+   * Kundendashboard. Regulaere Hintergrundabgleiche bekommen keinen —
+   * sie sind kein Ereignis, das Aufmerksamkeit braucht.
+   *
+   * Endet, sobald der Import ein Ergebnis hat: Betriebe da, null
+   * Betriebe gefunden, oder gescheitert.
+   */
   React.useEffect(() => {
-    if (!isConnected || locations.length > 0 || lastFailedJob) return undefined;
+    if (!isConnected || locationImport.status !== 'running') return undefined;
     let polls = 0;
     const timer = window.setInterval(() => {
       polls += 1;
       refresh();
-      if (polls >= 48) {
+      if (polls >= ERSTIMPORT_MAX) {
         window.clearInterval(timer);
-        setSyncError('Das Laden dauert ungewöhnlich lange. Bitte versuche den Abgleich erneut.');
+        setSyncError('Das Laden deiner Betriebe dauert ungewöhnlich lange. Sieh in ein paar Minuten erneut nach.');
       }
-    }, 2500);
+    }, ERSTIMPORT_INTERVALL_MS);
     return () => window.clearInterval(timer);
-  }, [isConnected, locations.length, lastFailedJob, refresh]);
+  }, [isConnected, locationImport.status, refresh]);
 
-  /* Nach dem Start eines Abgleichs den Status nachladen, bis ein
-     endgültiges Ergebnis vorliegt.
-
-     Beendet wird das Polling, sobald kein Job mehr queued oder running
-     ist — dann steht succeeded oder failed fest — oder nach zwei
-     Minuten. Ein fehlender Worker darf den Browser nicht endlos
-     nachfragen lassen. */
-  /*
-   * Ein Polling-Zyklus je Job — nicht mehr.
-   *
-   * Der Effekt haengt allein an runningJob.id. Das Objekt selbst
-   * aendert sich bei jedem Laden, die ID nicht; ohne diese Einengung
-   * wuerde jeder Abruf das Intervall neu starten und mehrere Zyklen
-   * liefen nebeneinander.
-   *
-   * Beendet wird der Zyklus, sobald der Job nicht mehr queued oder
-   * running ist — dann steht succeeded oder failed fest und
-   * runningJob wird null, was den Effekt aufraeumt. Beim
-   * Betriebswechsel wechselt die ID ebenfalls, das alte Intervall
-   * wird verworfen. Beim Verlassen der Seite greift die
-   * Aufraeumfunktion.
-   *
-   * Nach dem Zeitlimit wird NICHT weiter gefragt und der Job NICHT als
-   * gescheitert markiert — das entscheidet allein das Backend. Die
-   * Oberflaeche zeigt stattdessen einen Verzoegerungszustand.
-   */
-  const [delayedJobId, setDelayedJobId] = React.useState(null);
-
-  React.useEffect(() => {
-    const jobId = runningJob?.id;
-    if (!jobId) return undefined;
-
-    setDelayedJobId((aktuell) => (aktuell === jobId ? aktuell : null));
-
-    let abgelaufen = false;
-    let polls = 0;
-
-    const timer = window.setInterval(async () => {
-      if (abgelaufen) return;
-      polls += 1;
-
-      /* Die Obergrenze wird VOR dem Warten geprueft. Stuende sie
-         dahinter, wuerde eine haengende Abfrage das Intervall
-         unbegrenzt weiterlaufen lassen — der Zaehler kaeme nie an. */
-      if (polls > POLL_MAX) {
-        abgelaufen = true;
-        window.clearInterval(timer);
-        setDelayedJobId(jobId);
-        return;
-      }
-
-      /* Waehrend der Job laeuft, wird NUR sein Status abgefragt — eine
-         Zeile statt fuenf Abfragen ueber Standorte, Bewertungen, Jobs,
-         Antworten und die neueste Rezension. */
-      const job = await refreshJobStatus(jobId);
-      if (abgelaufen) return;
-
-      /* Erst nach dem Abschluss die vollstaendigen Unternehmensdaten —
-         genau einmal, still im Hintergrund. */
-      if (job && job.status !== 'queued' && job.status !== 'running') {
-        abgelaufen = true;
-        window.clearInterval(timer);
-        refresh();
-      }
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      abgelaufen = true;
-      window.clearInterval(timer);
-    };
-  }, [runningJob?.id, refreshJobStatus, refresh]);
-
-  /* Der Verzoegerungshinweis gilt nur fuer den Job, der ihn ausgeloest
-     hat. Sobald ein anderer Job laeuft oder keiner mehr offen ist,
-     verschwindet er von selbst. */
-  const jobVerzoegert = Boolean(delayedJobId) && delayedJobId === runningJob?.id;
+  /* Kein Polling fuer regulaere Hintergrundabgleiche mehr.
+     Entfernt am 29.09. mit dem Knopf "Jetzt abgleichen". Damit
+     entfallen Spinner, Zeitlimit, Verzoegerungszustand und die
+     Statusabfrage alle drei Sekunden. */
 
   /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
      Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
@@ -312,26 +258,10 @@ export default function DashboardGoogleBusiness() {
    * aktualisierte auch den Betrieb, den der Nutzer gerade nicht
    * ansieht.
    */
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncError(null);
-    try {
-      if (locations.length === 0) {
-        await triggerSync(null);
-      } else if (selectedLocation) {
-        await triggerSync(selectedLocation);
-      } else {
-        setSyncError('Bitte wähle zuerst den Betrieb, den du abgleichen möchtest.');
-        return;
-      }
-      await reload();
-    } catch (err) {
-      console.error('[DashboardGoogleBusiness] Sync:', err);
-      setSyncError('Der Abgleich konnte nicht gestartet werden.');
-    } finally {
-      setSyncing(false);
-    }
-  };
+  /* handleSync entfernt am 29.09.
+     Der Kunde stoesst keine Synchronisierung mehr an. Der Scheduler
+     plant stuendlich, der Worker arbeitet alle fuenf Minuten ab. Ein
+     manueller Abgleich bleibt im Admin-Bereich verfuegbar. */
 
   const handleSelectLocation = async (locationId) => {
     setSyncing(true);
@@ -378,9 +308,10 @@ export default function DashboardGoogleBusiness() {
      lastFailedJob ist seit dem 29.09. nur noch gesetzt, wenn der
      juengste Job gescheitert ist — ein alter Fehlschlag verdraengt
      keinen spaeteren Erfolg mehr. */
-  const syncState = jobVerzoegert ? 'delayed'
-    : runningJob ? 'running'
-    : lastFailedJob ? 'error'
+  /* Ruhiger Zustand: Ein laufender Hintergrundjob taucht hier NICHT
+     mehr auf. Nur ein weiterhin bestehender Fehler oder ein noch nie
+     gelaufener Abgleich verdienen einen Hinweis. */
+  const syncState = lastFailedJob ? 'error'
     : lastSyncedAt ? 'ok'
     : latestJob?.status === 'succeeded' ? 'ok'
     : 'never';
@@ -505,46 +436,35 @@ export default function DashboardGoogleBusiness() {
             </Card>
           )}
 
+          {/* Ruhige Statusinformation statt Synchronisationskarte.
+              Kein Spinner fuer regulaere Hintergrundjobs, kein
+              Abgleich-Knopf. Bezieht sich auf den ausgewaehlten
+              Betrieb — lastSyncedAt ist darauf begrenzt. */}
           {loading ? <SkeletonList count={1} height={72} /> : (
             <SyncBar $state={syncState}>
               <SyncInfo>
-                {syncState === 'error'   ? <AlertTriangle size={19} color="#D93025" />
-                  : syncState === 'delayed' ? <Clock size={19} color="#D48A00" />
-                  : syncState === 'running' ? <Spinner size={19} color="var(--color-accent)" />
-                  : syncState === 'never'   ? <Clock size={19} color="#D48A00" />
+                {syncState === 'error' ? <AlertTriangle size={19} color="#D93025" />
+                  : syncState === 'never' ? <Clock size={19} color="#D48A00" />
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
-                    {syncState === 'error'   ? 'Letzter Abgleich fehlgeschlagen'
-                      : syncState === 'delayed' ? 'Abgleich dauert länger als üblich'
-                      : syncState === 'running' ? 'Abgleich läuft'
-                      : syncState === 'never'   ? 'Noch kein Abgleich gelaufen'
-                      : 'Daten sind aktuell'}
+                    {syncState === 'error' ? 'Letzter Abgleich fehlgeschlagen'
+                      : syncState === 'never' ? 'Einrichtung läuft'
+                      : 'Dein Google-Unternehmensprofil wird automatisch aktualisiert'}
                   </p>
                   <p>
                     {syncState === 'error'
                       ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
-                      : syncState === 'delayed'
-                        /* Bewusst KEINE Fehlermeldung: Der Job läuft im
-                           Hintergrund weiter, nur diese Seite fragt
-                           nicht mehr nach. */
-                        ? 'Der Auftrag ist weiterhin eingereiht. Lade die Seite später neu oder starte den Abgleich erneut.'
                       : syncState === 'never'
-                        ? 'Starte den ersten Abgleich, um Standorte und Bewertungen zu laden.'
-                        : `Zuletzt abgeglichen ${formatRelative(lastSyncedAt)}`}
+                        ? 'Die ersten Daten werden geladen. Das dauert einen Moment — du musst nichts tun.'
+                        : `Zuletzt erfolgreich abgeglichen: ${formatRelative(lastSyncedAt)}`}
                   </p>
                 </SyncText>
               </SyncInfo>
 
-              <SyncAktionen>
-                {/* Dezenter Hinweis auf die stille Aktualisierung.
-                    Bewusst KEIN Skeleton: Kennzahlen, Standortkarten und
-                    offene Formulare bleiben stehen. */}
-                {refreshing && <RefreshMarke>wird aktualisiert…</RefreshMarke>}
-                <GhostBtn onClick={handleSync} disabled={syncing}>
-                  {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
-                </GhostBtn>
-              </SyncAktionen>
+              {/* Dezenter Hinweis auf die stille Aktualisierung — kein
+                  Skeleton, kein Spinner. */}
+              {refreshing && <RefreshMarke>wird aktualisiert…</RefreshMarke>}
             </SyncBar>
           )}
 
@@ -575,15 +495,29 @@ export default function DashboardGoogleBusiness() {
 
           {loading ? <SkeletonList count={2} height={140} />
             : visibleLocations.length === 0 ? (
-              <EmptyState
-                title="Noch keine Standorte"
-                text="Die Standorte werden beim ersten Abgleich aus deinem Google-Profil übernommen. Das kann einen Moment dauern."
-                action={
-                  <GhostBtn onClick={handleSync} disabled={syncing}>
-                    {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
-                  </GhostBtn>
-                }
-              />
+              /* Drei verschiedene Zustaende, die vorher alle denselben
+                 Knopf zeigten. Besonders der mittlere: Ein Import, der
+                 null Betriebe fand, ist ein ERGEBNIS — kein Anlass,
+                 es nochmal zu versuchen. */
+              locationImport.keineBetriebe ? (
+                <EmptyState
+                  title="Keine verwaltbaren Betriebe gefunden"
+                  text={'Google hat für das verbundene Konto kein Unternehmensprofil zurückgegeben, das du verwalten darfst. '
+                    + 'Prüfe, ob du im Google-Unternehmensprofil als Inhaber oder Administrator eingetragen bist — '
+                    + 'und ob du dich mit dem richtigen Konto verbunden hast.'}
+                />
+              ) : locationImport.status === 'failed' ? (
+                <EmptyState
+                  title="Betriebe konnten nicht geladen werden"
+                  text={`Der Import ist gescheitert (${locationImport.job?.error_code ?? 'unbekannt'}). `
+                    + 'WERKRUF versucht es beim nächsten regulären Lauf erneut.'}
+                />
+              ) : (
+                <EmptyState
+                  title="Deine Betriebe werden geladen"
+                  text="WERKRUF holt gerade die Unternehmen, die du bei Google verwaltest. Das dauert einen Moment — du musst nichts tun."
+                />
+              )
             ) : (
               <LocationGrid>
                 {visibleLocations.map((location) => (

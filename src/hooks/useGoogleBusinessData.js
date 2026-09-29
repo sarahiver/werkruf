@@ -338,6 +338,34 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     ? latestJob
     : null;
 
+  /* ── Zustand des einmaligen Erstimports ──
+     Nach dem Verbinden autorisiert OAuth ein Konto, aber noch keinen
+     Betrieb. Der Standortimport holt sie nach.
+
+     Der Zustand wird aus den Jobs abgeleitet, NICHT aus einer Ref im
+     Bauteil: Eine Ref wird bei jedem Seitenaufbau zurueckgesetzt, und
+     ein erfolgreicher Import, der null Betriebe fand, loeste dadurch
+     bei jedem Reload einen neuen aus.
+
+     'none'      noch nie ein Standortimport
+     'running'   eingereiht oder laeuft
+     'succeeded' durchgelaufen — auch dann, wenn Google null Betriebe
+                 zurueckgab. Das ist ein Ergebnis, kein fehlender Lauf.
+     'failed'    endgueltig gescheitert */
+  const importJobs = syncJobs.filter((j) => j.job_type === 'sync_locations');
+  const letzterImport = importJobs[0] ?? null;
+
+  const locationImport = {
+    job: letzterImport,
+    status: !letzterImport ? 'none'
+      : (letzterImport.status === 'queued' || letzterImport.status === 'running') ? 'running'
+      : letzterImport.status === 'succeeded' ? 'succeeded'
+      : 'failed',
+    /* Erfolgreich gelaufen, aber Google kennt keine verwaltbaren
+       Betriebe. Eigener Zustand, kein Anlass fuer einen neuen Versuch. */
+    keineBetriebe: letzterImport?.status === 'succeeded' && locations.length === 0,
+  };
+
   /* Aeltere offene Jobs bleiben fuer die Diagnose sichtbar, ohne den
      Zustand zu bestimmen. Ein dauerhaft wachsender Wert hier heisst:
      Jobs werden eingereiht, aber nicht abgearbeitet. */
@@ -361,6 +389,7 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
   return {
     locations, stats, syncJobs, replyCounts,
     lastSyncedAt, latestJob, runningJob, lastFailedJob, failedJobHistory, stalledJobs,
+    locationImport,
     loading, refreshing, error,
     reload: load,
     refresh,

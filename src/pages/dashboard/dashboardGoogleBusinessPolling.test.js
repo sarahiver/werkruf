@@ -1,13 +1,8 @@
 /**
- * Polling-Verhalten des Google-Business-Dashboards.
- *
- * Geprueft wird die Komponente mit gestellten Zeitgebern: Wie oft wird
- * nachgeladen, laeuft nur ein Zyklus, endet er bei einem endgueltigen
- * Ergebnis, und was passiert nach dem Zeitlimit.
- *
- * Der Datenhook ist gestellt — hier geht es um die Effekte in der
- * Seite, nicht um die Datenbeschaffung. Deren Verhalten prueft
- * hooks/googleBusinessLocationSwitch.test.js.
+ * Kundendashboard nach der Produktentscheidung vom 29.09.2026:
+ * kein manueller Abgleich, kein Polling fuer regulaere Jobs, ruhige
+ * Statusanzeige. Der einmalige Erstimport nach dem Verbinden behaelt
+ * seinen eigenen Fortschritt.
  */
 import React from 'react';
 import { render, act, screen } from '@testing-library/react';
@@ -24,8 +19,7 @@ jest.mock('../../context/IndustryContext', () => ({
   useIndustry: () => ({ brand: { name: 'WERKRUF' } }),
 }));
 jest.mock('../../components/dashboard/GoogleBusinessConnect', () => ({
-  __esModule: true,
-  default: () => null,
+  __esModule: true, default: () => null,
 }));
 
 const { useGoogleBusinessData } = require('../../hooks/useGoogleBusinessData');
@@ -41,181 +35,167 @@ const standort = (id, titel, gewaehlt) => ({
   google_media: [],
 });
 
-const refresh = jest.fn();
-const reload  = jest.fn();
-/* Standard: Der Job laeuft weiter. Einzelne Tests ueberschreiben das. */
-const refreshJobStatus = jest.fn(async (id) => ({ id, status: 'running' }));
+const refresh     = jest.fn();
+const reload      = jest.fn();
+const triggerSync = jest.fn(() => Promise.resolve({}));
 
-function hookZustand({ runningJob = null, gewaehlt = SI } = {}) {
+function zustand({
+  locations = [standort(SI, 'S&I.', true), standort(WERKRUF, 'WERKRUF', false)],
+  lastSyncedAt = '2026-09-29T09:00:00Z',
+  lastFailedJob = null,
+  latestJob = null,
+  locationImport = { status: 'succeeded', job: null, keineBetriebe: false },
+} = {}) {
   return {
-    locations: [standort(SI, 'S&I.', gewaehlt === SI), standort(WERKRUF, 'WERKRUF', gewaehlt === WERKRUF)],
+    locations,
     stats: { totalReviews: 3, averageRating: 4.5, unanswered: 0, distribution: {}, newestReviewAt: null, photoCount: 0 },
     replyCounts: { draft: 0, approved: 0, published: 0, failed: 0 },
-    lastSyncedAt: '2026-09-29T09:00:00Z',
-    latestJob: runningJob, runningJob,
-    lastFailedJob: null, failedJobHistory: [], stalledJobs: [],
+    lastSyncedAt, latestJob, lastFailedJob,
+    failedJobHistory: [], stalledJobs: [], locationImport,
     loading: false, refreshing: false, error: null,
-    reload, refresh, refreshJobStatus,
-    triggerSync: jest.fn(), updateLocation: jest.fn(), selectLocation: jest.fn(),
+    reload, refresh, triggerSync,
+    refreshJobStatus: jest.fn(), updateLocation: jest.fn(), selectLocation: jest.fn(),
   };
 }
 
-const laufend = (id) => ({ id, status: 'running', attempts: 1, max_attempts: 3, created_at: '2026-09-29T10:00:00Z' });
-
 beforeEach(() => {
   jest.useFakeTimers();
-  refresh.mockClear();
-  reload.mockClear();
-  refreshJobStatus.mockClear();
-  refreshJobStatus.mockImplementation(async (id) => ({ id, status: 'running' }));
+  refresh.mockClear(); reload.mockClear(); triggerSync.mockClear();
+  /* CRA setzt resetMocks: true — die Implementierung wird zwischen den
+     Tests entfernt, nicht nur die Aufrufliste. Ohne das Neusetzen gibt
+     triggerSync undefined zurueck und .catch() faellt auf die Nase. */
+  triggerSync.mockImplementation(() => Promise.resolve({}));
 });
 afterEach(() => {
-  jest.runOnlyPendingTimers();
-  jest.useRealTimers();
-  jest.clearAllMocks();
+  jest.runOnlyPendingTimers(); jest.useRealTimers(); jest.clearAllMocks();
 });
 
 const vorspulen = (ms) => act(() => { jest.advanceTimersByTime(ms); });
 
-describe('Polling-Begrenzung', () => {
-  it('laedt waehrend eines laufenden Jobs still nach', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
+describe('Kein manueller Abgleich im Kundendashboard', () => {
+  it('zeigt keinen Knopf "Jetzt abgleichen"', () => {
+    useGoogleBusinessData.mockReturnValue(zustand());
     render(<DashboardGoogleBusiness />);
+    expect(screen.queryByRole('button', { name: /jetzt abgleichen/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/jetzt abgleichen/i)).not.toBeInTheDocument();
+  });
 
-    vorspulen(9000);           // drei Intervalle à 3 s
+  it('startet bei vorhandenen Betrieben keinen Sync', () => {
+    useGoogleBusinessData.mockReturnValue(zustand());
+    render(<DashboardGoogleBusiness />);
+    vorspulen(60000);
+    expect(triggerSync).not.toHaveBeenCalled();
+  });
 
-    /* Waehrend der Job laeuft, wird NUR sein Status abgefragt — nicht
-       der vollstaendige Datensatz. */
-    expect(refreshJobStatus).toHaveBeenCalledTimes(3);
-    expect(refreshJobStatus).toHaveBeenCalledWith('j1');
+  it('pollt nicht, nur weil im Hintergrund ein Job laeuft', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      latestJob: { id: 'j1', status: 'running', created_at: '2026-09-29T10:00:00Z' },
+    }));
+    render(<DashboardGoogleBusiness />);
+    vorspulen(120000);
     expect(refresh).not.toHaveBeenCalled();
-    // reload() wuerde Skeletons ausloesen — darf im Polling nicht vorkommen.
     expect(reload).not.toHaveBeenCalled();
   });
-
-  it('startet keinen zweiten Zyklus, wenn sich nur das Job-Objekt erneuert', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
-    const { rerender } = render(<DashboardGoogleBusiness />);
-    vorspulen(9000);
-    const nachDrei = refreshJobStatus.mock.calls.length;
-
-    // Neues Objekt, gleiche ID — wie nach jedem Laden.
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
-    rerender(<DashboardGoogleBusiness />);
-    vorspulen(9000);
-
-    // Bei zwei parallelen Zyklen waeren es sechs weitere statt drei.
-    expect(refreshJobStatus.mock.calls.length - nachDrei).toBe(3);
-  });
-
-  it('hoert auf, sobald der Job abgeschlossen ist', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
-    const { rerender } = render(<DashboardGoogleBusiness />);
-    vorspulen(9000);
-    const nachDrei = refreshJobStatus.mock.calls.length;
-
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: null }));
-    rerender(<DashboardGoogleBusiness />);
-    vorspulen(30000);
-
-    expect(refreshJobStatus.mock.calls.length).toBe(nachDrei);
-  });
-
-  it('raeumt das Intervall beim Verlassen der Seite auf', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
-    const { unmount } = render(<DashboardGoogleBusiness />);
-    vorspulen(6000);
-    const vorher = refreshJobStatus.mock.calls.length;
-
-    unmount();
-    vorspulen(30000);
-
-    expect(refreshJobStatus.mock.calls.length).toBe(vorher);
-  });
-
-  it('wechselt beim Betriebswechsel auf den Zyklus des neuen Jobs', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('si-job'), gewaehlt: SI }));
-    const { rerender } = render(<DashboardGoogleBusiness />);
-    vorspulen(6000);
-    const nachZwei = refreshJobStatus.mock.calls.length;
-
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('wr-job'), gewaehlt: WERKRUF }));
-    rerender(<DashboardGoogleBusiness />);
-    vorspulen(6000);
-
-    // Genau zwei weitere, nicht vier — der alte Zyklus ist beendet.
-    expect(refreshJobStatus.mock.calls.length - nachZwei).toBe(2);
-    expect(refreshJobStatus).toHaveBeenCalledWith('wr-job');
-  });
 });
 
-describe('Zeitueberschreitung', () => {
-  it('zeigt nach dem Zeitlimit einen Verzoegerungszustand statt eines Dauerspinners', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
+describe('Ruhige Statusanzeige', () => {
+  it('nennt den letzten erfolgreichen Abgleich statt eines Spinners', () => {
+    useGoogleBusinessData.mockReturnValue(zustand());
     render(<DashboardGoogleBusiness />);
-
-    expect(screen.getByText(/Abgleich läuft/i)).toBeInTheDocument();
-
-    vorspulen(40 * 3000 + 3000);   // Zeitlimit ueberschritten
-
+    expect(screen.getByText(/automatisch aktualisiert/i)).toBeInTheDocument();
+    expect(screen.getByText(/Zuletzt erfolgreich abgeglichen/i)).toBeInTheDocument();
     expect(screen.queryByText(/Abgleich läuft/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/dauert länger als üblich/i)).toBeInTheDocument();
-    expect(screen.getByText(/weiterhin eingereiht/i)).toBeInTheDocument();
   });
 
-  it('fragt nach dem Zeitlimit nicht weiter nach', () => {
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
+  it('zeigt einen laufenden Hintergrundjob nicht als Ereignis', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      latestJob: { id: 'j1', status: 'running', created_at: '2026-09-29T10:00:00Z' },
+    }));
     render(<DashboardGoogleBusiness />);
-
-    vorspulen(40 * 3000);
-    const beimLimit = refreshJobStatus.mock.calls.length;
-
-    vorspulen(60000);
-    expect(refreshJobStatus.mock.calls.length).toBe(beimLimit);
+    expect(screen.getByText(/automatisch aktualisiert/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Abgleich läuft/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/dauert länger als üblich/i)).not.toBeInTheDocument();
   });
 
-  it('markiert den Job im Backend nicht als gescheitert', () => {
-    const zustand = hookZustand({ runningJob: laufend('j1') });
-    useGoogleBusinessData.mockReturnValue(zustand);
+  it('meldet einen weiterhin bestehenden Fehler klar', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      lastFailedJob: { id: 'j1', status: 'failed', error_code: 'oauth', attempts: 3, max_attempts: 3 },
+    }));
     render(<DashboardGoogleBusiness />);
-
-    vorspulen(40 * 3000 + 3000);
-
-    // Kein Sync-Aufruf, kein Schreiben — die Seite hoert nur auf zu fragen.
-    expect(zustand.triggerSync).not.toHaveBeenCalled();
-    expect(zustand.updateLocation).not.toHaveBeenCalled();
-    /* Gezielt der Sync-Status, nicht das Wort irgendwo — die
-       Antwort-Kennzahlen tragen ebenfalls die Marke "Fehlgeschlagen". */
-    expect(screen.queryByText(/Letzter Abgleich fehlgeschlagen/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Letzter Abgleich fehlgeschlagen/i)).toBeInTheDocument();
+    expect(screen.getByText(/oauth/i)).toBeInTheDocument();
   });
 });
 
-describe('Abschluss eines Syncs', () => {
-  it('laedt nach dem Abschluss genau einmal vollstaendig nach', async () => {
-    refreshJobStatus.mockImplementation(async (id) => ({ id, status: 'succeeded' }));
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
+describe('Automatischer Erstimport', () => {
+  it('startet den Import, wenn noch keiner gelaufen ist', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'none', job: null, keineBetriebe: false },
+    }));
     render(<DashboardGoogleBusiness />);
-
-    await act(async () => { jest.advanceTimersByTime(3000); });
-
-    expect(refreshJobStatus).toHaveBeenCalledTimes(1);
-    expect(refresh).toHaveBeenCalledTimes(1);
-
-    // Danach keine weiteren Abfragen.
-    await act(async () => { jest.advanceTimersByTime(30000); });
-    expect(refreshJobStatus).toHaveBeenCalledTimes(1);
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(triggerSync).toHaveBeenCalledWith(null);
   });
 
-  it('beendet das Polling auch bei einem gescheiterten Job', async () => {
-    refreshJobStatus.mockImplementation(async (id) => ({ id, status: 'failed' }));
-    useGoogleBusinessData.mockReturnValue(hookZustand({ runningJob: laufend('j1') }));
+  it('zeigt waehrend des Imports einen begrenzten Fortschritt und laedt nach', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'running', job: { id: 'imp' }, keineBetriebe: false },
+    }));
     render(<DashboardGoogleBusiness />);
+    expect(screen.getByText(/Deine Betriebe werden geladen/i)).toBeInTheDocument();
 
-    await act(async () => { jest.advanceTimersByTime(3000); });
-    const nachEins = refreshJobStatus.mock.calls.length;
+    vorspulen(7500);
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
 
-    await act(async () => { jest.advanceTimersByTime(30000); });
-    expect(refreshJobStatus.mock.calls.length).toBe(nachEins);
+  it('hoert auf nachzuladen, sobald der Import ein Ergebnis hat', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'running', job: { id: 'imp' }, keineBetriebe: false },
+    }));
+    const { rerender } = render(<DashboardGoogleBusiness />);
+    vorspulen(7500);
+    const nachDrei = refresh.mock.calls.length;
+
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'succeeded', job: { id: 'imp' }, keineBetriebe: true },
+    }));
+    rerender(<DashboardGoogleBusiness />);
+    vorspulen(30000);
+
+    expect(refresh.mock.calls.length).toBe(nachDrei);
+  });
+
+  it('behandelt null gefundene Betriebe als Ergebnis und importiert NICHT erneut', () => {
+    /* Der Fehler: initialSyncRef war eine Ref und wurde bei jedem
+       Seitenaufbau zurueckgesetzt — ein erfolgreicher Import mit null
+       Betrieben loeste bei jedem Reload einen neuen aus. */
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'succeeded', job: { id: 'imp' }, keineBetriebe: true },
+    }));
+    const { unmount } = render(<DashboardGoogleBusiness />);
+
+    expect(triggerSync).not.toHaveBeenCalled();
+    expect(screen.getByText(/Keine verwaltbaren Betriebe gefunden/i)).toBeInTheDocument();
+
+    // Reload: neuer Seitenaufbau, weiterhin kein neuer Import.
+    unmount();
+    render(<DashboardGoogleBusiness />);
+    expect(triggerSync).not.toHaveBeenCalled();
+  });
+
+  it('wiederholt einen gescheiterten Import nicht von selbst', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'failed', job: { id: 'imp', error_code: 'oauth' }, keineBetriebe: false },
+    }));
+    render(<DashboardGoogleBusiness />);
+    vorspulen(60000);
+
+    expect(triggerSync).not.toHaveBeenCalled();
+    expect(screen.getByText(/konnten nicht geladen werden/i)).toBeInTheDocument();
   });
 });
