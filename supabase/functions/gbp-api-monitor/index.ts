@@ -45,11 +45,12 @@
 ═══════════════════════════════════════════════════════════════════════════ */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { QUELLEN, normalisiere, pruefsumme } from '../../../scripts/google-api-inventory.mjs';
+import { QUELLEN, normalisiere, pruefsumme } from '../../../scripts/gbp-api-schema.mjs';
 import {
   STUFEN, WERKRUF_HOSTS, vergleicheSchema, stufeEin, hoechsteStufe,
   zerlegeChangeLog, vergleicheChangeLog, stufeChangeLogEin, signatur,
 } from '../../../scripts/gbp-api-diff.mjs';
+import { pruefeWorkerSecret } from '../../../scripts/gbp-worker-auth.mjs';
 
 /* ─────────────────────────────────────────────
    KONFIGURATION
@@ -90,20 +91,18 @@ function log(level: 'debug' | 'warn' | 'error', event: string, data: Record<stri
    ZUGRIFFSSCHUTZ
 ───────────────────────────────────────────── */
 
-function timingSafeEqual(a: string, b: string): boolean {
-  const encoder = new TextEncoder();
-  const left = encoder.encode(a), right = encoder.encode(b);
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
-  return diff === 0;
-}
-
+/*
+ * Die Pruefung liegt in scripts/gbp-worker-auth.mjs — dort ist sie
+ * testbar. Eine Edge Function ruft Deno.serve beim Laden auf und
+ * laesst sich nicht importieren, ohne einen Server zu starten.
+ *
+ * Deno.env.get statt requireEnv: requireEnv wuerde bei fehlendem
+ * Secret einen 500 mit dem VARIABLENNAMEN werfen. pruefeWorkerSecret
+ * wirft stattdessen "Zugriffsschutz nicht konfiguriert" — ohne
+ * Konfigurationsdetails nach aussen zu geben.
+ */
 function requireWorkerSecret(request: Request): void {
-  const expected = requireEnv('GBP_WORKER_SECRET');
-  if (!timingSafeEqual(request.headers.get('X-Worker-Secret') ?? '', expected)) {
-    throw Object.assign(new Error('Ungültiges Worker-Secret'), { status: 401 });
-  }
+  pruefeWorkerSecret(request, Deno.env.get('GBP_WORKER_SECRET'));
 }
 
 /* ─────────────────────────────────────────────
