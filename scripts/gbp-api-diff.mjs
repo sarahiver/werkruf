@@ -234,32 +234,79 @@ export function hoechsteStufe(eingestufte) {
  */
 export function zerlegeChangeLog(text) {
   const bereinigt = String(text ?? '')
-    /* Fusszeile und Rechtehinweis abschneiden — sie tragen ein
-       Datum ("Last updated"), das sich bei jedem Seitenaufbau
-       aendern kann. */
-    .split(/Except as otherwise noted|Last updated|Sofern nicht anders/)[0]
-    /* Navigation und Werkzeugleisten */
+    /* Fusszeile und Rechtehinweis abschneiden — sie tragen ein Datum
+       ("Last updated"), das sich bei jedem Seitenaufbau aendern kann. */
+    .split(/Except as otherwise noted|Sofern nicht anders/)[0]
     .replace(/Stay organized with collections[^\n]*/g, '')
     .replace(/Save and categorize content[^\n]*/g, '')
     .replace(/\u00a0/g, ' ')
     .replace(/[ \t]+/g, ' ');
 
-  /* Datierte Abschnitte. Google verwendet im Change Log Ueberschriften
-     der Form "September 25, 2026" oder "2026-09-25". */
-  const muster = /^\s*((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s*\d{4}|\d{4}-\d{2}-\d{2})\s*$/gim;
+  /* ── Ankerpunkte ──
 
-  const treffer = [...bereinigt.matchAll(muster)];
-  if (treffer.length === 0) return [];
+     Der Change Log ist NICHT nach Datum gegliedert, sondern nach
+     Versionen: "v4.9", "v4.8", "v3.3". Nur innerhalb davon stehen
+     einzelne Datumsangaben, und nur bei den neuesten.
+
+     Ein erster Entwurf suchte ausschliesslich nach Datumszeilen und
+     fand deshalb sechs von ueber zwanzig Abschnitten — alles aeltere,
+     samt der "Behavioral Changes" mit Abkuendigungen, blieb
+     unsichtbar. Beim zweiten Lauf fand er gar nichts mehr, weil das
+     Muster das Datum ALLEIN auf einer Zeile verlangte.
+
+     Deshalb jetzt zwei Ankerarten, und keine Zeilenbindung: */
+  const anker = [];
+
+  /* Versionsueberschriften — die stabile Gliederung der Seite. */
+  for (const m of bereinigt.matchAll(/(?:^|\n)\s*#{1,4}\s*(v\d+(?:\.\d+)?)\b[^\n]*/gi)) {
+    anker.push({ pos: m.index + m[0].length, schluessel: m[1].trim() });
+  }
+
+  /* Untergliederung innerhalb einer Version: "New Features",
+     "Behavioral Changes", "Backward-incompatible changes". Gerade die
+     mittlere traegt die Abkuendigungen — ohne eigenen Anker landete
+     sie im vorhergehenden Abschnitt und waere bei einer Aenderung
+     schwerer zuzuordnen. */
+  for (const m of bereinigt.matchAll(/(?:^|\n)\s*#{2,4}\s*((?:New|Behaviou?ral|Backward|Deprecat)[^\n]{0,50})/gi)) {
+    anker.push({ pos: m.index + m[0].length, schluessel: m[1].trim() });
+  }
+
+  /* Datumsangaben — an beliebiger Stelle, nicht nur allein auf einer
+     Zeile. Google setzt sie fett, und je nach Auszeichnung landen sie
+     mit oder ohne Nachbartext in derselben Zeile. */
+  const datumMuster = /(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s*\d{4})/g;
+  for (const m of bereinigt.matchAll(datumMuster)) {
+    anker.push({ pos: m.index + m[0].length, schluessel: m[1].trim() });
+  }
+
+  if (anker.length === 0) return [];
+
+  /* Nach Position sortieren und Abschnitte bilden. */
+  anker.sort((a, b) => a.pos - b.pos);
 
   const eintraege = [];
-  for (let i = 0; i < treffer.length; i++) {
-    const start = treffer[i].index + treffer[i][0].length;
-    const ende = i + 1 < treffer.length ? treffer[i + 1].index : bereinigt.length;
-    const inhalt = bereinigt.slice(start, ende)
-      .split('\n').map((z) => z.trim()).filter(Boolean).join('\n');
+  const gesehen = new Set();
 
-    eintraege.push({ datum: treffer[i][1].trim(), inhalt });
+  for (let i = 0; i < anker.length; i++) {
+    const bis = i + 1 < anker.length ? anker[i + 1].pos : bereinigt.length;
+    const inhalt = bereinigt.slice(anker[i].pos, bis)
+      .split('\n').map((z) => z.trim()).filter(Boolean).join('\n')
+      .slice(0, 4000);
+
+    /* Derselbe Schluessel kann mehrfach vorkommen (etwa "v4" als Teil
+       einer Aufzaehlung). Der erste Treffer gewinnt; spaetere werden
+       durchnummeriert, damit nichts verlorengeht. */
+    let schluessel = anker[i].schluessel;
+    if (gesehen.has(schluessel)) {
+      let n = 2;
+      while (gesehen.has(`${schluessel} (${n})`)) n++;
+      schluessel = `${schluessel} (${n})`;
+    }
+    gesehen.add(schluessel);
+
+    if (inhalt) eintraege.push({ datum: schluessel, inhalt });
   }
+
   return eintraege;
 }
 

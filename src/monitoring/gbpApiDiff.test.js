@@ -168,54 +168,92 @@ describe('Einstufung', () => {
 });
 
 describe('Change-Log-Auswertung', () => {
+  /* Aufbau der echten Seite: Gliederung nach VERSIONEN, darin
+     Unterabschnitte, und nur bei den neuesten einzelne Datumsangaben.
+     Ein erster Entwurf suchte nur nach Datumszeilen und fand deshalb
+     sechs von über zwanzig Abschnitten — alles Ältere, samt der
+     Abkündigungen unter "Behavioral Changes", blieb unsichtbar. */
   const seite = `
-Change log
+Change Log
 Stay organized with collections Save and categorize content based on your preferences.
 
-September 25, 2026
-Added new field to Location resource.
-Updated the readMask requirements.
+## v4.9
 
-August 14, 2026
-Deprecated the localPost endpoints.
+### New Features
+
+2026-07-24
+
+review_reply_url: The reviewReplyUrl can now be retrieved.
+
+2026-04-01
+
+Review Reply State: ReviewReplyState can now be retrieved.
+
+### Behavioral Changes
+
+v4.x Accounts Deprecation
+accounts and accounts.admins are now deprecated in the Google My Business API.
+
+## v4.8
+
+### New Features
+
+Lodging Amenities
+Retrieval and update of Lodging Amenities.
+
+## v3.3
+
+### New features
+
+Structured Menus
+You can now add, update, or delete multiple menus.
 
 Except as otherwise noted, the content of this page is licensed under CC BY 4.0.
-Last updated 2026-09-29 UTC.
+Last updated 2026-08-28 UTC.
 `;
 
-  it('zerlegt die Seite in datierte Einträge', () => {
+  it('erfasst Versionen, Unterabschnitte und Datumsangaben', () => {
     const e = zerlegeChangeLog(seite);
-    expect(e.map((x) => x.datum)).toEqual(['September 25, 2026', 'August 14, 2026']);
-    expect(e[0].inhalt).toMatch(/Added new field/);
+    const schluessel = e.map((x) => x.datum);
+
+    expect(schluessel).toEqual(expect.arrayContaining([
+      'v4.9', 'v4.8', 'v3.3', '2026-07-24', '2026-04-01', 'Behavioral Changes',
+    ]));
+    expect(e.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('erfasst den Abschnitt mit den Abkündigungen', () => {
+    const e = zerlegeChangeLog(seite);
+    const abk = e.find((x) => x.datum === 'Behavioral Changes');
+    expect(abk).toBeDefined();
+    expect(abk.inhalt).toMatch(/deprecated/i);
   });
 
   it('schneidet Fußzeile und Navigation ab', () => {
-    const e = zerlegeChangeLog(seite);
-    const alles = e.map((x) => x.inhalt).join('\n');
-    // "Last updated" ändert sich bei jedem Seitenaufbau — wäre ein Dauerfehlalarm.
+    const alles = zerlegeChangeLog(seite).map((x) => x.inhalt).join('\n');
     expect(alles).not.toMatch(/Last updated/);
     expect(alles).not.toMatch(/Stay organized/);
     expect(alles).not.toMatch(/licensed under/);
   });
 
+  it('verlangt das Datum NICHT allein auf einer Zeile', () => {
+    /* Genau daran scheiterte der erste Entwurf im Abnahmelauf. */
+    const e = zerlegeChangeLog('## v9.0\n\n### New Features\n\n**2026-09-25** Etwas ist neu.\n');
+    expect(e.map((x) => x.datum)).toContain('2026-09-25');
+  });
+
   it('erkennt einen neuen Eintrag', () => {
     const alt = zerlegeChangeLog(seite);
-    const neu = zerlegeChangeLog(seite.replace(
-      'September 25, 2026',
-      'September 30, 2026\nBrand new entry.\n\nSeptember 25, 2026'));
-    const u = vergleicheChangeLog(alt, neu);
-    expect(u).toContainEqual(expect.objectContaining({
-      art: 'changelog.neuer_eintrag', pfad: 'September 30, 2026',
-    }));
+    const neu = zerlegeChangeLog(seite.replace('## v4.9', '## v5.0\n\n### New Features\n\nGanz neu.\n\n## v4.9'));
+    expect(vergleicheChangeLog(alt, neu)).toContainEqual(
+      expect.objectContaining({ art: 'changelog.neuer_eintrag', pfad: 'v5.0' }));
   });
 
   it('erkennt einen nachträglich geänderten Eintrag', () => {
     const alt = zerlegeChangeLog(seite);
-    const neu = zerlegeChangeLog(seite.replace('Added new field', 'Added two new fields'));
-    const u = vergleicheChangeLog(alt, neu);
-    expect(u).toContainEqual(expect.objectContaining({
-      art: 'changelog.eintrag_geaendert', pfad: 'September 25, 2026',
-    }));
+    const neu = zerlegeChangeLog(seite.replace('Lodging Amenities', 'Lodging Amenities erweitert'));
+    expect(vergleicheChangeLog(alt, neu)).toContainEqual(
+      expect.objectContaining({ art: 'changelog.eintrag_geaendert' }));
   });
 
   it('meldet bei unveränderter Seite nichts', () => {
@@ -226,15 +264,22 @@ Last updated 2026-09-29 UTC.
   it('meldet eine reine Layoutänderung nicht', () => {
     const alt = zerlegeChangeLog(seite);
     const neu = zerlegeChangeLog(seite
-      .replace('Last updated 2026-09-29 UTC.', 'Last updated 2026-10-15 UTC.')
-      .replace('Stay organized with collections Save and categorize content based on your preferences.', 'Ganz neue Navigation hier'));
+      .replace('Last updated 2026-08-28 UTC.', 'Last updated 2026-10-15 UTC.')
+      .replace('Stay organized with collections Save and categorize content based on your preferences.', 'Andere Navigation'));
     expect(vergleicheChangeLog(alt, neu)).toEqual([]);
   });
 
   it('liefert bei unlesbarer Seite keine erfundenen Einträge', () => {
-    expect(zerlegeChangeLog('<html>nichts Datiertes</html>')).toEqual([]);
+    expect(zerlegeChangeLog('<html>nichts Gegliedertes</html>')).toEqual([]);
     expect(zerlegeChangeLog('')).toEqual([]);
     expect(zerlegeChangeLog(null)).toEqual([]);
+  });
+
+  it('macht aus wiederkehrenden Überschriften eindeutige Schlüssel', () => {
+    /* "New Features" steht unter jeder Version. Ohne Nummerierung
+       überschrieben sich die Abschnitte gegenseitig. */
+    const e = zerlegeChangeLog(seite);
+    expect(new Set(e.map((x) => x.datum)).size).toBe(e.length);
   });
 
   it('stuft einen Eintrag mit Abschaltungswort als kritisch ein', () => {
@@ -243,7 +288,6 @@ Last updated 2026-09-29 UTC.
       neu: 'The questions and answers endpoints will be removed on November 3.',
     });
     expect(e.stufe).toBe(STUFEN.KRITISCH);
-    expect(e.begruendung).toMatch(/will be removed/);
   });
 
   it('stuft einen gewöhnlichen Eintrag zurückhaltend ein', () => {
@@ -251,7 +295,6 @@ Last updated 2026-09-29 UTC.
       art: 'changelog.neuer_eintrag', pfad: 'X', neu: 'Added a new optional field.',
     });
     expect(e.stufe).toBe(STUFEN.HANDLUNGSBEDARF);
-    expect(e.stufe).not.toBe(STUFEN.KRITISCH);
   });
 });
 

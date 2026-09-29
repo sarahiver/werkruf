@@ -117,7 +117,15 @@ async function hole(url: string, alsText = false): Promise<
   try {
     const antwort = await fetch(url, {
       signal: abbruch.signal,
-      headers: { Accept: alsText ? 'text/html' : 'application/json' },
+      headers: {
+        Accept: alsText ? 'text/html,application/xhtml+xml' : 'application/json',
+        /* Ohne erkennbaren Absender liefert developers.google.com
+           gelegentlich eine andere Fassung der Seite aus — beim ersten
+           Abnahmelauf fand die Auswertung deshalb einmal 20 Eintraege
+           und Sekunden spaeter keinen einzigen. */
+        'User-Agent': 'WERKRUF-API-Monitor/1.0 (+https://werkruf.com; Betriebsueberwachung)',
+        'Accept-Language': 'en',
+      },
     });
     if (!antwort.ok) return { ok: false, fehler: `HTTP ${antwort.status}` };
     return { ok: true, inhalt: alsText ? await antwort.text() : await antwort.json() };
@@ -243,32 +251,51 @@ async function pruefeChangeLog(db: SupabaseClient, dryRun: boolean): Promise<Bef
 
   const eintraege = zerlegeChangeLog(text);
 
-  /* Keine datierten Eintraege gefunden heisst: Die Seite hat sich so
-     veraendert, dass die Auswertung nicht mehr greift. Das ist ein
-     Ausfall, KEINE API-Aenderung — sonst meldete ein Layoutumbau eine
-     vollstaendig geleerte Historie. */
-  if (eintraege.length === 0) {
+  const { data: bisher } = await db
+    .from('gbp_api_snapshots')
+    .select('inhalt')
+    .eq('quelle', CHANGELOG_QUELLE.id)
+    .maybeSingle();
+
+  const bisherigeAnzahl = Array.isArray(bisher?.inhalt) ? bisher.inhalt.length : 0;
+
+  /*
+   * Zwei Faelle gelten als AUSFALL, nicht als Aenderung:
+   *
+   *   1. Gar keine Eintraege — die Auswertung greift nicht mehr.
+   *   2. Ein Einbruch auf weniger als die Haelfte des bekannten
+   *      Umfangs. Google entfernt keine halbe Historie; das ist immer
+   *      ein Auswertungs- oder Auslieferungsproblem.
+   *
+   * Ohne (2) haette ein einzelner missglueckter Abruf gemeldet, dass
+   * zehn Change-Log-Abschnitte verschwunden sind — und der Schnappschuss
+   * waere mit dem Bruchstueck ueberschrieben worden.
+   */
+  const einbruch = bisherigeAnzahl >= 4 && eintraege.length < bisherigeAnzahl / 2;
+
+  if (eintraege.length === 0 || einbruch) {
     let zaehler = 0;
     if (!dryRun) {
       const { data } = await db.rpc('gbp_monitor_record_failure', {
         p_quelle: CHANGELOG_QUELLE.id, p_art: 'changelog',
         p_quell_url: CHANGELOG_QUELLE.url,
-        p_fehler: 'Keine datierten Eintraege gefunden — Seitenaufbau vermutlich geaendert',
+        p_fehler: eintraege.length === 0
+          ? `Keine Eintraege gefunden (${text.length} Zeichen geladen) — Seitenaufbau vermutlich geaendert`
+          : `Nur ${eintraege.length} statt bisher ${bisherigeAnzahl} Eintraege (${text.length} Zeichen) — unvollstaendige Auslieferung`,
       });
       zaehler = (data as number) ?? 0;
     }
-    log('warn', 'changelog_unlesbar', { fehlversuche: zaehler });
+    log('warn', 'changelog_unlesbar', {
+      gefunden: eintraege.length, bisher: bisherigeAnzahl,
+      zeichen: text.length, fehlversuche: zaehler,
+    });
     return { quelle: CHANGELOG_QUELLE.id, art: 'changelog', ergebnis: 'ausfall',
-             fehler: 'Keine datierten Eintraege gefunden', fehlversuche: zaehler };
+             fehler: `${eintraege.length} statt ${bisherigeAnzahl} Eintraege`,
+             fehlversuche: zaehler };
   }
 
   const summe = await pruefsumme(eintraege);
-
-  const { data: vorher } = await db
-    .from('gbp_api_snapshots')
-    .select('pruefsumme, inhalt')
-    .eq('quelle', CHANGELOG_QUELLE.id)
-    .maybeSingle();
+  const vorher = bisher;   /* oben bereits geladen */
 
   const unterschiede = vorher?.inhalt
     ? vergleicheChangeLog(vorher.inhalt as { datum: string; inhalt: string }[], eintraege)
