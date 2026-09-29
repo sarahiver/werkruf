@@ -294,21 +294,44 @@ async function main() {
 }
 
 function alsMarkdown(ergebnis) {
+  const geprueft   = ergebnis.apis.filter((a) => a.erreichbar);
+  const ungeprueft = ergebnis.apis.filter((a) => !a.erreichbar);
+
   const zeilen = [
     '# Google-Business-Profile-APIs — Bestandsaufnahme',
     '',
     '> Erzeugt von `scripts/google-api-inventory.mjs`. **Nicht von Hand bearbeiten.**',
+    '> Die kuratierte Fassung liegt in `docs/google-api-inventory.md`.',
     `> Stand: ${ergebnis.erstelltAm}`,
     '',
+    `**${geprueft.length} von ${ergebnis.apis.length} Quellen geprüft.**`,
+    '',
+  ];
+
+  if (ungeprueft.length > 0) {
+    zeilen.push(
+      '> **Ungeprüft:** ' + ungeprueft.map((a) => `\`${a.id}\` (${a.fehler})`).join(', '),
+      '>',
+      '> Ein Abrufversagen sagt NICHTS darüber aus, ob die API im',
+      '> Google-Cloud-Projekt aktiviert ist. Discovery-Dokumente sind',
+      '> öffentlich und unabhängig von der Projektfreigabe. Ein HTTP 403',
+      '> kann auch von einem Egress-Proxy der ausführenden Umgebung',
+      '> stammen.',
+      '',
+    );
+  }
+
+  zeilen.push(
     '## Überblick',
     '',
-    '| API | erreichbar | Revision | Methoden | davon schreibend | in WERKRUF | Felder |',
+    '',
+    '| API | Spezifikation abrufbar | Revision | Methoden | davon schreibend | in WERKRUF | Felder |',
     '|---|---|---|---|---|---|---|',
-  ];
+  );
 
   for (const a of ergebnis.apis) {
     if (!a.erreichbar) {
-      zeilen.push(`| ${a.titel} | **nein** — ${a.fehler} | — | — | — | — | — |`);
+      zeilen.push(`| ${a.titel} | **UNGEPRÜFT** (${a.fehler}) | — | — | — | — | — |`);
       continue;
     }
     const schreibend = a.methoden.filter((m) => m.schreibend).length;
@@ -339,6 +362,14 @@ function alsMarkdown(ergebnis) {
       zeilen.push(`| ${f.schema} | \`${f.feld}\` | ${f.typ} | ${f.schreibbar ? 'ja' : '—'} | ${f.deprecated ? '**ja**' : '—'} | ${f.enumWerte || '—'} |`);
     }
   }
+
+  zeilen.push('', '---', '',
+    '## Was dieser Bericht NICHT aussagt', '',
+    'Er prüft ausschließlich die **öffentlichen Spezifikationen**. Er sagt nichts darüber,',
+    'ob eine API im Google-Cloud-Projekt aktiviert ist, ob eine Quota vergeben wurde oder',
+    'ob ein Aufruf mit echtem Token funktioniert. Das beantwortet nur die Cloud Console',
+    'oder ein authentifizierter Funktionstest — siehe `docs/google-api-inventory.md`,',
+    'Abschnitt „Google-Cloud-Freigaben".');
 
   return zeilen.join('\n') + '\n';
 }
