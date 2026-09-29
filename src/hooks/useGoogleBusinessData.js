@@ -218,27 +218,75 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       body: JSON.stringify({ locationId }),
     });
     if (!response.ok) throw new Error('Der Betrieb konnte nicht ausgewählt werden.');
-    await triggerSync(locationId).catch(() => null);
+
+    /* Der Bewertungs-Sync gilt genau diesem Betrieb — kein
+       Standortimport über alle Unternehmen.
+
+       Der Fehler wird NICHT mehr verschluckt: Vorher stand hier
+       .catch(() => null), und ein abgelehntes Einreihen blieb
+       unsichtbar. Die Auswahl selbst ist zu diesem Zeitpunkt bereits
+       serverseitig gespeichert, deshalb wird sie nicht zurückgerollt —
+       der Aufrufer erfährt aber, dass der Abgleich nicht angelaufen
+       ist. */
+    let syncError = null;
+    try {
+      await triggerSync(locationId);
+    } catch (err) {
+      syncError = err;
+    }
+
     await load();
+    if (syncError) {
+      throw Object.assign(
+        new Error('Der Betrieb wurde ausgewählt, der Abgleich konnte aber nicht gestartet werden.'),
+        { selectionPersisted: true, cause: syncError },
+      );
+    }
   }, [load, triggerSync]);
 
-  /* Zuletzt erfolgreich synchronisiert — über alle Standorte der
-     ÄLTESTE Zeitpunkt, nicht der neueste. Sonst sähe alles frisch aus,
-     solange ein einziger Standort läuft. */
-  const lastSyncedAt = locations.length > 0
-    ? locations.reduce((oldest, l) => {
-        if (!l.last_synced_at) return null;
-        if (oldest === null) return null;
-        return !oldest || l.last_synced_at < oldest ? l.last_synced_at : oldest;
-      }, locations[0].last_synced_at)
-    : null;
+  /* Zuletzt erfolgreich synchronisiert.
+
+     Ist ein Betrieb ausgewählt, zählt ausschließlich dessen Zeitpunkt.
+     Vorher wurde über ALLE Standorte der älteste genommen — bei zwei
+     Betrieben zeigte das Dashboard dann den Stand des jeweils anderen.
+
+     Ohne Auswahl bleibt es beim ältesten: Sonst sähe alles frisch aus,
+     solange ein einziger Standort aktuell ist. */
+  const auswahl = locations.find((l) => l.selected_at) ?? null;
+
+  const lastSyncedAt = auswahl
+    ? auswahl.last_synced_at ?? null
+    : locations.length > 0
+      ? locations.reduce((oldest, l) => {
+          if (!l.last_synced_at) return null;
+          if (oldest === null) return null;
+          return !oldest || l.last_synced_at < oldest ? l.last_synced_at : oldest;
+        }, locations[0].last_synced_at)
+      : null;
+
+  /* Jobs liegen absteigend nach created_at vor und sind bei getroffener
+     Auswahl bereits auf deren location_id gefiltert (siehe oben).
+     syncJobs[0] ist damit der jüngste Job dieses Betriebs. */
+  const latestJob = syncJobs[0] ?? null;
 
   const runningJob = syncJobs.find((j) => j.status === 'running' || j.status === 'queued') ?? null;
-  const lastFailedJob = syncJobs.find((j) => j.status === 'failed') ?? null;
+
+  /* NUR wenn der jüngste Job gescheitert ist, beschreibt das den
+     aktuellen Zustand.
+
+     Vorher stand hier find(status === 'failed') über die ganze Liste:
+     Ein Fehlschlag von vor drei Wochen verdrängte damit jeden späteren
+     Erfolg, und das Dashboard meldete dauerhaft einen Fehler, den es
+     nicht mehr gab. */
+  const lastFailedJob = latestJob?.status === 'failed' ? latestJob : null;
+
+  /* Für die Betriebshistorie: alle Fehlschläge bleiben abrufbar, ohne
+     die aktuelle Anzeige zu verfälschen. */
+  const failedJobHistory = syncJobs.filter((j) => j.status === 'failed');
 
   return {
     locations, stats, syncJobs, replyCounts,
-    lastSyncedAt, runningJob, lastFailedJob,
+    lastSyncedAt, latestJob, runningJob, lastFailedJob, failedJobHistory,
     loading, error,
     reload: load,
     triggerSync, updateLocation, selectLocation,

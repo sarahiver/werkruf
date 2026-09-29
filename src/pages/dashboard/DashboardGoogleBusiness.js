@@ -30,12 +30,33 @@ const LocationGrid = styled.div`
 `;
 
 const LocationCard = styled(Card)`
+  border-color: ${p => p.$active ? 'var(--color-accent)' : 'var(--color-border)'};
+  border-width: ${p => p.$active ? '2px' : '1px'};
+  border-style: solid;
   display: flex; flex-direction: column; gap: 10px;
   ${({ $primary }) => $primary && 'border-left: 3px solid var(--color-accent);'}
 `;
 
 const LocationHead = styled.div`
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+`;
+
+const HistorieZeile = styled.p`
+  font-family: var(--font-body); font-size: .76rem;
+  color: var(--color-text-muted); line-height: 1.55;
+  margin: 10px 0 0; padding-left: 2px;
+`;
+
+const AktivMarke = styled.span`
+  display: inline-block; margin-left: 8px; vertical-align: 2px;
+  background: var(--color-accent); color: #fff;
+  font-size: .64rem; font-weight: 800; letter-spacing: .5px;
+  text-transform: uppercase; border-radius: 3px; padding: 2px 6px;
+`;
+
+const AktivHinweis = styled.p`
+  display: flex; align-items: center; gap: 6px; margin: 10px 0 0;
+  font-size: .78rem; font-weight: 700; color: #1E7E34;
 `;
 
 const LocationName = styled.p`
@@ -133,8 +154,8 @@ export default function DashboardGoogleBusiness() {
   const googleBusiness = useGoogleBusiness();
   const { isConnected, loading: connectionLoading } = googleBusiness;
   const {
-    locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
-    loading, error, reload, triggerSync, updateLocation, selectLocation,
+    locations, stats, replyCounts, lastSyncedAt, latestJob, runningJob, lastFailedJob,
+    failedJobHistory, loading, error, reload, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
@@ -166,6 +187,27 @@ export default function DashboardGoogleBusiness() {
     return () => window.clearInterval(timer);
   }, [isConnected, locations.length, lastFailedJob, reload]);
 
+  /* Nach dem Start eines Abgleichs den Status nachladen, bis ein
+     endgültiges Ergebnis vorliegt.
+
+     Beendet wird das Polling, sobald kein Job mehr queued oder running
+     ist — dann steht succeeded oder failed fest — oder nach zwei
+     Minuten. Ein fehlender Worker darf den Browser nicht endlos
+     nachfragen lassen. */
+  React.useEffect(() => {
+    if (!runningJob?.id) return undefined;
+    let polls = 0;
+    const timer = window.setInterval(() => {
+      polls += 1;
+      reload();
+      if (polls >= 40) {
+        window.clearInterval(timer);
+        setSyncError('Der Abgleich dauert ungewöhnlich lange. Sieh in ein paar Minuten erneut nach.');
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [runningJob?.id, reload]);
+
   /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
      Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
   const persistedSelection = locations.find((location) => location.selected_at)?.id ?? '';
@@ -182,14 +224,32 @@ export default function DashboardGoogleBusiness() {
    * ausgegraut, wenn man ihn am dringendsten braucht: frisch
    * verbunden, noch keine Standorte da.
    */
-  const handleSyncAll = async () => {
+  /*
+   * Abgleich anstossen.
+   *
+   * Drei Faelle, in dieser Reihenfolge:
+   *   keine Standorte  → Standortimport, um die verwaltbaren Betriebe
+   *                      erst einmal aus Google zu holen
+   *   Betrieb gewaehlt → Bewertungs-Sync AUSSCHLIESSLICH fuer dessen
+   *                      location_id
+   *   nichts gewaehlt  → Hinweis statt Sammelabgleich
+   *
+   * Vorher lief hier Promise.all ueber alle Standorte. Bei zwei
+   * Betrieben verbrauchte ein Klick doppelt Google-Quota und
+   * aktualisierte auch den Betrieb, den der Nutzer gerade nicht
+   * ansieht.
+   */
+  const handleSync = async () => {
     setSyncing(true);
     setSyncError(null);
     try {
       if (locations.length === 0) {
         await triggerSync(null);
+      } else if (selectedLocation) {
+        await triggerSync(selectedLocation);
       } else {
-        await Promise.all(locations.map((l) => triggerSync(l.id)));
+        setSyncError('Bitte wähle zuerst den Betrieb, den du abgleichen möchtest.');
+        return;
       }
       await reload();
     } catch (err) {
@@ -207,6 +267,10 @@ export default function DashboardGoogleBusiness() {
       await selectLocation(locationId);
       setSelectedLocation(locationId);
     } catch (err) {
+      /* selectionPersisted heisst: Der Wechsel hat geklappt, nur der
+         Abgleich lief nicht an. Die Auswahl darf dann nicht
+         zurueckspringen. */
+      if (err?.selectionPersisted) setSelectedLocation(locationId);
       setSyncError(err.message || 'Der Betrieb konnte nicht ausgewählt werden.');
     } finally {
       setSyncing(false);
@@ -237,9 +301,14 @@ export default function DashboardGoogleBusiness() {
 
   const scopedStats = selectedLocation ? stats : null;
 
-  const syncState = lastFailedJob ? 'error'
-    : runningJob ? 'running'
+  /* Der juengste Job des ausgewaehlten Betriebs bestimmt den Zustand.
+     lastFailedJob ist seit dem 29.09. nur noch gesetzt, wenn der
+     juengste Job gescheitert ist — ein alter Fehlschlag verdraengt
+     keinen spaeteren Erfolg mehr. */
+  const syncState = runningJob ? 'running'
+    : lastFailedJob ? 'error'
     : lastSyncedAt ? 'ok'
+    : latestJob?.status === 'succeeded' ? 'ok'
     : 'never';
 
   return (
@@ -249,23 +318,39 @@ export default function DashboardGoogleBusiness() {
 
       <GoogleBusinessConnect googleBusiness={googleBusiness} />
 
-      {!loading && locations.length > 0 && !locations.some((location) => location.selected_at) && (
+      {/* Dauerhaft erreichbar, nicht nur bis zur ersten Auswahl.
+          Ein Google-Konto kann mehrere Unternehmen verwalten; wer
+          wechseln will, muss das jederzeit koennen. */}
+      {!loading && locations.length > 0 && (
         <Card>
-          <SectionTitle>Verwalteten Betrieb auswählen</SectionTitle>
+          <SectionTitle>
+            {locations.length > 1 ? 'Betrieb auswählen' : 'Verwalteter Betrieb'}
+          </SectionTitle>
           <PageSub>
-            Google hat diese Betriebe für dein autorisiertes Konto zurückgegeben.
-            Wähle den Betrieb, den du mit WERKRUF verwalten möchtest.
+            {selectedLocation
+              ? 'Alle Kennzahlen, Bewertungen und Aufgaben unten beziehen sich auf den ausgewählten Betrieb. Du kannst jederzeit wechseln.'
+              : 'Google hat diese Betriebe für dein autorisiertes Konto zurückgegeben. Wähle den Betrieb, den du mit WERKRUF verwalten möchtest.'}
           </PageSub>
           <LocationGrid>
-            {locations.map((location) => (
-              <LocationCard key={location.id}>
-                <LocationName>{location.title || 'Betrieb ohne Namen'}</LocationName>
-                <LocationMeta><MapPin size={13}/>{location.locality || 'Ort nicht angegeben'}</LocationMeta>
-                <GhostBtn onClick={() => handleSelectLocation(location.id)} disabled={syncing}>
-                  {syncing ? <Spinner size={14}/> : <>Diesen Betrieb auswählen <ArrowRight size={14}/></>}
-                </GhostBtn>
-              </LocationCard>
-            ))}
+            {locations.map((location) => {
+              const aktiv = location.id === selectedLocation;
+              return (
+                <LocationCard key={location.id} $active={aktiv}>
+                  <LocationName>
+                    {location.title || 'Betrieb ohne Namen'}
+                    {aktiv && <AktivMarke>ausgewählt</AktivMarke>}
+                  </LocationName>
+                  <LocationMeta><MapPin size={13}/>{location.locality || 'Ort nicht angegeben'}</LocationMeta>
+                  {aktiv ? (
+                    <AktivHinweis><CheckCircle size={13}/>Wird gerade verwaltet</AktivHinweis>
+                  ) : (
+                    <GhostBtn onClick={() => handleSelectLocation(location.id)} disabled={syncing}>
+                      {syncing ? <Spinner size={14}/> : <>Zu diesem Betrieb wechseln <ArrowRight size={14}/></>}
+                    </GhostBtn>
+                  )}
+                </LocationCard>
+              );
+            })}
           </LocationGrid>
         </Card>
       )}
@@ -370,10 +455,23 @@ export default function DashboardGoogleBusiness() {
                 </SyncText>
               </SyncInfo>
 
-              <GhostBtn onClick={handleSyncAll} disabled={syncing}>
+              <GhostBtn onClick={handleSync} disabled={syncing}>
                 {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
               </GhostBtn>
             </SyncBar>
+          )}
+
+          {/* Historie. Fruehere Fehlschlaege bleiben sichtbar, bestimmen
+              aber nicht mehr den aktuellen Zustand — genau das war der
+              Fehler: Ein Fehlversuch von vor Wochen meldete dauerhaft
+              einen Fehler, den es nicht mehr gab. */}
+          {syncState !== 'error' && failedJobHistory.length > 0 && (
+            <HistorieZeile>
+              {failedJobHistory.length === 1
+                ? 'Ein früherer Abgleich war fehlgeschlagen'
+                : `${failedJobHistory.length} frühere Abgleiche waren fehlgeschlagen`}
+              {' — '}zuletzt {formatRelative(failedJobHistory[0].created_at)}. Der aktuelle Stand ist davon nicht betroffen.
+            </HistorieZeile>
           )}
 
           {/* ── STANDORTE ── */}
@@ -385,7 +483,7 @@ export default function DashboardGoogleBusiness() {
                 title="Noch keine Standorte"
                 text="Die Standorte werden beim ersten Abgleich aus deinem Google-Profil übernommen. Das kann einen Moment dauern."
                 action={
-                  <GhostBtn onClick={handleSyncAll} disabled={syncing}>
+                  <GhostBtn onClick={handleSync} disabled={syncing}>
                     {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
                   </GhostBtn>
                 }

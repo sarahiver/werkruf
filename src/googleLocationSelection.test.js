@@ -17,8 +17,27 @@ describe('authorised Google location selection', () => {
 
   it('imports locations and asks the customer to select from them', () => {
     expect(dashboard).toMatch(/triggerSync\(null\)/);
-    expect(dashboard).toMatch(/Verwalteten Betrieb auswählen/);
+    /* Die Ueberschrift ist seit dem 29.09. abhaengig von der Anzahl:
+       bei mehreren Betrieben 'Betrieb auswählen', bei genau einem
+       'Verwalteter Betrieb'. Die Auswahl selbst ist jetzt dauerhaft
+       erreichbar und nicht mehr an !selected_at gebunden. */
+    expect(dashboard).toMatch(/Betrieb auswählen/);
+    expect(dashboard).toMatch(/Verwalteter Betrieb/);
     expect(dashboard).toMatch(/handleSelectLocation\(location\.id\)/);
+  });
+
+  it('keeps the location switcher reachable after a business was chosen', () => {
+    /* Der Fehler: Die Karte hing an !locations.some(l => l.selected_at)
+       und verschwand nach der ersten Auswahl — ein Wechsel war dann
+       unmoeglich. */
+    expect(dashboard).not.toMatch(/!locations\.some\(\(location\) => location\.selected_at\)/);
+  });
+
+  it('syncs only the selected business, not every imported one', () => {
+    /* Vorher: Promise.all(locations.map(l => triggerSync(l.id))) —
+       ein Klick verbrauchte doppelt Google-Quota. */
+    expect(dashboard).not.toMatch(/Promise\.all\(locations\.map/);
+    expect(dashboard).toMatch(/triggerSync\(selectedLocation\)/);
   });
 
   it('selects only a location belonging to the authenticated account', () => {
