@@ -43,6 +43,12 @@ verify_jwt = false
 # Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).
 verify_jwt = false
 
+[functions.gbp-api-monitor]
+# Aufruf von pg_cron. Schutz: X-Worker-Secret.
+# Liest ausschliesslich oeffentliche Google-Dokumente, ruft keine
+# Google-API im Namen des Projekts auf und veraendert keine Kundendaten.
+verify_jwt = false
+
 [functions.ops-alert]
 # Aufruf von pg_cron. Schutz: X-Worker-Secret.
 # Bewusst eigenstaendig statt als Route in send-email: ein Alarm, der
