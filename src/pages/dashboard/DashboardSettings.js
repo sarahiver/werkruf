@@ -5,6 +5,7 @@ import {
   AlertTriangle, Loader
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
+import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
@@ -124,11 +125,18 @@ const InfoValue = styled.p`
   font-size: .9rem; color: var(--color-primary);
 `;
 
+const InfoHinweis = styled.p`
+  font-family: var(--font-body); font-size: .72rem; line-height: 1.45;
+  color: var(--color-text-muted); margin: 3px 0 0;
+`;
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
 export default function DashboardSettings() {
   const { user, profile }     = useAuthContext();
+  /* Google-Name vor Registrierungsname — siehe hooks/useBetriebsname.js. */
+  const { googleName }        = useBetriebsname();
   const { brand, pricing }    = useIndustry();
   const [portalLoading, setPortalLoading] = useState(false);
 
@@ -340,10 +348,23 @@ export default function DashboardSettings() {
             <InfoLabel>E-Mail</InfoLabel>
             <InfoValue>{user?.email || '—'}</InfoValue>
           </InfoItem>
+          {/* Beide Namen, jeder mit seiner Herkunft.
+              Sie weichen bei Handwerksbetrieben oft voneinander ab —
+              „Firma Rolf Müller Sanitär und Heizungstechnik" im
+              Gewerbeschein, „Sanitär Müller" bei Google. Nur einen zu
+              zeigen, führte zu der Verwechslung vom 29.09. */}
           <InfoItem>
-            <InfoLabel>Betrieb</InfoLabel>
+            <InfoLabel>Rechnungsname</InfoLabel>
             <InfoValue>{profile?.company_name || '—'}</InfoValue>
+            <InfoHinweis>Für Rechnungen und Anrede. Nicht öffentlich.</InfoHinweis>
           </InfoItem>
+          {googleName && (
+            <InfoItem>
+              <InfoLabel>Google-Unternehmensprofil</InfoLabel>
+              <InfoValue>{googleName}</InfoValue>
+              <InfoHinweis>Dieser Name steht im Dashboard und ist der, den Kunden sehen.</InfoHinweis>
+            </InfoItem>
+          )}
           <InfoItem>
             <InfoLabel>Stadt</InfoLabel>
             <InfoValue>{profile?.city || '—'}</InfoValue>

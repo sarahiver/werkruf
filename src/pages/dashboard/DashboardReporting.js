@@ -3,6 +3,7 @@ import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import { FileText } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
+import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { FahrplanDownloadButton } from '../../templates/FahrplanPDF';
 
@@ -78,7 +79,10 @@ const ComingSoonBadge = styled.span`
 export default function DashboardReporting() {
   const { profile } = useAuthContext();
   const industry     = useIndustry();
-  const companyName  = profile?.company_name;
+  /* Der Google-Name gewinnt, sobald ein Betrieb ausgewaehlt ist — das
+     ist der Name, den Kunden auf Maps sehen. company_name bleibt der
+     Rechnungsname. Siehe hooks/useBetriebsname.js. */
+  const { name: companyName } = useBetriebsname();
 
   return (
     <ProGate feature="Reporting">

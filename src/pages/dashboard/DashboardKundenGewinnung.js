@@ -4,6 +4,7 @@ import styled, { keyframes } from 'styled-components';
 import { QRCodeSVG } from 'qrcode.react';
 import { Copy, CheckCheck, Download, Star, ExternalLink, Smartphone } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
+import { useBetriebsname } from '../../hooks/useBetriebsname';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -152,7 +153,11 @@ export default function DashboardKundenGewinnung() {
   const qrRef = useRef(null);
 
   const placeId     = profile?.google_place_id;
-  const companyName = profile?.company_name || 'Dein Betrieb';
+  /* Der Google-Name gewinnt, sobald ein Betrieb ausgewaehlt ist — das
+     ist der Name, den Kunden auf Maps sehen. company_name bleibt der
+     Rechnungsname. Siehe hooks/useBetriebsname.js. */
+  const { name } = useBetriebsname();
+  const companyName = name || 'Dein Betrieb';
   const reviewUrl   = placeId
     ? `https://search.google.com/local/writereview?placeid=${placeId}`
     : null;

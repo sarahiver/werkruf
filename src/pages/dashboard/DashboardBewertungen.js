@@ -5,6 +5,7 @@ import {
   Copy, RotateCcw, Filter, ShieldAlert,
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
+import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { useReviews } from '../../hooks/useReviews';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
@@ -131,6 +132,8 @@ const MAX_REPLY_CHARS = 4096;
 
 export default function DashboardBewertungen() {
   const { profile } = useAuthContext();
+  /* Google-Name vor Registrierungsname — siehe hooks/useBetriebsname.js. */
+  const { name: betriebsname } = useBetriebsname();
   const { brand } = useIndustry();
   const { locations } = useGoogleBusinessData();
 
@@ -153,7 +156,7 @@ export default function DashboardBewertungen() {
   useEffect(() => { setEdits({}); }, [page]);
 
   const facts = {
-    companyName:  profile?.company_name || brand.name,
+    companyName:  betriebsname || brand.name,
     industry:     profile?.trade || undefined,
     contactEmail: profile?.email || undefined,
     contactPhone: profile?.phone || undefined,

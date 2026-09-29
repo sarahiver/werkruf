@@ -6,6 +6,7 @@ import {
   RefreshCw, Activity, TrendingUp, Star, MessageSquare,
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
+import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { useDashboardBriefing } from '../../hooks/useDashboardBriefing';
 import { useHealthScore } from '../../hooks/useHealthScore';
@@ -74,7 +75,10 @@ export default function DashboardHome() {
   const health = useHealthScore({ stats, locations, replyCounts, loading });
 
   const firstName = (profile?.full_name || '').split(' ')[0];
-  const company   = profile?.company_name;
+  /* Der Google-Name gewinnt, sobald ein Betrieb ausgewaehlt ist — das
+     ist der Name, den Kunden auf Maps sehen. company_name bleibt der
+     Rechnungsname. Siehe hooks/useBetriebsname.js. */
+  const { name: company } = useBetriebsname();
 
   if (error) {
     return (
