@@ -256,8 +256,19 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       body: JSON.stringify({ locationId, changes }),
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(payload?.error?.message || 'Google konnte die Änderung nicht übernehmen.');
-    await load();
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(payload?.error?.message || 'Google konnte die Änderung nicht übernehmen.'),
+        { code: payload?.error?.code ?? `http_${response.status}` },
+      );
+    }
+
+    /* Still nachladen statt load().
+       load() setzt loading = true, die Seite wird durch Skeletons
+       ersetzt, und der Editor verliert dabei seinen lokalen Zustand —
+       samt der gerade erschienenen Rueckmeldung. Das Formular bleibt
+       jetzt eingebunden. */
+    await load({ silent: true });
     return payload;
   }, [load]);
 
