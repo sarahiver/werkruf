@@ -1,0 +1,60 @@
+name: API-Inventur erzeugen
+
+# Startet nur von Hand: Actions → "API-Inventur erzeugen" → Run workflow.
+#
+# Warum ein Workflow und kein lokaler Aufruf: Das Skript braucht
+# ausgehenden Zugriff auf *.googleapis.com. GitHub-Runner haben den,
+# die Entwicklungsumgebung hier nicht.
+#
+# Der Lauf ruft ausschliesslich oeffentliche, unauthentifizierte
+# Discovery-Dokumente ab. Keine Secrets, keine Kundendaten, keine
+# Schreibzugriffe bei Google.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Ergebnis committen (aus = nur anzeigen)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  inventur:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Erreichbarkeit der Quellen pruefen
+        # Eigener Schritt, damit im Protokoll sofort sichtbar ist,
+        # welche Quelle ausfaellt. Schlaegt bewusst nicht fehl — eine
+        # unerreichbare Quelle ist ein Befund, kein Abbruchgrund.
+        run: node scripts/google-api-inventory.mjs --check || true
+
+      - name: Inventur erzeugen
+        run: node scripts/google-api-inventory.mjs
+
+      - name: Umfang anzeigen
+        run: |
+          echo "── Ueberblick ──"
+          sed -n '/^| API |/,/^$/p' docs/google-api-inventory.generated.md || true
+          echo
+          echo "Zeilen: $(wc -l < docs/google-api-inventory.generated.md)"
+          echo "JSON:   $(wc -c < docs/google-api-inventory.generated.json) Bytes"
+
+      - name: Committen
+        if: ${{ inputs.commit }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/google-api-inventory.generated.json docs/google-api-inventory.generated.md
+          git commit -m "API-Inventur aktualisiert ($(date -u +%Y-%m-%d))" \
+            || echo "keine Aenderung"
+          git push
