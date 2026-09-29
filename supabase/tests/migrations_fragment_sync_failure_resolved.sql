@@ -48,4 +48,3 @@ where j.attempts >= j.max_attempts
 
 comment on view public.ops_sync_failures is
   'Endgueltig gescheiterte Sync-Jobs mit Kennzeichnung, ob ein spaeterer Erfolg sie behoben hat. Historie bleibt vollstaendig.';
-

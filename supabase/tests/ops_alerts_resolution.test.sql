@@ -27,7 +27,11 @@ create table public.sync_jobs (
   updated_at   timestamptz not null default now()
 );
 
-\i ../migrations_fragment_sync_failure_resolved.sql
+-- Die zu pruefende Funktion, ausgeschnitten aus
+-- ../migrations/20260929140000_ops_alerts_resolved_failures.sql.
+-- Liegt daneben, damit der Test ohne cron-, net- und email_queue-
+-- Schema laeuft.
+\ir migrations_fragment_sync_failure_resolved.sql
 
 /* ── Feste Kennungen ── */
 \set kunde_a  '11111111-1111-1111-1111-111111111111'
