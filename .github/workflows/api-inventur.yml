@@ -3,18 +3,23 @@ name: API-Inventur erzeugen
 # Startet nur von Hand: Actions → "API-Inventur erzeugen" → Run workflow.
 #
 # Warum ein Workflow und kein lokaler Aufruf: Das Skript braucht
-# ausgehenden Zugriff auf *.googleapis.com. GitHub-Runner haben den,
-# die Entwicklungsumgebung hier nicht.
+# ausgehenden Zugriff auf *.googleapis.com. GitHub-Runner haben den.
 #
-# Der Lauf ruft ausschliesslich oeffentliche, unauthentifizierte
+# Der Lauf ruft ausschliesslich OEFFENTLICHE, unauthentifizierte
 # Discovery-Dokumente ab. Keine Secrets, keine Kundendaten, keine
 # Schreibzugriffe bei Google.
+#
+# WICHTIG: Der Lauf sagt nichts darueber aus, ob eine API im
+# Google-Cloud-Projekt aktiviert ist. Discovery-Dokumente sind
+# oeffentlich und unabhaengig von der Projektfreigabe. Diese Frage
+# beantwortet nur die Cloud Console oder ein authentifizierter
+# Funktionstest — siehe docs/google-api-inventory.md.
 
 on:
   workflow_dispatch:
     inputs:
       commit:
-        description: 'Ergebnis committen (aus = nur anzeigen)'
+        description: 'Ergebnis in das Repository committen'
         type: boolean
         default: true
 
@@ -32,22 +37,40 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Erreichbarkeit der Quellen pruefen
-        # Eigener Schritt, damit im Protokoll sofort sichtbar ist,
-        # welche Quelle ausfaellt. Schlaegt bewusst nicht fehl — eine
-        # unerreichbare Quelle ist ein Befund, kein Abbruchgrund.
+      - name: Erreichbarkeit der acht Quellen pruefen
+        # Eigener Schritt, damit im Protokoll je Quelle sichtbar ist,
+        # was passiert ist. Bricht bewusst NICHT ab: Eine nicht
+        # erreichbare Quelle ist ein Befund, kein Fehler — sie erscheint
+        # im Bericht als UNGEPRUEFT.
         run: node scripts/google-api-inventory.mjs --check || true
 
       - name: Inventur erzeugen
         run: node scripts/google-api-inventory.mjs
 
-      - name: Umfang anzeigen
+      - name: Zusammenfassung in die Laufuebersicht schreiben
+        # Erscheint direkt auf der Actions-Seite, ohne das Artefakt
+        # herunterladen zu muessen.
         run: |
-          echo "── Ueberblick ──"
-          sed -n '/^| API |/,/^$/p' docs/google-api-inventory.generated.md || true
-          echo
-          echo "Zeilen: $(wc -l < docs/google-api-inventory.generated.md)"
-          echo "JSON:   $(wc -c < docs/google-api-inventory.generated.json) Bytes"
+          {
+            sed -n '1,/^## Überblick$/p' docs/google-api-inventory.generated.md
+            sed -n '/^| API |/,/^$/p'    docs/google-api-inventory.generated.md
+            echo
+            echo "Bericht: $(wc -l < docs/google-api-inventory.generated.md) Zeilen"
+            echo "Daten:   $(wc -c < docs/google-api-inventory.generated.json) Bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bericht als Artefakt bereitstellen
+        uses: actions/upload-artifact@v4
+        # Auch bei einem Teilausfall hochladen — gerade dann ist der
+        # Bericht interessant, weil er zeigt, welche Quelle fehlte.
+        if: always()
+        with:
+          name: google-api-inventur
+          retention-days: 90
+          path: |
+            docs/google-api-inventory.generated.md
+            docs/google-api-inventory.generated.json
+            docs/google-api-inventory.md
 
       - name: Committen
         if: ${{ inputs.commit }}
