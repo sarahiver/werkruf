@@ -6,7 +6,7 @@
  */
 import {
   STUFEN, vergleicheSchema, stufeEin, hoechsteStufe,
-  zerlegeChangeLog, vergleicheChangeLog, stufeChangeLogEin, signatur,
+  zerlegeChangeLog, vergleicheChangeLog, stufeChangeLogEin, signatur, htmlZuText,
 } from '../../scripts/gbp-api-diff.mjs';
 
 /* crypto.subtle gibt es in Deno und im Supabase-Runtime von Haus aus,
@@ -168,133 +168,140 @@ describe('Einstufung', () => {
 });
 
 describe('Change-Log-Auswertung', () => {
-  /* Aufbau der echten Seite: Gliederung nach VERSIONEN, darin
-     Unterabschnitte, und nur bei den neuesten einzelne Datumsangaben.
-     Ein erster Entwurf suchte nur nach Datumszeilen und fand deshalb
-     sechs von über zwanzig Abschnitten — alles Ältere, samt der
-     Abkündigungen unter "Behavioral Changes", blieb unsichtbar. */
-  const seite = `
-Change Log
-Stay organized with collections Save and categorize content based on your preferences.
+  /*
+   * Die Vorlage ist HTML, nicht Markdown — und sie geht durch
+   * htmlZuText, also denselben Weg wie in der Edge Function.
+   *
+   * Warum das wichtig ist: Ein früherer Test schrieb die Vorlage in
+   * Markdown und der Zerleger verlangte Rauten (`## v4.9`). Aus HTML
+   * umgewandelter Text hat keine. Der Test war grün, und auf der echten
+   * Seite fand die Auswertung trotzdem keine einzige
+   * Versionsüberschrift — sechs von über zwanzig Abschnitten.
+   *
+   * Seitdem liegt die Umwandlung im geteilten Modul, und der Test
+   * beginnt bei HTML.
+   */
+  const HTML = `
+<html><head><title>Change Log</title></head><body>
+<nav><ul><li><a href="/x">Guides</a></li></ul></nav>
+<h1>Change Log</h1>
+<h2 id="v4.9">v4.9</h2>
+<h3>New Features</h3>
+<p><strong>2026-07-24</strong></p>
+<p><code>review_reply_url</code>: The reviewReplyUrl can now be retrieved.</p>
+<p><strong>2026-04-01</strong></p>
+<p><code>Review Reply State</code>: ReviewReplyState can now be retrieved.</p>
+<h3>Behavioral Changes</h3>
+<p>v4.x Accounts Deprecation</p>
+<p>accounts and accounts.admins are now deprecated in the Google My Business API.</p>
+<h2 id="v4.8">v4.8</h2>
+<h3>New Features</h3>
+<p>Lodging Amenities</p>
+<h2 id="v3.3">v3.3</h2>
+<h3>New features</h3>
+<p>Structured Menus</p>
+<p>Except as otherwise noted, the content of this page is licensed under CC BY 4.0.</p>
+<p>Last updated 2026-08-28 UTC.</p>
+<footer><p>Google Developers</p></footer>
+</body></html>`;
 
-## v4.9
+  const zerlege = (html) => zerlegeChangeLog(htmlZuText(html));
 
-### New Features
+  it('findet Versionsüberschriften in aus HTML gewonnenem Text', () => {
+    /* Genau das schlug auf der echten Seite fehl. */
+    const schluessel = zerlege(HTML).map((x) => x.datum);
+    expect(schluessel).toEqual(expect.arrayContaining(['v4.9', 'v4.8', 'v3.3']));
+  });
 
-2026-07-24
-
-review_reply_url: The reviewReplyUrl can now be retrieved.
-
-2026-04-01
-
-Review Reply State: ReviewReplyState can now be retrieved.
-
-### Behavioral Changes
-
-v4.x Accounts Deprecation
-accounts and accounts.admins are now deprecated in the Google My Business API.
-
-## v4.8
-
-### New Features
-
-Lodging Amenities
-Retrieval and update of Lodging Amenities.
-
-## v3.3
-
-### New features
-
-Structured Menus
-You can now add, update, or delete multiple menus.
-
-Except as otherwise noted, the content of this page is licensed under CC BY 4.0.
-Last updated 2026-08-28 UTC.
-`;
-
-  it('erfasst Versionen, Unterabschnitte und Datumsangaben', () => {
-    const e = zerlegeChangeLog(seite);
-    const schluessel = e.map((x) => x.datum);
-
-    expect(schluessel).toEqual(expect.arrayContaining([
+  it('erfasst Versionen, Unterabschnitte und Datumsangaben zusammen', () => {
+    const e = zerlege(HTML);
+    expect(e.map((x) => x.datum)).toEqual(expect.arrayContaining([
       'v4.9', 'v4.8', 'v3.3', '2026-07-24', '2026-04-01', 'Behavioral Changes',
     ]));
     expect(e.length).toBeGreaterThanOrEqual(8);
   });
 
   it('erfasst den Abschnitt mit den Abkündigungen', () => {
-    const e = zerlegeChangeLog(seite);
-    const abk = e.find((x) => x.datum === 'Behavioral Changes');
+    const abk = zerlege(HTML).find((x) => x.datum === 'Behavioral Changes');
     expect(abk).toBeDefined();
     expect(abk.inhalt).toMatch(/deprecated/i);
   });
 
-  it('schneidet Fußzeile und Navigation ab', () => {
-    const alles = zerlegeChangeLog(seite).map((x) => x.inhalt).join('\n');
+  it('lässt Navigation, Fußzeile und Lizenzhinweis draußen', () => {
+    const alles = zerlege(HTML).map((x) => x.inhalt).join('\n');
     expect(alles).not.toMatch(/Last updated/);
-    expect(alles).not.toMatch(/Stay organized/);
     expect(alles).not.toMatch(/licensed under/);
+    expect(alles).not.toMatch(/Guides/);
+    expect(alles).not.toMatch(/Google Developers/);
   });
 
-  it('verlangt das Datum NICHT allein auf einer Zeile', () => {
-    /* Genau daran scheiterte der erste Entwurf im Abnahmelauf. */
-    const e = zerlegeChangeLog('## v9.0\n\n### New Features\n\n**2026-09-25** Etwas ist neu.\n');
+  it('verlangt das Datum nicht allein auf einer Zeile', () => {
+    const e = zerlege('<h2>v9.0</h2><h3>New Features</h3><p><b>2026-09-25</b> Etwas ist neu.</p>');
     expect(e.map((x) => x.datum)).toContain('2026-09-25');
   });
 
-  it('erkennt einen neuen Eintrag', () => {
-    const alt = zerlegeChangeLog(seite);
-    const neu = zerlegeChangeLog(seite.replace('## v4.9', '## v5.0\n\n### New Features\n\nGanz neu.\n\n## v4.9'));
+  it('kommt auch mit Markdown-Rauten zurecht', () => {
+    /* Falls Google die Seite je anders ausliefert. */
+    const e = zerlegeChangeLog('## v9.0\n\n### New Features\n\n2026-09-25\n\nEtwas Neues.\n');
+    expect(e.map((x) => x.datum)).toEqual(expect.arrayContaining(['v9.0', '2026-09-25']));
+  });
+
+  it('hält eine Versionsnummer im Fließtext nicht für eine Überschrift', () => {
+    const e = zerlegeChangeLog('Irgendein Satz über v4.9 mitten im Text ohne Gliederung.');
+    expect(e.map((x) => x.datum)).not.toContain('v4.9');
+  });
+
+  it('erkennt einen neuen Abschnitt', () => {
+    const alt = zerlege(HTML);
+    const neu = zerlege(HTML.replace('<h2 id="v4.9">v4.9</h2>',
+      '<h2 id="v5.0">v5.0</h2><h3>New Features</h3><p>Ganz neu.</p><h2 id="v4.9">v4.9</h2>'));
     expect(vergleicheChangeLog(alt, neu)).toContainEqual(
       expect.objectContaining({ art: 'changelog.neuer_eintrag', pfad: 'v5.0' }));
   });
 
-  it('erkennt einen nachträglich geänderten Eintrag', () => {
-    const alt = zerlegeChangeLog(seite);
-    const neu = zerlegeChangeLog(seite.replace('Lodging Amenities', 'Lodging Amenities erweitert'));
+  it('erkennt einen nachträglich geänderten Abschnitt', () => {
+    const alt = zerlege(HTML);
+    const neu = zerlege(HTML.replace('Lodging Amenities', 'Lodging Amenities erweitert'));
     expect(vergleicheChangeLog(alt, neu)).toContainEqual(
       expect.objectContaining({ art: 'changelog.eintrag_geaendert' }));
   });
 
   it('meldet bei unveränderter Seite nichts', () => {
-    const e = zerlegeChangeLog(seite);
+    const e = zerlege(HTML);
     expect(vergleicheChangeLog(e, e)).toEqual([]);
   });
 
-  it('meldet eine reine Layoutänderung nicht', () => {
-    const alt = zerlegeChangeLog(seite);
-    const neu = zerlegeChangeLog(seite
+  it('meldet eine reine Layout- und Datumsänderung der Fußzeile nicht', () => {
+    const alt = zerlege(HTML);
+    const neu = zerlege(HTML
       .replace('Last updated 2026-08-28 UTC.', 'Last updated 2026-10-15 UTC.')
-      .replace('Stay organized with collections Save and categorize content based on your preferences.', 'Andere Navigation'));
+      .replace('<nav><ul><li><a href="/x">Guides</a></li></ul></nav>', '<nav><p>Andere Navigation</p></nav>'));
     expect(vergleicheChangeLog(alt, neu)).toEqual([]);
   });
 
   it('liefert bei unlesbarer Seite keine erfundenen Einträge', () => {
-    expect(zerlegeChangeLog('<html>nichts Gegliedertes</html>')).toEqual([]);
+    expect(zerlege('<html><body><p>nichts Gegliedertes</p></body></html>')).toEqual([]);
     expect(zerlegeChangeLog('')).toEqual([]);
     expect(zerlegeChangeLog(null)).toEqual([]);
+    expect(htmlZuText(null)).toBe('');
   });
 
   it('macht aus wiederkehrenden Überschriften eindeutige Schlüssel', () => {
-    /* "New Features" steht unter jeder Version. Ohne Nummerierung
-       überschrieben sich die Abschnitte gegenseitig. */
-    const e = zerlegeChangeLog(seite);
+    const e = zerlege(HTML);
     expect(new Set(e.map((x) => x.datum)).size).toBe(e.length);
   });
 
   it('stuft einen Eintrag mit Abschaltungswort als kritisch ein', () => {
-    const e = stufeChangeLogEin({
+    expect(stufeChangeLogEin({
       art: 'changelog.neuer_eintrag', pfad: 'X',
       neu: 'The questions and answers endpoints will be removed on November 3.',
-    });
-    expect(e.stufe).toBe(STUFEN.KRITISCH);
+    }).stufe).toBe(STUFEN.KRITISCH);
   });
 
   it('stuft einen gewöhnlichen Eintrag zurückhaltend ein', () => {
-    const e = stufeChangeLogEin({
+    expect(stufeChangeLogEin({
       art: 'changelog.neuer_eintrag', pfad: 'X', neu: 'Added a new optional field.',
-    });
-    expect(e.stufe).toBe(STUFEN.HANDLUNGSBEDARF);
+    }).stufe).toBe(STUFEN.HANDLUNGSBEDARF);
   });
 });
 

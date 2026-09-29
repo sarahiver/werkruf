@@ -232,6 +232,33 @@ export function hoechsteStufe(eingestufte) {
  * normalisierten Inhalt — so werden auch NACHTRAEGLICH veraenderte
  * Eintraege erkannt, nicht nur neue.
  */
+/**
+ * Wandelt die Change-Log-Seite in Text um.
+ *
+ * Liegt hier und nicht in der Edge Function, damit die Tests denselben
+ * Weg gehen wie der Produktivpfad. Vorher wandelte die Function um und
+ * der Test fuetterte den Zerleger mit von Hand geschriebenem Markdown —
+ * dadurch prueften sie Verschiedenes, und ein Muster, das Rauten
+ * verlangte, fiel nicht auf.
+ */
+export function htmlZuText(html) {
+  return String(html ?? '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    /* Ueberschriften und Bloecke werden zu eigenen Zeilen — daran
+       erkennt der Zerleger die Gliederung. */
+    .replace(/<\/(h[1-6]|p|li|tr|div|section|dt|dd)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 export function zerlegeChangeLog(text) {
   const bereinigt = String(text ?? '')
     /* Fusszeile und Rechtehinweis abschneiden — sie tragen ein Datum
@@ -258,7 +285,14 @@ export function zerlegeChangeLog(text) {
   const anker = [];
 
   /* Versionsueberschriften — die stabile Gliederung der Seite. */
-  for (const m of bereinigt.matchAll(/(?:^|\n)\s*#{1,4}\s*(v\d+(?:\.\d+)?)\b[^\n]*/gi)) {
+  /* Rauten OPTIONAL: Aus HTML umgewandelter Text hat keine. Ein
+     frueherer Entwurf verlangte sie und fand deshalb auf der echten
+     Seite keine einzige Versionsueberschrift — nur im
+     Markdown-Testbeispiel.
+
+     Dafuer muss die Version allein auf ihrer Zeile stehen, sonst
+     traefe jedes "v4" mitten im Fliesstext. */
+  for (const m of bereinigt.matchAll(/(?:^|\n)[ \t]*#{0,4}[ \t]*(v\d+(?:\.\d+)?)[ \t]*(?=\n|$)/gi)) {
     anker.push({ pos: m.index + m[0].length, schluessel: m[1].trim() });
   }
 
@@ -267,7 +301,8 @@ export function zerlegeChangeLog(text) {
      mittlere traegt die Abkuendigungen — ohne eigenen Anker landete
      sie im vorhergehenden Abschnitt und waere bei einer Aenderung
      schwerer zuzuordnen. */
-  for (const m of bereinigt.matchAll(/(?:^|\n)\s*#{2,4}\s*((?:New|Behaviou?ral|Backward|Deprecat)[^\n]{0,50})/gi)) {
+  for (const m of bereinigt.matchAll(
+    /(?:^|\n)[ \t]*#{0,4}[ \t]*((?:New Features?|New features?|Behaviou?ral? Changes?|Backward-incompatible changes?|Deprecated[^\n]{0,40}))[ \t]*(?=\n|$)/gi)) {
     anker.push({ pos: m.index + m[0].length, schluessel: m[1].trim() });
   }
 

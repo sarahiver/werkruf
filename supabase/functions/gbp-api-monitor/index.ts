@@ -48,7 +48,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { QUELLEN, normalisiere, pruefsumme } from '../../../scripts/gbp-api-schema.mjs';
 import {
   STUFEN, WERKRUF_HOSTS, vergleicheSchema, stufeEin, hoechsteStufe,
-  zerlegeChangeLog, vergleicheChangeLog, stufeChangeLogEin, signatur,
+  zerlegeChangeLog, vergleicheChangeLog, stufeChangeLogEin, signatur, htmlZuText,
 } from '../../../scripts/gbp-api-diff.mjs';
 import { pruefeWorkerSecret } from '../../../scripts/gbp-worker-auth.mjs';
 
@@ -236,18 +236,10 @@ async function pruefeChangeLog(db: SupabaseClient, dryRun: boolean): Promise<Bef
     return { quelle: CHANGELOG_QUELLE.id, art: 'changelog', ergebnis: 'ausfall', fehler: antwort.fehler, fehlversuche: zaehler };
   }
 
-  /* HTML zu Text — die Auswertung arbeitet bewusst auf dem Textinhalt,
-     nicht auf dem HTML-Baum. Klassennamen und Layout aendert Google
-     regelmaessig; jede solche Aenderung waere sonst ein Fehlalarm. */
-  const text = String(antwort.inhalt)
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-    .replace(/<\/(h[1-6]|p|li|tr|div)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+  /* Umwandlung im geteilten Modul — so pruefen die Tests denselben
+     Weg. Die Auswertung arbeitet auf dem Textinhalt, nicht auf dem
+     HTML-Baum: Klassennamen und Layout aendert Google regelmaessig. */
+  const text = htmlZuText(antwort.inhalt as string);
 
   const eintraege = zerlegeChangeLog(text);
 
