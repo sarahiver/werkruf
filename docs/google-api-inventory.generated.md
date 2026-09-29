@@ -2,56 +2,49 @@
 
 > Erzeugt von `scripts/google-api-inventory.mjs`. **Nicht von Hand bearbeiten.**
 > Die kuratierte Fassung liegt in `docs/google-api-inventory.md`.
-> Stand: 2026-09-29T11:06:54.417Z
+> Stand: 2026-09-29T11:28:22.120Z
 
-**7 von 8 Quellen geprüft.**
-
-> **Ungeprüft:** `mybusiness-v4` (HTTP 404)
->
-> Ein Abrufversagen sagt NICHTS darüber aus, ob die API im
-> Google-Cloud-Projekt aktiviert ist. Discovery-Dokumente sind
-> öffentlich und unabhängig von der Projektfreigabe. Ein HTTP 403
-> kann auch von einem Egress-Proxy der ausführenden Umgebung
-> stammen.
+**8 von 8 Quellen geprüft.**
 
 ## Überblick
 
 
-| API | Spezifikation abrufbar | Revision | Methoden | davon schreibend | in WERKRUF | Felder |
+| API | Spezifikation abrufbar | Revision | Methoden | davon schreibend | vermutlich in WERKRUF | Felder |
 |---|---|---|---|---|---|---|
-| My Business Business Information API | ja | 20260928 | 15 | 5 | 13 | 155 |
-| My Business Account Management API | ja | 20260928 | 16 | 11 | 15 | 43 |
-| Google My Business API v4 (Bewertungen, Medien, Beitraege) | **UNGEPRÜFT** (HTTP 404) | — | — | — | — | — |
-| My Business Place Actions API | ja | 20260928 | 6 | 3 | 6 | 14 |
-| My Business Notifications API | ja | 20260928 | 2 | 1 | 0 | 3 |
-| Business Profile Performance API | ja | 20260928 | 3 | 0 | 1 | 24 |
-| My Business Verifications API | ja | 20260928 | 6 | 4 | 3 | 56 |
-| My Business Lodging API | ja | 20260928 | 3 | 1 | 1 | 591 |
+| My Business Business Information API | ja | 20260928 | 15 | 5 | 3 | 155 |
+| My Business Account Management API | ja | 20260928 | 16 | 11 | 2 | 43 |
+| Google My Business API v4 (Bewertungen, Medien, Beitraege) | ja | 0 | 80 | 47 | 6 | 983 |
+| My Business Place Actions API | ja | 20260928 | 6 | 3 | **0** (Host nicht im Code) | 14 |
+| My Business Notifications API | ja | 20260928 | 2 | 1 | **0** (Host nicht im Code) | 3 |
+| Business Profile Performance API | ja | 20260928 | 3 | 0 | **0** (Host nicht im Code) | 24 |
+| My Business Verifications API | ja | 20260928 | 6 | 4 | **0** (Host nicht im Code) | 56 |
+| My Business Lodging API | ja | 20260928 | 3 | 1 | **0** (Host nicht im Code) | 591 |
 
 ## My Business Business Information API
 
 Discovery: https://mybusinessbusinessinformation.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/businessinformation/rest
+Dienst-Host: `mybusinessbusinessinformation.googleapis.com` — im WERKRUF-Code vorhanden
 Revision: `20260928` · Prüfsumme: `1695ead2c901dbd7…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
-| `accounts.locations.create` | POST | `v1/{+parent}/locations` | ja | — | ja |
-| `accounts.locations.list` | GET | `v1/{+parent}/locations` | — | — | ja |
-| `attributes.list` | GET | `v1/attributes` | — | — | ja |
+| `accounts.locations.create` | POST | `v1/{+parent}/locations` | ja | — | — |
+| `accounts.locations.list` | GET | `v1/{+parent}/locations` | — | — | — |
+| `attributes.list` | GET | `v1/attributes` | — | — | — |
 | `categories.batchGet` | GET | `v1/categories:batchGet` | — | — | — |
-| `categories.list` | GET | `v1/categories` | — | — | ja |
-| `chains.get` | GET | `v1/{+name}` | — | — | ja |
-| `chains.search` | GET | `v1/chains:search` | — | — | ja |
-| `googleLocations.search` | POST | `v1/googleLocations:search` | ja | — | ja |
+| `categories.list` | GET | `v1/categories` | — | — | — |
+| `chains.get` | GET | `v1/{+name}` | — | — | — |
+| `chains.search` | GET | `v1/chains:search` | — | — | — |
+| `googleLocations.search` | POST | `v1/googleLocations:search` | ja | — | — |
 | `locations.attributes.getGoogleUpdated` | GET | `v1/{+name}:getGoogleUpdated` | — | — | ja |
-| `locations.delete` | DELETE | `v1/{+name}` | ja | — | ja |
-| `locations.get` | GET | `v1/{+name}` | — | — | ja |
+| `locations.delete` | DELETE | `v1/{+name}` | ja | — | — |
+| `locations.get` | GET | `v1/{+name}` | — | — | — |
 | `locations.getAttributes` | GET | `v1/{+name}` | — | — | ja |
 | `locations.getGoogleUpdated` | GET | `v1/{+name}:getGoogleUpdated` | — | — | ja |
-| `locations.patch` | PATCH | `v1/{+name}` | ja | — | ja |
+| `locations.patch` | PATCH | `v1/{+name}` | ja | — | — |
 | `locations.updateAttributes` | PATCH | `v1/{+name}` | ja | — | — |
 
 ### Felder — 129 schreibbar, 26 nur lesbar, 1 veraltet
@@ -218,27 +211,28 @@ Revision: `20260928` · Prüfsumme: `1695ead2c901dbd7…`
 
 Discovery: https://mybusinessaccountmanagement.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/accountmanagement/rest
+Dienst-Host: `mybusinessaccountmanagement.googleapis.com` — im WERKRUF-Code vorhanden
 Revision: `20260928` · Prüfsumme: `99eadeae4cb26c73…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
-| `accounts.admins.create` | POST | `v1/{+parent}/admins` | ja | — | ja |
-| `accounts.admins.delete` | DELETE | `v1/{+name}` | ja | — | ja |
-| `accounts.admins.list` | GET | `v1/{+parent}/admins` | — | — | ja |
-| `accounts.admins.patch` | PATCH | `v1/{+name}` | ja | — | ja |
-| `accounts.create` | POST | `v1/accounts` | ja | — | ja |
-| `accounts.get` | GET | `v1/{+name}` | — | — | ja |
+| `accounts.admins.create` | POST | `v1/{+parent}/admins` | ja | — | — |
+| `accounts.admins.delete` | DELETE | `v1/{+name}` | ja | — | — |
+| `accounts.admins.list` | GET | `v1/{+parent}/admins` | — | — | — |
+| `accounts.admins.patch` | PATCH | `v1/{+name}` | ja | — | — |
+| `accounts.create` | POST | `v1/accounts` | ja | — | — |
+| `accounts.get` | GET | `v1/{+name}` | — | — | — |
 | `accounts.invitations.accept` | POST | `v1/{+name}:accept` | ja | — | ja |
 | `accounts.invitations.decline` | POST | `v1/{+name}:decline` | ja | — | ja |
-| `accounts.invitations.list` | GET | `v1/{+parent}/invitations` | — | — | ja |
-| `accounts.list` | GET | `v1/accounts` | — | — | ja |
-| `accounts.patch` | PATCH | `v1/{+name}` | ja | — | ja |
-| `locations.admins.create` | POST | `v1/{+parent}/admins` | ja | — | ja |
-| `locations.admins.delete` | DELETE | `v1/{+name}` | ja | — | ja |
-| `locations.admins.list` | GET | `v1/{+parent}/admins` | — | — | ja |
-| `locations.admins.patch` | PATCH | `v1/{+name}` | ja | — | ja |
+| `accounts.invitations.list` | GET | `v1/{+parent}/invitations` | — | — | — |
+| `accounts.list` | GET | `v1/accounts` | — | — | — |
+| `accounts.patch` | PATCH | `v1/{+name}` | ja | — | — |
+| `locations.admins.create` | POST | `v1/{+parent}/admins` | ja | — | — |
+| `locations.admins.delete` | DELETE | `v1/{+name}` | ja | — | — |
+| `locations.admins.list` | GET | `v1/{+parent}/admins` | — | — | — |
+| `locations.admins.patch` | PATCH | `v1/{+name}` | ja | — | — |
 | `locations.transfer` | POST | `v1/{+name}:transfer` | ja | — | — |
 
 ### Felder — 30 schreibbar, 13 nur lesbar, 0 veraltet
@@ -289,22 +283,1104 @@ Revision: `20260928` · Prüfsumme: `99eadeae4cb26c73…`
 | TargetLocation | `placeId` | string | — | — | — |
 | TransferLocationRequest | `destinationAccount` | string | ja | — | — |
 
+## Google My Business API v4 (Bewertungen, Medien, Beitraege)
+
+Discovery: https://developers.google.com/static/my-business/samples/mybusiness_google_rest_v4p9.json
+Ersatz für: https://mybusiness.googleapis.com/$discovery/rest?version=v4 — statische Beispieldatei, revision 0, aelter als die Referenz
+Dokumentation: https://developers.google.com/my-business/reference/rest
+Dienst-Host: `mybusiness.googleapis.com` — im WERKRUF-Code vorhanden
+Revision: `0` · Prüfsumme: `781227007ea2f26b…`
+
+### Methoden
+
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
+|---|---|---|---|---|---|
+| `accounts.admins.create` | POST | `v4/{+parent}/admins` | ja | — | — |
+| `accounts.admins.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.admins.list` | GET | `v4/{+parent}/admins` | — | — | — |
+| `accounts.admins.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.create` | POST | `v4/accounts` | ja | — | — |
+| `accounts.deleteNotifications` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.generateAccountNumber` | POST | `v4/{+name}:generateAccountNumber` | ja | — | — |
+| `accounts.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.getNotifications` | GET | `v4/{+name}` | — | — | — |
+| `accounts.invitations.accept` | POST | `v4/{+name}:accept` | ja | — | ja |
+| `accounts.invitations.decline` | POST | `v4/{+name}:decline` | ja | — | ja |
+| `accounts.invitations.list` | GET | `v4/{+parent}/invitations` | — | — | — |
+| `accounts.list` | GET | `v4/accounts` | — | — | — |
+| `accounts.listRecommendGoogleLocations` | GET | `v4/{+name}:recommendGoogleLocations` | — | — | — |
+| `accounts.locations.admins.create` | POST | `v4/{+parent}/admins` | ja | — | — |
+| `accounts.locations.admins.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.locations.admins.list` | GET | `v4/{+parent}/admins` | — | — | — |
+| `accounts.locations.admins.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.associate` | POST | `v4/{+name}:associate` | ja | — | — |
+| `accounts.locations.batchGet` | POST | `v4/{+name}/locations:batchGet` | ja | — | — |
+| `accounts.locations.batchGetReviews` | POST | `v4/{+name}/locations:batchGetReviews` | ja | — | — |
+| `accounts.locations.clearAssociation` | POST | `v4/{+name}:clearAssociation` | ja | — | — |
+| `accounts.locations.create` | POST | `v4/{+parent}/locations` | ja | — | — |
+| `accounts.locations.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.locations.fetchVerificationOptions` | POST | `v4/{+name}:fetchVerificationOptions` | ja | — | — |
+| `accounts.locations.findMatches` | POST | `v4/{+name}:findMatches` | ja | — | — |
+| `accounts.locations.followers.getMetadata` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.getFoodMenus` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.getGoogleUpdated` | GET | `v4/{+name}:googleUpdated` | — | — | ja |
+| `accounts.locations.getHealthProviderAttributes` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.getLodging` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.getServiceList` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.insuranceNetworks.list` | GET | `v4/{+parent}/insuranceNetworks` | — | — | — |
+| `accounts.locations.list` | GET | `v4/{+parent}/locations` | — | — | — |
+| `accounts.locations.localPosts.create` | POST | `v4/{+parent}/localPosts` | ja | — | — |
+| `accounts.locations.localPosts.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.locations.localPosts.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.localPosts.list` | GET | `v4/{+parent}/localPosts` | — | — | — |
+| `accounts.locations.localPosts.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.localPosts.reportInsights` | POST | `v4/{+name}/localPosts:reportInsights` | ja | — | — |
+| `accounts.locations.lodging.getGoogleUpdated` | GET | `v4/{+name}:getGoogleUpdated` | — | — | ja |
+| `accounts.locations.media.create` | POST | `v4/{+parent}/media` | ja | — | — |
+| `accounts.locations.media.customers.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.media.customers.list` | GET | `v4/{+parent}/media/customers` | — | — | — |
+| `accounts.locations.media.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.locations.media.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.media.list` | GET | `v4/{+parent}/media` | — | — | — |
+| `accounts.locations.media.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.media.startUpload` | POST | `v4/{+parent}/media:startUpload` | ja | — | — |
+| `accounts.locations.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.questions.answers.delete` | DELETE | `v4/{+parent}/answers:delete` | ja | — | — |
+| `accounts.locations.questions.answers.list` | GET | `v4/{+parent}/answers` | — | — | — |
+| `accounts.locations.questions.answers.upsert` | POST | `v4/{+parent}/answers:upsert` | ja | — | ja |
+| `accounts.locations.questions.create` | POST | `v4/{+parent}/questions` | ja | — | — |
+| `accounts.locations.questions.delete` | DELETE | `v4/{+name}` | ja | — | — |
+| `accounts.locations.questions.list` | GET | `v4/{+parent}/questions` | — | — | — |
+| `accounts.locations.questions.patch` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.reportInsights` | POST | `v4/{+name}/locations:reportInsights` | ja | — | — |
+| `accounts.locations.reviews.deleteReply` | DELETE | `v4/{+name}/reply` | ja | — | — |
+| `accounts.locations.reviews.get` | GET | `v4/{+name}` | — | — | — |
+| `accounts.locations.reviews.list` | GET | `v4/{+parent}/reviews` | — | — | — |
+| `accounts.locations.reviews.updateReply` | PUT | `v4/{+name}/reply` | ja | — | — |
+| `accounts.locations.transfer` | POST | `v4/{+name}:transfer` | ja | — | — |
+| `accounts.locations.updateFoodMenus` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.updateHealthProviderAttributes` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.updateLodging` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.updateServiceList` | PATCH | `v4/{+name}` | ja | — | — |
+| `accounts.locations.verifications.complete` | POST | `v4/{+name}:complete` | ja | — | ja |
+| `accounts.locations.verifications.list` | GET | `v4/{+parent}/verifications` | — | — | — |
+| `accounts.locations.verify` | POST | `v4/{+name}:verify` | ja | — | — |
+| `accounts.update` | PUT | `v4/{+name}` | ja | — | — |
+| `accounts.updateNotifications` | PUT | `v4/{+name}` | ja | — | — |
+| `attributes.list` | GET | `v4/attributes` | — | — | — |
+| `categories.batchGet` | GET | `v4/categories:batchGet` | — | — | — |
+| `categories.list` | GET | `v4/categories` | — | — | — |
+| `chains.get` | GET | `v4/{+name}` | — | — | — |
+| `chains.search` | GET | `v4/chains:search` | — | — | — |
+| `googleLocations.report` | POST | `v4/{+name}:report` | ja | — | — |
+| `googleLocations.search` | POST | `v4/googleLocations:search` | ja | — | — |
+
+### Felder — 970 schreibbar, 13 nur lesbar, 0 veraltet
+
+| Schema | Feld | Typ | schreibbar | veraltet | Enum-Werte |
+|---|---|---|---|---|---|
+| Accessibility | `mobilityAccessible` | boolean | ja | — | — |
+| Accessibility | `mobilityAccessibleElevator` | boolean | ja | — | — |
+| Accessibility | `mobilityAccessibleElevatorException` | string | ja | — | 4 |
+| Accessibility | `mobilityAccessibleException` | string | ja | — | 4 |
+| Accessibility | `mobilityAccessibleParking` | boolean | ja | — | — |
+| Accessibility | `mobilityAccessibleParkingException` | string | ja | — | 4 |
+| Accessibility | `mobilityAccessiblePool` | boolean | ja | — | — |
+| Accessibility | `mobilityAccessiblePoolException` | string | ja | — | 4 |
+| Account | `accountName` | string | ja | — | — |
+| Account | `accountNumber` | string | ja | — | — |
+| Account | `name` | string | ja | — | — |
+| Account | `organizationInfo` | OrganizationInfo | ja | — | — |
+| Account | `permissionLevel` | string | ja | — | 3 |
+| Account | `role` | string | ja | — | 5 |
+| Account | `state` | AccountState | ja | — | — |
+| Account | `type` | string | ja | — | 5 |
+| AccountState | `status` | string | ja | — | 4 |
+| Activities | `beachAccess` | boolean | ja | — | — |
+| Activities | `beachAccessException` | string | ja | — | 4 |
+| Activities | `beachFront` | boolean | ja | — | — |
+| Activities | `beachFrontException` | string | ja | — | 4 |
+| Activities | `bicycleRental` | boolean | ja | — | — |
+| Activities | `bicycleRentalException` | string | ja | — | 4 |
+| Activities | `boutiqueStores` | boolean | ja | — | — |
+| Activities | `boutiqueStoresException` | string | ja | — | 4 |
+| Activities | `casino` | boolean | ja | — | — |
+| Activities | `casinoException` | string | ja | — | 4 |
+| Activities | `freeBicycleRental` | boolean | ja | — | — |
+| Activities | `freeBicycleRentalException` | string | ja | — | 4 |
+| Activities | `freeWatercraftRental` | boolean | ja | — | — |
+| Activities | `freeWatercraftRentalException` | string | ja | — | 4 |
+| Activities | `gameRoom` | boolean | ja | — | — |
+| Activities | `gameRoomException` | string | ja | — | 4 |
+| Activities | `golf` | boolean | ja | — | — |
+| Activities | `golfException` | string | ja | — | 4 |
+| Activities | `horsebackRiding` | boolean | ja | — | — |
+| Activities | `horsebackRidingException` | string | ja | — | 4 |
+| Activities | `nightclub` | boolean | ja | — | — |
+| Activities | `nightclubException` | string | ja | — | 4 |
+| Activities | `privateBeach` | boolean | ja | — | — |
+| Activities | `privateBeachException` | string | ja | — | 4 |
+| Activities | `scuba` | boolean | ja | — | — |
+| Activities | `scubaException` | string | ja | — | 4 |
+| Activities | `snorkeling` | boolean | ja | — | — |
+| Activities | `snorkelingException` | string | ja | — | 4 |
+| Activities | `tennis` | boolean | ja | — | — |
+| Activities | `tennisException` | string | ja | — | 4 |
+| Activities | `watercraftRental` | boolean | ja | — | — |
+| Activities | `watercraftRentalException` | string | ja | — | 4 |
+| Activities | `waterSkiing` | boolean | ja | — | — |
+| Activities | `waterSkiingException` | string | ja | — | 4 |
+| AddressInput | `mailerContactName` | string | ja | — | — |
+| AddressVerificationData | `address` | PostalAddress | ja | — | — |
+| AddressVerificationData | `businessName` | string | ja | — | — |
+| Admin | `adminName` | string | ja | — | — |
+| Admin | `name` | string | ja | — | — |
+| Admin | `pendingInvitation` | boolean | ja | — | — |
+| Admin | `role` | string | ja | — | 5 |
+| AdWordsLocationExtensions | `adPhone` | string | ja | — | — |
+| Answer | `author` | Author | ja | — | — |
+| Answer | `createTime` | string | ja | — | — |
+| Answer | `name` | string | ja | — | — |
+| Answer | `text` | string | ja | — | — |
+| Answer | `updateTime` | string | ja | — | — |
+| Answer | `upvoteCount` | integer | ja | — | — |
+| AssociateLocationRequest | `placeId` | string | ja | — | — |
+| Attribute | `attributeId` | string | ja | — | — |
+| Attribute | `repeatedEnumValue` | RepeatedEnumAttributeValue | ja | — | — |
+| Attribute | `urlValues` | UrlAttributeValue[] | ja | — | — |
+| Attribute | `values` | array | ja | — | — |
+| Attribute | `valueType` | string | ja | — | 5 |
+| AttributeMetadata | `attributeId` | string | ja | — | — |
+| AttributeMetadata | `displayName` | string | ja | — | — |
+| AttributeMetadata | `groupDisplayName` | string | ja | — | — |
+| AttributeMetadata | `isDeprecated` | boolean | ja | — | — |
+| AttributeMetadata | `isRepeatable` | boolean | ja | — | — |
+| AttributeMetadata | `valueMetadata` | AttributeValueMetadata[] | ja | — | — |
+| AttributeMetadata | `valueType` | string | ja | — | 5 |
+| AttributeValueMetadata | `displayName` | string | ja | — | — |
+| AttributeValueMetadata | `value` | any | ja | — | — |
+| Attribution | `profileName` | string | ja | — | — |
+| Attribution | `profilePhotoUrl` | string | ja | — | — |
+| Attribution | `profileUrl` | string | ja | — | — |
+| Attribution | `takedownUrl` | string | ja | — | — |
+| Author | `displayName` | string | ja | — | — |
+| Author | `profilePhotoUrl` | string | ja | — | — |
+| Author | `type` | string | ja | — | 4 |
+| BasicMetricsRequest | `metricRequests` | MetricRequest[] | ja | — | — |
+| BasicMetricsRequest | `timeRange` | TimeRange | ja | — | — |
+| BatchGetBusinessCategoriesResponse | `categories` | Category[] | ja | — | — |
+| BatchGetLocationsRequest | `locationNames` | array | ja | — | — |
+| BatchGetLocationsResponse | `locations` | Location[] | ja | — | — |
+| BatchGetReviewsRequest | `ignoreRatingOnlyReviews` | boolean | ja | — | — |
+| BatchGetReviewsRequest | `locationNames` | array | ja | — | — |
+| BatchGetReviewsRequest | `orderBy` | string | ja | — | — |
+| BatchGetReviewsRequest | `pageSize` | integer | ja | — | — |
+| BatchGetReviewsRequest | `pageToken` | string | ja | — | — |
+| BatchGetReviewsResponse | `locationReviews` | LocationReview[] | ja | — | — |
+| BatchGetReviewsResponse | `nextPageToken` | string | ja | — | — |
+| Business | `businessCenter` | boolean | ja | — | — |
+| Business | `businessCenterException` | string | ja | — | 4 |
+| Business | `meetingRooms` | boolean | ja | — | — |
+| Business | `meetingRoomsCount` | integer | ja | — | — |
+| Business | `meetingRoomsCountException` | string | ja | — | 4 |
+| Business | `meetingRoomsException` | string | ja | — | 4 |
+| BusinessHours | `periods` | TimePeriod[] | ja | — | — |
+| CallToAction | `actionType` | string | ja | — | 8 |
+| CallToAction | `url` | string | ja | — | — |
+| CaloriesFact | `lowerAmount` | integer | ja | — | — |
+| CaloriesFact | `unit` | string | ja | — | 3 |
+| CaloriesFact | `upperAmount` | integer | ja | — | — |
+| Category | `categoryId` | string | ja | — | — |
+| Category | `displayName` | string | ja | — | — |
+| Category | `moreHoursTypes` | MoreHoursType[] | — | — | — |
+| Category | `serviceTypes` | ServiceType[] | ja | — | — |
+| Chain | `chainNames` | ChainName[] | ja | — | — |
+| Chain | `locationCount` | integer | ja | — | — |
+| Chain | `name` | string | ja | — | — |
+| Chain | `websites` | ChainUrl[] | ja | — | — |
+| ChainName | `displayName` | string | ja | — | — |
+| ChainName | `languageCode` | string | ja | — | — |
+| ChainUrl | `url` | string | ja | — | — |
+| CompleteVerificationRequest | `pin` | string | ja | — | — |
+| CompleteVerificationResponse | `verification` | Verification | ja | — | — |
+| Connectivity | `freeWifi` | boolean | ja | — | — |
+| Connectivity | `freeWifiException` | string | ja | — | 4 |
+| Connectivity | `publicAreaWifiAvailable` | boolean | ja | — | — |
+| Connectivity | `publicAreaWifiAvailableException` | string | ja | — | 4 |
+| Connectivity | `publicInternetTerminal` | boolean | ja | — | — |
+| Connectivity | `publicInternetTerminalException` | string | ja | — | 4 |
+| Connectivity | `wifiAvailable` | boolean | ja | — | — |
+| Connectivity | `wifiAvailableException` | string | ja | — | 4 |
+| Date | `day` | integer | ja | — | — |
+| Date | `month` | integer | ja | — | — |
+| Date | `year` | integer | ja | — | — |
+| DimensionalMetricValue | `metricOption` | string | ja | — | 5 |
+| DimensionalMetricValue | `timeDimension` | TimeDimension | ja | — | — |
+| DimensionalMetricValue | `value` | string | ja | — | — |
+| Dimensions | `heightPixels` | integer | ja | — | — |
+| Dimensions | `widthPixels` | integer | ja | — | — |
+| DrivingDirectionMetricsRequest | `languageCode` | string | ja | — | — |
+| DrivingDirectionMetricsRequest | `numDays` | string | ja | — | 3 |
+| Duplicate | `access` | string | ja | — | 4 |
+| Duplicate | `locationName` | string | ja | — | — |
+| Duplicate | `placeId` | string | ja | — | — |
+| EmailInput | `emailAddress` | string | ja | — | — |
+| EmailVerificationData | `domainName` | string | ja | — | — |
+| EmailVerificationData | `isUserNameEditable` | boolean | ja | — | — |
+| EmailVerificationData | `userName` | string | ja | — | — |
+| EnhancedCleaning | `commercialGradeDisinfectantCleaning` | boolean | ja | — | — |
+| EnhancedCleaning | `commercialGradeDisinfectantCleaningException` | string | ja | — | 4 |
+| EnhancedCleaning | `commonAreasEnhancedCleaning` | boolean | ja | — | — |
+| EnhancedCleaning | `commonAreasEnhancedCleaningException` | string | ja | — | 4 |
+| EnhancedCleaning | `employeesTrainedCleaningProcedures` | boolean | ja | — | — |
+| EnhancedCleaning | `employeesTrainedCleaningProceduresException` | string | ja | — | 4 |
+| EnhancedCleaning | `employeesTrainedThoroughHandWashing` | boolean | ja | — | — |
+| EnhancedCleaning | `employeesTrainedThoroughHandWashingException` | string | ja | — | 4 |
+| EnhancedCleaning | `employeesWearProtectiveEquipment` | boolean | ja | — | — |
+| EnhancedCleaning | `employeesWearProtectiveEquipmentException` | string | ja | — | 4 |
+| EnhancedCleaning | `guestRoomsEnhancedCleaning` | boolean | ja | — | — |
+| EnhancedCleaning | `guestRoomsEnhancedCleaningException` | string | ja | — | 4 |
+| Families | `babysitting` | boolean | ja | — | — |
+| Families | `babysittingException` | string | ja | — | 4 |
+| Families | `kidsActivities` | boolean | ja | — | — |
+| Families | `kidsActivitiesException` | string | ja | — | 4 |
+| Families | `kidsClub` | boolean | ja | — | — |
+| Families | `kidsClubException` | string | ja | — | 4 |
+| FetchVerificationOptionsRequest | `context` | ServiceBusinessContext | ja | — | — |
+| FetchVerificationOptionsRequest | `languageCode` | string | ja | — | — |
+| FetchVerificationOptionsResponse | `options` | VerificationOption[] | ja | — | — |
+| FindMatchingLocationsRequest | `languageCode` | string | ja | — | — |
+| FindMatchingLocationsRequest | `maxCacheDuration` | string | ja | — | — |
+| FindMatchingLocationsRequest | `numResults` | integer | ja | — | — |
+| FindMatchingLocationsResponse | `matchedLocations` | MatchedLocation[] | ja | — | — |
+| FindMatchingLocationsResponse | `matchTime` | string | ja | — | — |
+| FollowersMetadata | `count` | string | ja | — | — |
+| FollowersMetadata | `name` | string | ja | — | — |
+| FoodAndDrink | `bar` | boolean | ja | — | — |
+| FoodAndDrink | `barException` | string | ja | — | 4 |
+| FoodAndDrink | `breakfastAvailable` | boolean | ja | — | — |
+| FoodAndDrink | `breakfastAvailableException` | string | ja | — | 4 |
+| FoodAndDrink | `breakfastBuffet` | boolean | ja | — | — |
+| FoodAndDrink | `breakfastBuffetException` | string | ja | — | 4 |
+| FoodAndDrink | `buffet` | boolean | ja | — | — |
+| FoodAndDrink | `buffetException` | string | ja | — | 4 |
+| FoodAndDrink | `dinnerBuffet` | boolean | ja | — | — |
+| FoodAndDrink | `dinnerBuffetException` | string | ja | — | 4 |
+| FoodAndDrink | `freeBreakfast` | boolean | ja | — | — |
+| FoodAndDrink | `freeBreakfastException` | string | ja | — | 4 |
+| FoodAndDrink | `restaurant` | boolean | ja | — | — |
+| FoodAndDrink | `restaurantException` | string | ja | — | 4 |
+| FoodAndDrink | `restaurantsCount` | integer | ja | — | — |
+| FoodAndDrink | `restaurantsCountException` | string | ja | — | 4 |
+| FoodAndDrink | `roomService` | boolean | ja | — | — |
+| FoodAndDrink | `roomServiceException` | string | ja | — | 4 |
+| FoodAndDrink | `tableService` | boolean | ja | — | — |
+| FoodAndDrink | `tableServiceException` | string | ja | — | 4 |
+| FoodAndDrink | `twentyFourHourRoomService` | boolean | ja | — | — |
+| FoodAndDrink | `twentyFourHourRoomServiceException` | string | ja | — | 4 |
+| FoodAndDrink | `vendingMachine` | boolean | ja | — | — |
+| FoodAndDrink | `vendingMachineException` | string | ja | — | 4 |
+| FoodMenu | `cuisines` | array | ja | — | — |
+| FoodMenu | `labels` | MenuLabel[] | ja | — | — |
+| FoodMenu | `sections` | FoodMenuSection[] | ja | — | — |
+| FoodMenu | `sourceUrl` | string | ja | — | — |
+| FoodMenuItem | `attributes` | FoodMenuItemAttributes | ja | — | — |
+| FoodMenuItem | `labels` | MenuLabel[] | ja | — | — |
+| FoodMenuItem | `options` | FoodMenuItemOption[] | ja | — | — |
+| FoodMenuItemAttributes | `allergen` | array | ja | — | — |
+| FoodMenuItemAttributes | `dietaryRestriction` | array | ja | — | — |
+| FoodMenuItemAttributes | `ingredients` | Ingredient[] | ja | — | — |
+| FoodMenuItemAttributes | `mediaKeys` | array | ja | — | — |
+| FoodMenuItemAttributes | `nutritionFacts` | NutritionFacts | ja | — | — |
+| FoodMenuItemAttributes | `portionSize` | PortionSize | ja | — | — |
+| FoodMenuItemAttributes | `preparationMethods` | array | ja | — | — |
+| FoodMenuItemAttributes | `price` | Money | ja | — | — |
+| FoodMenuItemAttributes | `servesNumPeople` | integer | ja | — | — |
+| FoodMenuItemAttributes | `spiciness` | string | ja | — | 4 |
+| FoodMenuItemOption | `attributes` | FoodMenuItemAttributes | ja | — | — |
+| FoodMenuItemOption | `labels` | MenuLabel[] | ja | — | — |
+| FoodMenus | `menus` | FoodMenu[] | ja | — | — |
+| FoodMenus | `name` | string | ja | — | — |
+| FoodMenuSection | `items` | FoodMenuItem[] | ja | — | — |
+| FoodMenuSection | `labels` | MenuLabel[] | ja | — | — |
+| FreeFormServiceItem | `categoryId` | string | ja | — | — |
+| FreeFormServiceItem | `label` | Label | ja | — | — |
+| GetGoogleUpdatedLodgingResponse | `diffMask` | string | ja | — | — |
+| GetGoogleUpdatedLodgingResponse | `lodging` | Lodging | ja | — | — |
+| GoogleLocation | `location` | Location | ja | — | — |
+| GoogleLocation | `name` | string | ja | — | — |
+| GoogleLocation | `requestAdminRightsUrl` | string | ja | — | — |
+| GoogleUpdatedLocation | `diffMask` | string | ja | — | — |
+| GoogleUpdatedLocation | `location` | Location | ja | — | — |
+| GuestUnitFeatures | `bungalowOrVilla` | boolean | ja | — | — |
+| GuestUnitFeatures | `bungalowOrVillaException` | string | ja | — | 4 |
+| GuestUnitFeatures | `connectingUnitAvailable` | boolean | ja | — | — |
+| GuestUnitFeatures | `connectingUnitAvailableException` | string | ja | — | 4 |
+| GuestUnitFeatures | `executiveFloor` | boolean | ja | — | — |
+| GuestUnitFeatures | `executiveFloorException` | string | ja | — | 4 |
+| GuestUnitFeatures | `maxAdultOccupantsCount` | integer | ja | — | — |
+| GuestUnitFeatures | `maxAdultOccupantsCountException` | string | ja | — | 4 |
+| GuestUnitFeatures | `maxChildOccupantsCount` | integer | ja | — | — |
+| GuestUnitFeatures | `maxChildOccupantsCountException` | string | ja | — | 4 |
+| GuestUnitFeatures | `maxOccupantsCount` | integer | ja | — | — |
+| GuestUnitFeatures | `maxOccupantsCountException` | string | ja | — | 4 |
+| GuestUnitFeatures | `privateHome` | boolean | ja | — | — |
+| GuestUnitFeatures | `privateHomeException` | string | ja | — | 4 |
+| GuestUnitFeatures | `suite` | boolean | ja | — | — |
+| GuestUnitFeatures | `suiteException` | string | ja | — | 4 |
+| GuestUnitFeatures | `tier` | string | ja | — | 3 |
+| GuestUnitFeatures | `tierException` | string | ja | — | 4 |
+| GuestUnitFeatures | `totalLivingAreas` | LivingArea | ja | — | — |
+| GuestUnitFeatures | `views` | ViewsFromUnit | ja | — | — |
+| GuestUnitType | `codes` | array | ja | — | — |
+| GuestUnitType | `features` | GuestUnitFeatures | ja | — | — |
+| GuestUnitType | `label` | string | ja | — | — |
+| HealthAndSafety | `enhancedCleaning` | EnhancedCleaning | ja | — | — |
+| HealthAndSafety | `increasedFoodSafety` | IncreasedFoodSafety | ja | — | — |
+| HealthAndSafety | `minimizedContact` | MinimizedContact | ja | — | — |
+| HealthAndSafety | `personalProtection` | PersonalProtection | ja | — | — |
+| HealthAndSafety | `physicalDistancing` | PhysicalDistancing | ja | — | — |
+| HealthProviderAttributes | `insuranceNetworks` | InsuranceNetwork[] | ja | — | — |
+| HealthProviderAttributes | `name` | string | ja | — | — |
+| Housekeeping | `dailyHousekeeping` | boolean | ja | — | — |
+| Housekeeping | `dailyHousekeepingException` | string | ja | — | 4 |
+| Housekeeping | `housekeepingAvailable` | boolean | ja | — | — |
+| Housekeeping | `housekeepingAvailableException` | string | ja | — | 4 |
+| Housekeeping | `turndownService` | boolean | ja | — | — |
+| Housekeeping | `turndownServiceException` | string | ja | — | 4 |
+| IncreasedFoodSafety | `diningAreasAdditionalSanitation` | boolean | ja | — | — |
+| IncreasedFoodSafety | `diningAreasAdditionalSanitationException` | string | ja | — | 4 |
+| IncreasedFoodSafety | `disposableFlatware` | boolean | ja | — | — |
+| IncreasedFoodSafety | `disposableFlatwareException` | string | ja | — | 4 |
+| IncreasedFoodSafety | `foodPreparationAndServingAdditionalSafety` | boolean | ja | — | — |
+| IncreasedFoodSafety | `foodPreparationAndServingAdditionalSafetyException` | string | ja | — | 4 |
+| IncreasedFoodSafety | `individualPackagedMeals` | boolean | ja | — | — |
+| IncreasedFoodSafety | `individualPackagedMealsException` | string | ja | — | 4 |
+| IncreasedFoodSafety | `singleUseFoodMenus` | boolean | ja | — | — |
+| IncreasedFoodSafety | `singleUseFoodMenusException` | string | ja | — | 4 |
+| Ingredient | `labels` | MenuLabel[] | ja | — | — |
+| InsuranceNetwork | `networkId` | string | ja | — | — |
+| InsuranceNetwork | `networkNames` | object | — | — | — |
+| InsuranceNetwork | `payerNames` | object | — | — | — |
+| InsuranceNetwork | `state` | string | — | — | 5 |
+| Invitation | `name` | string | ja | — | — |
+| Invitation | `role` | string | ja | — | 5 |
+| Invitation | `targetAccount` | Account | ja | — | — |
+| Invitation | `targetLocation` | TargetLocation | ja | — | — |
+| Item | `itemId` | string | ja | — | — |
+| Item | `labels` | Label[] | ja | — | — |
+| Item | `price` | Money | ja | — | — |
+| Label | `description` | string | ja | — | — |
+| Label | `displayName` | string | ja | — | — |
+| Label | `languageCode` | string | ja | — | — |
+| LanguagesSpoken | `arabicSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `arabicSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `cantoneseSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `cantoneseSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `dutchSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `dutchSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `englishSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `englishSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `filipinoSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `filipinoSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `frenchSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `frenchSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `germanSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `germanSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `hindiSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `hindiSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `indonesianSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `indonesianSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `italianSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `italianSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `japaneseSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `japaneseSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `koreanSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `koreanSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `mandarinSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `mandarinSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `portugueseSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `portugueseSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `russianSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `russianSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `spanishSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `spanishSpokenException` | string | ja | — | 4 |
+| LanguagesSpoken | `vietnameseSpoken` | boolean | ja | — | — |
+| LanguagesSpoken | `vietnameseSpokenException` | string | ja | — | 4 |
+| LatLng | `latitude` | number | ja | — | — |
+| LatLng | `longitude` | number | ja | — | — |
+| ListAccountAdminsResponse | `admins` | Admin[] | ja | — | — |
+| ListAccountsResponse | `accounts` | Account[] | ja | — | — |
+| ListAccountsResponse | `nextPageToken` | string | ja | — | — |
+| ListAnswersResponse | `answers` | Answer[] | ja | — | — |
+| ListAnswersResponse | `nextPageToken` | string | ja | — | — |
+| ListAnswersResponse | `totalSize` | integer | ja | — | — |
+| ListAttributeMetadataResponse | `attributes` | AttributeMetadata[] | ja | — | — |
+| ListAttributeMetadataResponse | `nextPageToken` | string | ja | — | — |
+| ListBusinessCategoriesResponse | `categories` | Category[] | ja | — | — |
+| ListBusinessCategoriesResponse | `nextPageToken` | string | ja | — | — |
+| ListBusinessCategoriesResponse | `totalCategoryCount` | integer | ja | — | — |
+| ListCustomerMediaItemsResponse | `mediaItems` | MediaItem[] | ja | — | — |
+| ListCustomerMediaItemsResponse | `nextPageToken` | string | ja | — | — |
+| ListCustomerMediaItemsResponse | `totalMediaItemCount` | integer | ja | — | — |
+| ListInsuranceNetworksResponse | `networks` | InsuranceNetwork[] | ja | — | — |
+| ListInsuranceNetworksResponse | `nextPageToken` | string | ja | — | — |
+| ListInvitationsResponse | `invitations` | Invitation[] | ja | — | — |
+| ListLocalPostsResponse | `localPosts` | LocalPost[] | ja | — | — |
+| ListLocalPostsResponse | `nextPageToken` | string | ja | — | — |
+| ListLocationAdminsResponse | `admins` | Admin[] | ja | — | — |
+| ListLocationsResponse | `locations` | Location[] | ja | — | — |
+| ListLocationsResponse | `nextPageToken` | string | ja | — | — |
+| ListLocationsResponse | `totalSize` | integer | ja | — | — |
+| ListMediaItemsResponse | `mediaItems` | MediaItem[] | ja | — | — |
+| ListMediaItemsResponse | `nextPageToken` | string | ja | — | — |
+| ListMediaItemsResponse | `totalMediaItemCount` | integer | ja | — | — |
+| ListQuestionsResponse | `nextPageToken` | string | ja | — | — |
+| ListQuestionsResponse | `questions` | Question[] | ja | — | — |
+| ListQuestionsResponse | `totalSize` | integer | ja | — | — |
+| ListRecommendedGoogleLocationsResponse | `googleLocations` | GoogleLocation[] | ja | — | — |
+| ListRecommendedGoogleLocationsResponse | `nextPageToken` | string | ja | — | — |
+| ListRecommendedGoogleLocationsResponse | `totalSize` | integer | ja | — | — |
+| ListReviewsResponse | `averageRating` | number | ja | — | — |
+| ListReviewsResponse | `nextPageToken` | string | ja | — | — |
+| ListReviewsResponse | `reviews` | Review[] | ja | — | — |
+| ListReviewsResponse | `totalReviewCount` | integer | ja | — | — |
+| ListVerificationsResponse | `nextPageToken` | string | ja | — | — |
+| ListVerificationsResponse | `verifications` | Verification[] | ja | — | — |
+| LivingArea | `accessibility` | LivingAreaAccessibility | ja | — | — |
+| LivingArea | `eating` | LivingAreaEating | ja | — | — |
+| LivingArea | `features` | LivingAreaFeatures | ja | — | — |
+| LivingArea | `layout` | LivingAreaLayout | ja | — | — |
+| LivingArea | `sleeping` | LivingAreaSleeping | ja | — | — |
+| LivingAreaAccessibility | `adaCompliantUnit` | boolean | ja | — | — |
+| LivingAreaAccessibility | `adaCompliantUnitException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `hearingAccessibleDoorbell` | boolean | ja | — | — |
+| LivingAreaAccessibility | `hearingAccessibleDoorbellException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `hearingAccessibleFireAlarm` | boolean | ja | — | — |
+| LivingAreaAccessibility | `hearingAccessibleFireAlarmException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `hearingAccessibleUnit` | boolean | ja | — | — |
+| LivingAreaAccessibility | `hearingAccessibleUnitException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `mobilityAccessibleBathtub` | boolean | ja | — | — |
+| LivingAreaAccessibility | `mobilityAccessibleBathtubException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `mobilityAccessibleShower` | boolean | ja | — | — |
+| LivingAreaAccessibility | `mobilityAccessibleShowerException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `mobilityAccessibleToilet` | boolean | ja | — | — |
+| LivingAreaAccessibility | `mobilityAccessibleToiletException` | string | ja | — | 4 |
+| LivingAreaAccessibility | `mobilityAccessibleUnit` | boolean | ja | — | — |
+| LivingAreaAccessibility | `mobilityAccessibleUnitException` | string | ja | — | 4 |
+| LivingAreaEating | `coffeeMaker` | boolean | ja | — | — |
+| LivingAreaEating | `coffeeMakerException` | string | ja | — | 4 |
+| LivingAreaEating | `cookware` | boolean | ja | — | — |
+| LivingAreaEating | `cookwareException` | string | ja | — | 4 |
+| LivingAreaEating | `dishwasher` | boolean | ja | — | — |
+| LivingAreaEating | `dishwasherException` | string | ja | — | 4 |
+| LivingAreaEating | `indoorGrill` | boolean | ja | — | — |
+| LivingAreaEating | `indoorGrillException` | string | ja | — | 4 |
+| LivingAreaEating | `kettle` | boolean | ja | — | — |
+| LivingAreaEating | `kettleException` | string | ja | — | 4 |
+| LivingAreaEating | `kitchenAvailable` | boolean | ja | — | — |
+| LivingAreaEating | `kitchenAvailableException` | string | ja | — | 4 |
+| LivingAreaEating | `microwave` | boolean | ja | — | — |
+| LivingAreaEating | `microwaveException` | string | ja | — | 4 |
+| LivingAreaEating | `minibar` | boolean | ja | — | — |
+| LivingAreaEating | `minibarException` | string | ja | — | 4 |
+| LivingAreaEating | `outdoorGrill` | boolean | ja | — | — |
+| LivingAreaEating | `outdoorGrillException` | string | ja | — | 4 |
+| LivingAreaEating | `oven` | boolean | ja | — | — |
+| LivingAreaEating | `ovenException` | string | ja | — | 4 |
+| LivingAreaEating | `refrigerator` | boolean | ja | — | — |
+| LivingAreaEating | `refrigeratorException` | string | ja | — | 4 |
+| LivingAreaEating | `sink` | boolean | ja | — | — |
+| LivingAreaEating | `sinkException` | string | ja | — | 4 |
+| LivingAreaEating | `snackbar` | boolean | ja | — | — |
+| LivingAreaEating | `snackbarException` | string | ja | — | 4 |
+| LivingAreaEating | `stove` | boolean | ja | — | — |
+| LivingAreaEating | `stoveException` | string | ja | — | 4 |
+| LivingAreaEating | `teaStation` | boolean | ja | — | — |
+| LivingAreaEating | `teaStationException` | string | ja | — | 4 |
+| LivingAreaEating | `toaster` | boolean | ja | — | — |
+| LivingAreaEating | `toasterException` | string | ja | — | 4 |
+| LivingAreaFeatures | `airConditioning` | boolean | ja | — | — |
+| LivingAreaFeatures | `airConditioningException` | string | ja | — | 4 |
+| LivingAreaFeatures | `bathtub` | boolean | ja | — | — |
+| LivingAreaFeatures | `bathtubException` | string | ja | — | 4 |
+| LivingAreaFeatures | `bidet` | boolean | ja | — | — |
+| LivingAreaFeatures | `bidetException` | string | ja | — | 4 |
+| LivingAreaFeatures | `dryer` | boolean | ja | — | — |
+| LivingAreaFeatures | `dryerException` | string | ja | — | 4 |
+| LivingAreaFeatures | `electronicRoomKey` | boolean | ja | — | — |
+| LivingAreaFeatures | `electronicRoomKeyException` | string | ja | — | 4 |
+| LivingAreaFeatures | `fireplace` | boolean | ja | — | — |
+| LivingAreaFeatures | `fireplaceException` | string | ja | — | 4 |
+| LivingAreaFeatures | `hairdryer` | boolean | ja | — | — |
+| LivingAreaFeatures | `hairdryerException` | string | ja | — | 4 |
+| LivingAreaFeatures | `heating` | boolean | ja | — | — |
+| LivingAreaFeatures | `heatingException` | string | ja | — | 4 |
+| LivingAreaFeatures | `inunitSafe` | boolean | ja | — | — |
+| LivingAreaFeatures | `inunitSafeException` | string | ja | — | 4 |
+| LivingAreaFeatures | `inunitWifiAvailable` | boolean | ja | — | — |
+| LivingAreaFeatures | `inunitWifiAvailableException` | string | ja | — | 4 |
+| LivingAreaFeatures | `ironingEquipment` | boolean | ja | — | — |
+| LivingAreaFeatures | `ironingEquipmentException` | string | ja | — | 4 |
+| LivingAreaFeatures | `payPerViewMovies` | boolean | ja | — | — |
+| LivingAreaFeatures | `payPerViewMoviesException` | string | ja | — | 4 |
+| LivingAreaFeatures | `privateBathroom` | boolean | ja | — | — |
+| LivingAreaFeatures | `privateBathroomException` | string | ja | — | 4 |
+| LivingAreaFeatures | `shower` | boolean | ja | — | — |
+| LivingAreaFeatures | `showerException` | string | ja | — | 4 |
+| LivingAreaFeatures | `toilet` | boolean | ja | — | — |
+| LivingAreaFeatures | `toiletException` | string | ja | — | 4 |
+| LivingAreaFeatures | `tv` | boolean | ja | — | — |
+| LivingAreaFeatures | `tvCasting` | boolean | ja | — | — |
+| LivingAreaFeatures | `tvCastingException` | string | ja | — | 4 |
+| LivingAreaFeatures | `tvException` | string | ja | — | 4 |
+| LivingAreaFeatures | `tvStreaming` | boolean | ja | — | — |
+| LivingAreaFeatures | `tvStreamingException` | string | ja | — | 4 |
+| LivingAreaFeatures | `universalPowerAdapters` | boolean | ja | — | — |
+| LivingAreaFeatures | `universalPowerAdaptersException` | string | ja | — | 4 |
+| LivingAreaFeatures | `washer` | boolean | ja | — | — |
+| LivingAreaFeatures | `washerException` | string | ja | — | 4 |
+| LivingAreaLayout | `balcony` | boolean | ja | — | — |
+| LivingAreaLayout | `balconyException` | string | ja | — | 4 |
+| LivingAreaLayout | `livingAreaSqMeters` | number | ja | — | — |
+| LivingAreaLayout | `livingAreaSqMetersException` | string | ja | — | 4 |
+| LivingAreaLayout | `loft` | boolean | ja | — | — |
+| LivingAreaLayout | `loftException` | string | ja | — | 4 |
+| LivingAreaLayout | `nonSmoking` | boolean | ja | — | — |
+| LivingAreaLayout | `nonSmokingException` | string | ja | — | 4 |
+| LivingAreaLayout | `patio` | boolean | ja | — | — |
+| LivingAreaLayout | `patioException` | string | ja | — | 4 |
+| LivingAreaLayout | `stairs` | boolean | ja | — | — |
+| LivingAreaLayout | `stairsException` | string | ja | — | 4 |
+| LivingAreaSleeping | `bedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `bedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `bunkBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `bunkBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `cribsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `cribsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `doubleBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `doubleBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `featherPillows` | boolean | ja | — | — |
+| LivingAreaSleeping | `featherPillowsException` | string | ja | — | 4 |
+| LivingAreaSleeping | `hypoallergenicBedding` | boolean | ja | — | — |
+| LivingAreaSleeping | `hypoallergenicBeddingException` | string | ja | — | 4 |
+| LivingAreaSleeping | `kingBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `kingBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `memoryFoamPillows` | boolean | ja | — | — |
+| LivingAreaSleeping | `memoryFoamPillowsException` | string | ja | — | 4 |
+| LivingAreaSleeping | `otherBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `otherBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `queenBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `queenBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `rollAwayBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `rollAwayBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `singleOrTwinBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `singleOrTwinBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `sofaBedsCount` | integer | ja | — | — |
+| LivingAreaSleeping | `sofaBedsCountException` | string | ja | — | 4 |
+| LivingAreaSleeping | `syntheticPillows` | boolean | ja | — | — |
+| LivingAreaSleeping | `syntheticPillowsException` | string | ja | — | 4 |
+| LocalPost | `alertType` | string | ja | — | 2 |
+| LocalPost | `callToAction` | CallToAction | ja | — | — |
+| LocalPost | `createTime` | string | ja | — | — |
+| LocalPost | `event` | LocalPostEvent | ja | — | — |
+| LocalPost | `languageCode` | string | ja | — | — |
+| LocalPost | `media` | MediaItem[] | ja | — | — |
+| LocalPost | `name` | string | ja | — | — |
+| LocalPost | `offer` | LocalPostOffer | ja | — | — |
+| LocalPost | `searchUrl` | string | ja | — | — |
+| LocalPost | `state` | string | ja | — | 4 |
+| LocalPost | `summary` | string | ja | — | — |
+| LocalPost | `topicType` | string | ja | — | 5 |
+| LocalPost | `updateTime` | string | ja | — | — |
+| LocalPostEvent | `schedule` | TimeInterval | ja | — | — |
+| LocalPostEvent | `title` | string | ja | — | — |
+| LocalPostMetrics | `localPostName` | string | ja | — | — |
+| LocalPostMetrics | `metricValues` | MetricValue[] | ja | — | — |
+| LocalPostOffer | `couponCode` | string | ja | — | — |
+| LocalPostOffer | `redeemOnlineUrl` | string | ja | — | — |
+| LocalPostOffer | `termsConditions` | string | ja | — | — |
+| Location | `additionalCategories` | Category[] | ja | — | — |
+| Location | `additionalPhones` | array | ja | — | — |
+| Location | `address` | PostalAddress | ja | — | — |
+| Location | `adWordsLocationExtensions` | AdWordsLocationExtensions | ja | — | — |
+| Location | `attributes` | Attribute[] | ja | — | — |
+| Location | `labels` | array | ja | — | — |
+| Location | `languageCode` | string | ja | — | — |
+| Location | `latlng` | LatLng | ja | — | — |
+| Location | `locationKey` | LocationKey | ja | — | — |
+| Location | `locationName` | string | ja | — | — |
+| Location | `locationState` | LocationState | ja | — | — |
+| Location | `metadata` | Metadata | ja | — | — |
+| Location | `moreHours` | MoreHours[] | ja | — | — |
+| Location | `name` | string | ja | — | — |
+| Location | `openInfo` | OpenInfo | ja | — | — |
+| Location | `priceLists` | PriceList[] | ja | — | — |
+| Location | `primaryCategory` | Category | ja | — | — |
+| Location | `primaryPhone` | string | ja | — | — |
+| Location | `profile` | Profile | ja | — | — |
+| Location | `regularHours` | BusinessHours | ja | — | — |
+| Location | `relationshipData` | RelationshipData | ja | — | — |
+| Location | `serviceArea` | ServiceAreaBusiness | ja | — | — |
+| Location | `specialHours` | SpecialHours | ja | — | — |
+| Location | `storeCode` | string | ja | — | — |
+| Location | `websiteUrl` | string | ja | — | — |
+| LocationAssociation | `category` | string | ja | — | 14 |
+| LocationAssociation | `priceListItemId` | string | ja | — | — |
+| LocationDrivingDirectionMetrics | `locationName` | string | ja | — | — |
+| LocationDrivingDirectionMetrics | `timeZone` | string | ja | — | — |
+| LocationDrivingDirectionMetrics | `topDirectionSources` | TopDirectionSources[] | ja | — | — |
+| LocationKey | `explicitNoPlaceId` | boolean | ja | — | — |
+| LocationKey | `placeId` | string | ja | — | — |
+| LocationKey | `plusPageId` | string | ja | — | — |
+| LocationKey | `requestId` | string | ja | — | — |
+| LocationMetrics | `locationName` | string | ja | — | — |
+| LocationMetrics | `metricValues` | MetricValue[] | ja | — | — |
+| LocationMetrics | `timeZone` | string | ja | — | — |
+| LocationReview | `name` | string | ja | — | — |
+| LocationReview | `review` | Review | ja | — | — |
+| LocationState | `canDelete` | boolean | ja | — | — |
+| LocationState | `canHaveFoodMenus` | boolean | — | — | — |
+| LocationState | `canModifyServiceList` | boolean | — | — | — |
+| LocationState | `canOperateHealthData` | boolean | — | — | — |
+| LocationState | `canOperateLodgingData` | boolean | — | — | — |
+| LocationState | `canUpdate` | boolean | ja | — | — |
+| LocationState | `hasPendingEdits` | boolean | ja | — | — |
+| LocationState | `hasPendingVerification` | boolean | ja | — | — |
+| LocationState | `isDisabled` | boolean | ja | — | — |
+| LocationState | `isDisconnected` | boolean | ja | — | — |
+| LocationState | `isDuplicate` | boolean | ja | — | — |
+| LocationState | `isGoogleUpdated` | boolean | ja | — | — |
+| LocationState | `isLocalPostApiDisabled` | boolean | ja | — | — |
+| LocationState | `isPendingReview` | boolean | ja | — | — |
+| LocationState | `isPublished` | boolean | ja | — | — |
+| LocationState | `isSuspended` | boolean | ja | — | — |
+| LocationState | `isVerified` | boolean | ja | — | — |
+| LocationState | `needsReverification` | boolean | ja | — | — |
+| Lodging | `accessibility` | Accessibility | ja | — | — |
+| Lodging | `activities` | Activities | ja | — | — |
+| Lodging | `allUnits` | GuestUnitFeatures | ja | — | — |
+| Lodging | `business` | Business | ja | — | — |
+| Lodging | `commonLivingArea` | LivingArea | ja | — | — |
+| Lodging | `connectivity` | Connectivity | ja | — | — |
+| Lodging | `families` | Families | ja | — | — |
+| Lodging | `foodAndDrink` | FoodAndDrink | ja | — | — |
+| Lodging | `guestUnits` | GuestUnitType[] | ja | — | — |
+| Lodging | `healthAndSafety` | HealthAndSafety | ja | — | — |
+| Lodging | `housekeeping` | Housekeeping | ja | — | — |
+| Lodging | `metadata` | LodgingMetadata | ja | — | — |
+| Lodging | `name` | string | ja | — | — |
+| Lodging | `parking` | Parking | ja | — | — |
+| Lodging | `pets` | Pets | ja | — | — |
+| Lodging | `policies` | Policies | ja | — | — |
+| Lodging | `pools` | Pools | ja | — | — |
+| Lodging | `property` | Property | ja | — | — |
+| Lodging | `services` | Services | ja | — | — |
+| Lodging | `someUnits` | GuestUnitFeatures | ja | — | — |
+| Lodging | `transportation` | Transportation | ja | — | — |
+| Lodging | `wellness` | Wellness | ja | — | — |
+| LodgingMetadata | `updateTime` | string | ja | — | — |
+| MatchedLocation | `isExactMatch` | boolean | ja | — | — |
+| MatchedLocation | `location` | Location | ja | — | — |
+| MediaInsights | `viewCount` | string | ja | — | — |
+| MediaItem | `attribution` | Attribution | ja | — | — |
+| MediaItem | `createTime` | string | ja | — | — |
+| MediaItem | `dataRef` | MediaItemDataRef | ja | — | — |
+| MediaItem | `description` | string | ja | — | — |
+| MediaItem | `dimensions` | Dimensions | ja | — | — |
+| MediaItem | `googleUrl` | string | ja | — | — |
+| MediaItem | `insights` | MediaInsights | ja | — | — |
+| MediaItem | `locationAssociation` | LocationAssociation | ja | — | — |
+| MediaItem | `mediaFormat` | string | ja | — | 3 |
+| MediaItem | `name` | string | ja | — | — |
+| MediaItem | `sourceUrl` | string | ja | — | — |
+| MediaItem | `thumbnailUrl` | string | ja | — | — |
+| MediaItemDataRef | `resourceName` | string | ja | — | — |
+| MenuLabel | `description` | string | ja | — | — |
+| MenuLabel | `displayName` | string | ja | — | — |
+| MenuLabel | `languageCode` | string | ja | — | — |
+| Metadata | `duplicate` | Duplicate | ja | — | — |
+| Metadata | `mapsUrl` | string | ja | — | — |
+| Metadata | `newReviewUrl` | string | ja | — | — |
+| MetricRequest | `metric` | string | ja | — | 16 |
+| MetricRequest | `options` | array | ja | — | — |
+| MetricValue | `dimensionalValues` | DimensionalMetricValue[] | ja | — | — |
+| MetricValue | `metric` | string | ja | — | 16 |
+| MetricValue | `totalValue` | DimensionalMetricValue | ja | — | — |
+| MinimizedContact | `contactlessCheckinCheckout` | boolean | ja | — | — |
+| MinimizedContact | `contactlessCheckinCheckoutException` | string | ja | — | 4 |
+| MinimizedContact | `digitalGuestRoomKeys` | boolean | ja | — | — |
+| MinimizedContact | `digitalGuestRoomKeysException` | string | ja | — | 4 |
+| MinimizedContact | `housekeepingScheduledRequestOnly` | boolean | ja | — | — |
+| MinimizedContact | `housekeepingScheduledRequestOnlyException` | string | ja | — | 4 |
+| MinimizedContact | `noHighTouchItemsCommonAreas` | boolean | ja | — | — |
+| MinimizedContact | `noHighTouchItemsCommonAreasException` | string | ja | — | 4 |
+| MinimizedContact | `noHighTouchItemsGuestRooms` | boolean | ja | — | — |
+| MinimizedContact | `noHighTouchItemsGuestRoomsException` | string | ja | — | 4 |
+| MinimizedContact | `plasticKeycardsDisinfected` | boolean | ja | — | — |
+| MinimizedContact | `plasticKeycardsDisinfectedException` | string | ja | — | 4 |
+| MinimizedContact | `roomBookingsBuffer` | boolean | ja | — | — |
+| MinimizedContact | `roomBookingsBufferException` | string | ja | — | 4 |
+| Money | `currencyCode` | string | ja | — | — |
+| Money | `nanos` | integer | ja | — | — |
+| Money | `units` | string | ja | — | — |
+| MoreHours | `hoursTypeId` | string | ja | — | — |
+| MoreHours | `periods` | TimePeriod[] | ja | — | — |
+| MoreHoursType | `displayName` | string | — | — | — |
+| MoreHoursType | `hoursTypeId` | string | — | — | — |
+| MoreHoursType | `localizedDisplayName` | string | — | — | — |
+| Notifications | `name` | string | ja | — | — |
+| Notifications | `notificationTypes` | array | ja | — | — |
+| Notifications | `topicName` | string | ja | — | — |
+| NutritionFact | `lowerAmount` | number | ja | — | — |
+| NutritionFact | `unit` | string | ja | — | 3 |
+| NutritionFact | `upperAmount` | number | ja | — | — |
+| NutritionFacts | `calories` | CaloriesFact | ja | — | — |
+| NutritionFacts | `cholesterol` | NutritionFact | ja | — | — |
+| NutritionFacts | `protein` | NutritionFact | ja | — | — |
+| NutritionFacts | `sodium` | NutritionFact | ja | — | — |
+| NutritionFacts | `totalCarbohydrate` | NutritionFact | ja | — | — |
+| NutritionFacts | `totalFat` | NutritionFact | ja | — | — |
+| OpenInfo | `canReopen` | boolean | ja | — | — |
+| OpenInfo | `openingDate` | Date | ja | — | — |
+| OpenInfo | `status` | string | ja | — | 4 |
+| OrganizationInfo | `phoneNumber` | string | ja | — | — |
+| OrganizationInfo | `postalAddress` | PostalAddress | ja | — | — |
+| OrganizationInfo | `registeredDomain` | string | ja | — | — |
+| Parking | `electricCarChargingStations` | boolean | ja | — | — |
+| Parking | `electricCarChargingStationsException` | string | ja | — | 4 |
+| Parking | `freeParking` | boolean | ja | — | — |
+| Parking | `freeParkingException` | string | ja | — | 4 |
+| Parking | `freeSelfParking` | boolean | ja | — | — |
+| Parking | `freeSelfParkingException` | string | ja | — | 4 |
+| Parking | `freeValetParking` | boolean | ja | — | — |
+| Parking | `freeValetParkingException` | string | ja | — | 4 |
+| Parking | `parkingAvailable` | boolean | ja | — | — |
+| Parking | `parkingAvailableException` | string | ja | — | 4 |
+| Parking | `selfParkingAvailable` | boolean | ja | — | — |
+| Parking | `selfParkingAvailableException` | string | ja | — | 4 |
+| Parking | `valetParkingAvailable` | boolean | ja | — | — |
+| Parking | `valetParkingAvailableException` | string | ja | — | 4 |
+| PaymentOptions | `cash` | boolean | ja | — | — |
+| PaymentOptions | `cashException` | string | ja | — | 4 |
+| PaymentOptions | `cheque` | boolean | ja | — | — |
+| PaymentOptions | `chequeException` | string | ja | — | 4 |
+| PaymentOptions | `creditCard` | boolean | ja | — | — |
+| PaymentOptions | `creditCardException` | string | ja | — | 4 |
+| PaymentOptions | `debitCard` | boolean | ja | — | — |
+| PaymentOptions | `debitCardException` | string | ja | — | 4 |
+| PaymentOptions | `mobileNfc` | boolean | ja | — | — |
+| PaymentOptions | `mobileNfcException` | string | ja | — | 4 |
+| PersonalProtection | `commonAreasOfferSanitizingItems` | boolean | ja | — | — |
+| PersonalProtection | `commonAreasOfferSanitizingItemsException` | string | ja | — | 4 |
+| PersonalProtection | `faceMaskRequired` | boolean | ja | — | — |
+| PersonalProtection | `faceMaskRequiredException` | string | ja | — | 4 |
+| PersonalProtection | `guestRoomHygieneKitsAvailable` | boolean | ja | — | — |
+| PersonalProtection | `guestRoomHygieneKitsAvailableException` | string | ja | — | 4 |
+| PersonalProtection | `protectiveEquipmentAvailable` | boolean | ja | — | — |
+| PersonalProtection | `protectiveEquipmentAvailableException` | string | ja | — | 4 |
+| Pets | `catsAllowed` | boolean | ja | — | — |
+| Pets | `catsAllowedException` | string | ja | — | 4 |
+| Pets | `dogsAllowed` | boolean | ja | — | — |
+| Pets | `dogsAllowedException` | string | ja | — | 4 |
+| Pets | `petsAllowed` | boolean | ja | — | — |
+| Pets | `petsAllowedException` | string | ja | — | 4 |
+| Pets | `petsAllowedFree` | boolean | ja | — | — |
+| Pets | `petsAllowedFreeException` | string | ja | — | 4 |
+| PhoneInput | `phoneNumber` | string | ja | — | — |
+| PhoneVerificationData | `phoneNumber` | string | ja | — | — |
+| PhysicalDistancing | `commonAreasPhysicalDistancingArranged` | boolean | ja | — | — |
+| PhysicalDistancing | `commonAreasPhysicalDistancingArrangedException` | string | ja | — | 4 |
+| PhysicalDistancing | `physicalDistancingRequired` | boolean | ja | — | — |
+| PhysicalDistancing | `physicalDistancingRequiredException` | string | ja | — | 4 |
+| PhysicalDistancing | `safetyDividers` | boolean | ja | — | — |
+| PhysicalDistancing | `safetyDividersException` | string | ja | — | 4 |
+| PhysicalDistancing | `sharedAreasLimitedOccupancy` | boolean | ja | — | — |
+| PhysicalDistancing | `sharedAreasLimitedOccupancyException` | string | ja | — | 4 |
+| PhysicalDistancing | `wellnessAreasHavePrivateSpaces` | boolean | ja | — | — |
+| PhysicalDistancing | `wellnessAreasHavePrivateSpacesException` | string | ja | — | 4 |
+| PlaceInfo | `name` | string | ja | — | — |
+| PlaceInfo | `placeId` | string | ja | — | — |
+| Places | `placeInfos` | PlaceInfo[] | ja | — | — |
+| PointRadius | `latlng` | LatLng | ja | — | — |
+| PointRadius | `radiusKm` | number | ja | — | — |
+| Policies | `allInclusiveAvailable` | boolean | ja | — | — |
+| Policies | `allInclusiveAvailableException` | string | ja | — | 4 |
+| Policies | `allInclusiveOnly` | boolean | ja | — | — |
+| Policies | `allInclusiveOnlyException` | string | ja | — | 4 |
+| Policies | `checkinTime` | TimeOfDay | ja | — | — |
+| Policies | `checkinTimeException` | string | ja | — | 4 |
+| Policies | `checkoutTime` | TimeOfDay | ja | — | — |
+| Policies | `checkoutTimeException` | string | ja | — | 4 |
+| Policies | `kidsStayFree` | boolean | ja | — | — |
+| Policies | `kidsStayFreeException` | string | ja | — | 4 |
+| Policies | `maxChildAge` | integer | ja | — | — |
+| Policies | `maxChildAgeException` | string | ja | — | 4 |
+| Policies | `maxKidsStayFreeCount` | integer | ja | — | — |
+| Policies | `maxKidsStayFreeCountException` | string | ja | — | 4 |
+| Policies | `paymentOptions` | PaymentOptions | ja | — | — |
+| Policies | `smokeFreeProperty` | boolean | ja | — | — |
+| Policies | `smokeFreePropertyException` | string | ja | — | 4 |
+| Pools | `adultPool` | boolean | ja | — | — |
+| Pools | `adultPoolException` | string | ja | — | 4 |
+| Pools | `hotTub` | boolean | ja | — | — |
+| Pools | `hotTubException` | string | ja | — | 4 |
+| Pools | `indoorPool` | boolean | ja | — | — |
+| Pools | `indoorPoolException` | string | ja | — | 4 |
+| Pools | `indoorPoolsCount` | integer | ja | — | — |
+| Pools | `indoorPoolsCountException` | string | ja | — | 4 |
+| Pools | `lazyRiver` | boolean | ja | — | — |
+| Pools | `lazyRiverException` | string | ja | — | 4 |
+| Pools | `lifeguard` | boolean | ja | — | — |
+| Pools | `lifeguardException` | string | ja | — | 4 |
+| Pools | `outdoorPool` | boolean | ja | — | — |
+| Pools | `outdoorPoolException` | string | ja | — | 4 |
+| Pools | `outdoorPoolsCount` | integer | ja | — | — |
+| Pools | `outdoorPoolsCountException` | string | ja | — | 4 |
+| Pools | `pool` | boolean | ja | — | — |
+| Pools | `poolException` | string | ja | — | 4 |
+| Pools | `poolsCount` | integer | ja | — | — |
+| Pools | `poolsCountException` | string | ja | — | 4 |
+| Pools | `wadingPool` | boolean | ja | — | — |
+| Pools | `wadingPoolException` | string | ja | — | 4 |
+| Pools | `waterPark` | boolean | ja | — | — |
+| Pools | `waterParkException` | string | ja | — | 4 |
+| Pools | `waterslide` | boolean | ja | — | — |
+| Pools | `waterslideException` | string | ja | — | 4 |
+| Pools | `wavePool` | boolean | ja | — | — |
+| Pools | `wavePoolException` | string | ja | — | 4 |
+| PortionSize | `quantity` | integer | ja | — | — |
+| PortionSize | `unit` | MenuLabel[] | ja | — | — |
+| PostalAddress | `addressLines` | array | ja | — | — |
+| PostalAddress | `administrativeArea` | string | ja | — | — |
+| PostalAddress | `languageCode` | string | ja | — | — |
+| PostalAddress | `locality` | string | ja | — | — |
+| PostalAddress | `organization` | string | ja | — | — |
+| PostalAddress | `postalCode` | string | ja | — | — |
+| PostalAddress | `recipients` | array | ja | — | — |
+| PostalAddress | `regionCode` | string | ja | — | — |
+| PostalAddress | `revision` | integer | ja | — | — |
+| PostalAddress | `sortingCode` | string | ja | — | — |
+| PostalAddress | `sublocality` | string | ja | — | — |
+| PriceList | `labels` | Label[] | ja | — | — |
+| PriceList | `priceListId` | string | ja | — | — |
+| PriceList | `sections` | Section[] | ja | — | — |
+| PriceList | `sourceUrl` | string | ja | — | — |
+| Profile | `description` | string | ja | — | — |
+| Property | `builtYear` | integer | ja | — | — |
+| Property | `builtYearException` | string | ja | — | 4 |
+| Property | `floorsCount` | integer | ja | — | — |
+| Property | `floorsCountException` | string | ja | — | 4 |
+| Property | `lastRenovatedYear` | integer | ja | — | — |
+| Property | `lastRenovatedYearException` | string | ja | — | 4 |
+| Property | `roomsCount` | integer | ja | — | — |
+| Property | `roomsCountException` | string | ja | — | 4 |
+| Question | `author` | Author | ja | — | — |
+| Question | `createTime` | string | ja | — | — |
+| Question | `name` | string | ja | — | — |
+| Question | `text` | string | ja | — | — |
+| Question | `topAnswers` | Answer[] | ja | — | — |
+| Question | `totalAnswerCount` | integer | ja | — | — |
+| Question | `updateTime` | string | ja | — | — |
+| Question | `upvoteCount` | integer | ja | — | — |
+| RegionCount | `count` | string | ja | — | — |
+| RegionCount | `label` | string | ja | — | — |
+| RegionCount | `latlng` | LatLng | ja | — | — |
+| RelationshipData | `parentChain` | string | ja | — | — |
+| RepeatedEnumAttributeValue | `setValues` | array | ja | — | — |
+| RepeatedEnumAttributeValue | `unsetValues` | array | ja | — | — |
+| ReportGoogleLocationRequest | `locationGroupName` | string | ja | — | — |
+| ReportGoogleLocationRequest | `reportReasonBadLocation` | string | ja | — | 8 |
+| ReportGoogleLocationRequest | `reportReasonBadRecommendation` | string | ja | — | 4 |
+| ReportGoogleLocationRequest | `reportReasonElaboration` | string | ja | — | — |
+| ReportGoogleLocationRequest | `reportReasonLanguageCode` | string | ja | — | — |
+| ReportLocalPostInsightsRequest | `basicRequest` | BasicMetricsRequest | ja | — | — |
+| ReportLocalPostInsightsRequest | `localPostNames` | array | ja | — | — |
+| ReportLocalPostInsightsResponse | `localPostMetrics` | LocalPostMetrics[] | ja | — | — |
+| ReportLocalPostInsightsResponse | `name` | string | ja | — | — |
+| ReportLocalPostInsightsResponse | `timeZone` | string | ja | — | — |
+| ReportLocationInsightsRequest | `basicRequest` | BasicMetricsRequest | ja | — | — |
+| ReportLocationInsightsRequest | `drivingDirectionsRequest` | DrivingDirectionMetricsRequest | ja | — | — |
+| ReportLocationInsightsRequest | `locationNames` | array | ja | — | — |
+| ReportLocationInsightsResponse | `locationDrivingDirectionMetrics` | LocationDrivingDirectionMetrics[] | ja | — | — |
+| ReportLocationInsightsResponse | `locationMetrics` | LocationMetrics[] | ja | — | — |
+| Review | `comment` | string | ja | — | — |
+| Review | `createTime` | string | ja | — | — |
+| Review | `name` | string | ja | — | — |
+| Review | `reviewer` | Reviewer | ja | — | — |
+| Review | `reviewId` | string | ja | — | — |
+| Review | `reviewReply` | ReviewReply | ja | — | — |
+| Review | `starRating` | string | ja | — | 6 |
+| Review | `updateTime` | string | ja | — | — |
+| Reviewer | `displayName` | string | ja | — | — |
+| Reviewer | `isAnonymous` | boolean | ja | — | — |
+| Reviewer | `profilePhotoUrl` | string | ja | — | — |
+| ReviewReply | `comment` | string | ja | — | — |
+| ReviewReply | `updateTime` | string | ja | — | — |
+| SearchChainsResponse | `chains` | Chain[] | ja | — | — |
+| SearchGoogleLocationsRequest | `location` | Location | ja | — | — |
+| SearchGoogleLocationsRequest | `query` | string | ja | — | — |
+| SearchGoogleLocationsRequest | `resultCount` | integer | ja | — | — |
+| SearchGoogleLocationsResponse | `googleLocations` | GoogleLocation[] | ja | — | — |
+| Section | `items` | Item[] | ja | — | — |
+| Section | `labels` | Label[] | ja | — | — |
+| Section | `sectionId` | string | ja | — | — |
+| Section | `sectionType` | string | ja | — | 3 |
+| ServiceAreaBusiness | `businessType` | string | ja | — | 3 |
+| ServiceAreaBusiness | `places` | Places | ja | — | — |
+| ServiceAreaBusiness | `radius` | PointRadius | ja | — | — |
+| ServiceBusinessContext | `address` | PostalAddress | ja | — | — |
+| ServiceItem | `freeFormServiceItem` | FreeFormServiceItem | ja | — | — |
+| ServiceItem | `isOffered` | boolean | ja | — | — |
+| ServiceItem | `price` | Money | ja | — | — |
+| ServiceItem | `structuredServiceItem` | StructuredServiceItem | ja | — | — |
+| ServiceList | `name` | string | ja | — | — |
+| ServiceList | `serviceItems` | ServiceItem[] | ja | — | — |
+| Services | `baggageStorage` | boolean | ja | — | — |
+| Services | `baggageStorageException` | string | ja | — | 4 |
+| Services | `concierge` | boolean | ja | — | — |
+| Services | `conciergeException` | string | ja | — | 4 |
+| Services | `convenienceStore` | boolean | ja | — | — |
+| Services | `convenienceStoreException` | string | ja | — | 4 |
+| Services | `currencyExchange` | boolean | ja | — | — |
+| Services | `currencyExchangeException` | string | ja | — | 4 |
+| Services | `elevator` | boolean | ja | — | — |
+| Services | `elevatorException` | string | ja | — | 4 |
+| Services | `frontDesk` | boolean | ja | — | — |
+| Services | `frontDeskException` | string | ja | — | 4 |
+| Services | `fullServiceLaundry` | boolean | ja | — | — |
+| Services | `fullServiceLaundryException` | string | ja | — | 4 |
+| Services | `giftShop` | boolean | ja | — | — |
+| Services | `giftShopException` | string | ja | — | 4 |
+| Services | `languagesSpoken` | LanguagesSpoken | ja | — | — |
+| Services | `selfServiceLaundry` | boolean | ja | — | — |
+| Services | `selfServiceLaundryException` | string | ja | — | 4 |
+| Services | `socialHour` | boolean | ja | — | — |
+| Services | `socialHourException` | string | ja | — | 4 |
+| Services | `twentyFourHourFrontDesk` | boolean | ja | — | — |
+| Services | `twentyFourHourFrontDeskException` | string | ja | — | 4 |
+| Services | `wakeUpCalls` | boolean | ja | — | — |
+| Services | `wakeUpCallsException` | string | ja | — | 4 |
+| ServiceType | `displayName` | string | — | — | — |
+| ServiceType | `serviceTypeId` | string | — | — | — |
+| SpecialHourPeriod | `closeTime` | string | ja | — | — |
+| SpecialHourPeriod | `endDate` | Date | ja | — | — |
+| SpecialHourPeriod | `isClosed` | boolean | ja | — | — |
+| SpecialHourPeriod | `openTime` | string | ja | — | — |
+| SpecialHourPeriod | `startDate` | Date | ja | — | — |
+| SpecialHours | `specialHourPeriods` | SpecialHourPeriod[] | ja | — | — |
+| StructuredServiceItem | `description` | string | ja | — | — |
+| StructuredServiceItem | `serviceTypeId` | string | ja | — | — |
+| TargetLocation | `locationAddress` | string | ja | — | — |
+| TargetLocation | `locationName` | string | ja | — | — |
+| TimeDimension | `dayOfWeek` | string | ja | — | 8 |
+| TimeDimension | `timeOfDay` | TimeOfDay | ja | — | — |
+| TimeDimension | `timeRange` | TimeRange | ja | — | — |
+| TimeInterval | `endDate` | Date | ja | — | — |
+| TimeInterval | `endTime` | TimeOfDay | ja | — | — |
+| TimeInterval | `startDate` | Date | ja | — | — |
+| TimeInterval | `startTime` | TimeOfDay | ja | — | — |
+| TimeOfDay | `hours` | integer | ja | — | — |
+| TimeOfDay | `minutes` | integer | ja | — | — |
+| TimeOfDay | `nanos` | integer | ja | — | — |
+| TimeOfDay | `seconds` | integer | ja | — | — |
+| TimePeriod | `closeDay` | string | ja | — | 8 |
+| TimePeriod | `closeTime` | string | ja | — | — |
+| TimePeriod | `openDay` | string | ja | — | 8 |
+| TimePeriod | `openTime` | string | ja | — | — |
+| TimeRange | `endTime` | string | ja | — | — |
+| TimeRange | `startTime` | string | ja | — | — |
+| TopDirectionSources | `dayCount` | integer | ja | — | — |
+| TopDirectionSources | `regionCounts` | RegionCount[] | ja | — | — |
+| TransferLocationRequest | `toAccount` | string | ja | — | — |
+| Transportation | `airportShuttle` | boolean | ja | — | — |
+| Transportation | `airportShuttleException` | string | ja | — | 4 |
+| Transportation | `carRentalOnProperty` | boolean | ja | — | — |
+| Transportation | `carRentalOnPropertyException` | string | ja | — | 4 |
+| Transportation | `freeAirportShuttle` | boolean | ja | — | — |
+| Transportation | `freeAirportShuttleException` | string | ja | — | 4 |
+| Transportation | `freePrivateCarService` | boolean | ja | — | — |
+| Transportation | `freePrivateCarServiceException` | string | ja | — | 4 |
+| Transportation | `localShuttle` | boolean | ja | — | — |
+| Transportation | `localShuttleException` | string | ja | — | 4 |
+| Transportation | `privateCarService` | boolean | ja | — | — |
+| Transportation | `privateCarServiceException` | string | ja | — | 4 |
+| Transportation | `transfer` | boolean | ja | — | — |
+| Transportation | `transferException` | string | ja | — | 4 |
+| UpsertAnswerRequest | `answer` | Answer | ja | — | — |
+| UrlAttributeValue | `url` | string | ja | — | — |
+| Verification | `createTime` | string | ja | — | — |
+| Verification | `method` | string | ja | — | 6 |
+| Verification | `name` | string | ja | — | — |
+| Verification | `state` | string | ja | — | 4 |
+| VerificationOption | `addressData` | AddressVerificationData | ja | — | — |
+| VerificationOption | `emailData` | EmailVerificationData | ja | — | — |
+| VerificationOption | `phoneData` | PhoneVerificationData | ja | — | — |
+| VerificationOption | `verificationMethod` | string | ja | — | 6 |
+| VerifyLocationRequest | `addressInput` | AddressInput | ja | — | — |
+| VerifyLocationRequest | `context` | ServiceBusinessContext | ja | — | — |
+| VerifyLocationRequest | `emailInput` | EmailInput | ja | — | — |
+| VerifyLocationRequest | `languageCode` | string | ja | — | — |
+| VerifyLocationRequest | `method` | string | ja | — | 6 |
+| VerifyLocationRequest | `phoneInput` | PhoneInput | ja | — | — |
+| VerifyLocationResponse | `verification` | Verification | ja | — | — |
+| ViewsFromUnit | `beachView` | boolean | ja | — | — |
+| ViewsFromUnit | `beachViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `cityView` | boolean | ja | — | — |
+| ViewsFromUnit | `cityViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `gardenView` | boolean | ja | — | — |
+| ViewsFromUnit | `gardenViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `lakeView` | boolean | ja | — | — |
+| ViewsFromUnit | `lakeViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `landmarkView` | boolean | ja | — | — |
+| ViewsFromUnit | `landmarkViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `oceanView` | boolean | ja | — | — |
+| ViewsFromUnit | `oceanViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `poolView` | boolean | ja | — | — |
+| ViewsFromUnit | `poolViewException` | string | ja | — | 4 |
+| ViewsFromUnit | `valleyView` | boolean | ja | — | — |
+| ViewsFromUnit | `valleyViewException` | string | ja | — | 4 |
+| Wellness | `doctorOnCall` | boolean | ja | — | — |
+| Wellness | `doctorOnCallException` | string | ja | — | 4 |
+| Wellness | `ellipticalMachine` | boolean | ja | — | — |
+| Wellness | `ellipticalMachineException` | string | ja | — | 4 |
+| Wellness | `fitnessCenter` | boolean | ja | — | — |
+| Wellness | `fitnessCenterException` | string | ja | — | 4 |
+| Wellness | `freeFitnessCenter` | boolean | ja | — | — |
+| Wellness | `freeFitnessCenterException` | string | ja | — | 4 |
+| Wellness | `freeWeights` | boolean | ja | — | — |
+| Wellness | `freeWeightsException` | string | ja | — | 4 |
+| Wellness | `massage` | boolean | ja | — | — |
+| Wellness | `massageException` | string | ja | — | 4 |
+| Wellness | `salon` | boolean | ja | — | — |
+| Wellness | `salonException` | string | ja | — | 4 |
+| Wellness | `sauna` | boolean | ja | — | — |
+| Wellness | `saunaException` | string | ja | — | 4 |
+| Wellness | `spa` | boolean | ja | — | — |
+| Wellness | `spaException` | string | ja | — | 4 |
+| Wellness | `treadmill` | boolean | ja | — | — |
+| Wellness | `treadmillException` | string | ja | — | 4 |
+| Wellness | `weightMachine` | boolean | ja | — | — |
+| Wellness | `weightMachineException` | string | ja | — | 4 |
+
 ## My Business Place Actions API
 
 Discovery: https://mybusinessplaceactions.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/placeactions/rest
+Dienst-Host: `mybusinessplaceactions.googleapis.com` — im WERKRUF-Code **nicht vorhanden**
 Revision: `20260928` · Prüfsumme: `d15f92a562cefb01…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
-| `locations.placeActionLinks.create` | POST | `v1/{+parent}/placeActionLinks` | ja | — | ja |
-| `locations.placeActionLinks.delete` | DELETE | `v1/{+name}` | ja | — | ja |
-| `locations.placeActionLinks.get` | GET | `v1/{+name}` | — | — | ja |
-| `locations.placeActionLinks.list` | GET | `v1/{+parent}/placeActionLinks` | — | — | ja |
-| `locations.placeActionLinks.patch` | PATCH | `v1/{+name}` | ja | — | ja |
-| `placeActionTypeMetadata.list` | GET | `v1/placeActionTypeMetadata` | — | — | ja |
+| `locations.placeActionLinks.create` | POST | `v1/{+parent}/placeActionLinks` | ja | — | — |
+| `locations.placeActionLinks.delete` | DELETE | `v1/{+name}` | ja | — | — |
+| `locations.placeActionLinks.get` | GET | `v1/{+name}` | — | — | — |
+| `locations.placeActionLinks.list` | GET | `v1/{+parent}/placeActionLinks` | — | — | — |
+| `locations.placeActionLinks.patch` | PATCH | `v1/{+name}` | ja | — | — |
+| `placeActionTypeMetadata.list` | GET | `v1/placeActionTypeMetadata` | — | — | — |
 
 ### Felder — 10 schreibbar, 4 nur lesbar, 0 veraltet
 
@@ -329,11 +1405,12 @@ Revision: `20260928` · Prüfsumme: `d15f92a562cefb01…`
 
 Discovery: https://mybusinessnotifications.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/notifications/rest
+Dienst-Host: `mybusinessnotifications.googleapis.com` — im WERKRUF-Code **nicht vorhanden**
 Revision: `20260928` · Prüfsumme: `8e1f0008ae6e96fa…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
 | `accounts.getNotificationSetting` | GET | `v1/{+name}` | — | — | — |
 | `accounts.updateNotificationSetting` | PATCH | `v1/{+name}` | ja | — | — |
@@ -350,15 +1427,16 @@ Revision: `20260928` · Prüfsumme: `8e1f0008ae6e96fa…`
 
 Discovery: https://businessprofileperformance.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/performance/rest
+Dienst-Host: `businessprofileperformance.googleapis.com` — im WERKRUF-Code **nicht vorhanden**
 Revision: `20260928` · Prüfsumme: `a3d81f89824f1572…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
 | `locations.fetchMultiDailyMetricsTimeSeries` | GET | `v1/{+location}:fetchMultiDailyMetricsTimeSeries` | — | — | — |
 | `locations.getDailyMetricsTimeSeries` | GET | `v1/{+name}:getDailyMetricsTimeSeries` | — | — | — |
-| `locations.searchkeywords.impressions.monthly.list` | GET | `v1/{+parent}/searchkeywords/impressions/monthly` | — | — | ja |
+| `locations.searchkeywords.impressions.monthly.list` | GET | `v1/{+parent}/searchkeywords/impressions/monthly` | — | — | — |
 
 ### Felder — 24 schreibbar, 0 nur lesbar, 0 veraltet
 
@@ -393,18 +1471,19 @@ Revision: `20260928` · Prüfsumme: `a3d81f89824f1572…`
 
 Discovery: https://mybusinessverifications.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/verifications/rest
+Dienst-Host: `mybusinessverifications.googleapis.com` — im WERKRUF-Code **nicht vorhanden**
 Revision: `20260928` · Prüfsumme: `e998fee017279095…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
 | `locations.fetchVerificationOptions` | POST | `v1/{+location}:fetchVerificationOptions` | ja | — | — |
 | `locations.getVoiceOfMerchantState` | GET | `v1/{+name}/VoiceOfMerchantState` | — | — | — |
-| `locations.verifications.complete` | POST | `v1/{+name}:complete` | ja | — | ja |
-| `locations.verifications.list` | GET | `v1/{+parent}/verifications` | — | — | ja |
+| `locations.verifications.complete` | POST | `v1/{+name}:complete` | ja | — | — |
+| `locations.verifications.list` | GET | `v1/{+parent}/verifications` | — | — | — |
 | `locations.verify` | POST | `v1/{+name}:verify` | ja | — | — |
-| `verificationTokens.generate` | POST | `v1/verificationTokens:generate` | ja | — | ja |
+| `verificationTokens.generate` | POST | `v1/verificationTokens:generate` | ja | — | — |
 
 ### Felder — 55 schreibbar, 1 nur lesbar, 0 veraltet
 
@@ -471,14 +1550,15 @@ Revision: `20260928` · Prüfsumme: `e998fee017279095…`
 
 Discovery: https://mybusinesslodging.googleapis.com/$discovery/rest?version=v1
 Dokumentation: https://developers.google.com/my-business/reference/lodging/rest
+Dienst-Host: `mybusinesslodging.googleapis.com` — im WERKRUF-Code **nicht vorhanden**
 Revision: `20260928` · Prüfsumme: `42729d1d2d3b7df9…`
 
 ### Methoden
 
-| Methode | HTTP | Pfad | schreibend | veraltet | in WERKRUF |
+| Methode | HTTP | Pfad | schreibend | veraltet | vermutlich in WERKRUF |
 |---|---|---|---|---|---|
 | `locations.getLodging` | GET | `v1/{+name}` | — | — | — |
-| `locations.lodging.getGoogleUpdated` | GET | `v1/{+name}:getGoogleUpdated` | — | — | ja |
+| `locations.lodging.getGoogleUpdated` | GET | `v1/{+name}:getGoogleUpdated` | — | — | — |
 | `locations.updateLodging` | PATCH | `v1/{+name}` | ja | — | — |
 
 ### Felder — 587 schreibbar, 4 nur lesbar, 1 veraltet
@@ -1086,3 +2166,8 @@ ob eine API im Google-Cloud-Projekt aktiviert ist, ob eine Quota vergeben wurde 
 ob ein Aufruf mit echtem Token funktioniert. Das beantwortet nur die Cloud Console
 oder ein authentifizierter Funktionstest — siehe `docs/google-api-inventory.md`,
 Abschnitt „Google-Cloud-Freigaben".
+
+Die Spalte „vermutlich in WERKRUF" ist eine Textsuche im Quelltext, keine Analyse.
+Sie zaehlt nur, wenn der Dienst-Host der API im Code vorkommt, und trifft danach
+auf markante Bezeichner. Sie kann daneben liegen — gepruefte Aussagen zur Nutzung
+stehen in `docs/google-api-inventory.md`.
