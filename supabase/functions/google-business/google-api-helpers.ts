@@ -1,31 +1,33 @@
+import {
+  schreibbarePfade, unterpfadErlaubt, nurGanzeObjekte,
+} from '../../../src/utils/gbpFieldModel.js';
+
 export const LOCATION_READ_MASK = [
   'name', 'title', 'phoneNumbers', 'websiteUri', 'storefrontAddress',
   'categories', 'regularHours', 'specialHours', 'moreHours', 'serviceArea',
   'profile', 'serviceItems', 'metadata',
 ].join(',');
 
-export const EDITABLE_LOCATION_FIELDS = new Set([
-  'phoneNumbers', 'websiteUri', 'regularHours', 'specialHours', 'moreHours',
-  'serviceArea', 'profile', 'serviceItems', 'categories',
-]);
-
-/**
- * Unterfelder, die einzeln geschrieben werden duerfen.
+/*
+ * Die Erlaubnislisten stammen aus dem gemeinsamen Feldmodell in
+ * src/utils/gbpFieldModel.js — derselben Datei, aus der auch die
+ * Oberflaeche ihre Felder bezieht.
  *
- * Warum das noetig ist: Google ersetzt bei updateMask=profile das
- * GESAMTE profile-Objekt durch das, was im Patch steht. Wer nur die
- * Beschreibung aendert und profile: { description } schickt, loescht
- * damit jedes andere Unterfeld, das Google dort fuehrt. Dasselbe gilt
- * fuer phoneNumbers: updateMask=phoneNumbers mit nur primaryPhone
- * entfernt die additionalPhones.
+ * Warum nicht zwei getrennte Listen: Am 29.09. stand
+ * phoneNumbers.primaryPhone als erlaubter Unterpfad im Server,
+ * waehrend das Discovery-Dokument ausdruecklich sagt, dass Google
+ * Telefonnummern nur als Ganzes annimmt. Eine zweite Liste laeuft
+ * auseinander; eine gemeinsame kann es nicht.
  *
- * Mit updateMask=profile.description bleibt der Rest unangetastet.
+ * Das Modell steuert die Oberflaeche. VERBINDLICH ist diese Datei:
+ * sanitizeLocationPatch verwirft alles, was nicht im Modell steht,
+ * unabhaengig davon, was der Aufrufer schickt.
  */
-export const EDITABLE_LOCATION_SUBFIELDS = new Set([
-  'profile.description',
-  'serviceArea.businessType',
-  'serviceArea.places',
-]);
+export const EDITABLE_LOCATION_FIELDS = new Set(
+  schreibbarePfade().filter((p) => !p.includes('.')),
+);
+
+export const EDITABLE_LOCATION_SUBFIELDS = new Set(unterpfadErlaubt());
 
 /**
  * Felder, die Google NUR als Ganzes akzeptiert.
@@ -41,17 +43,9 @@ export const EDITABLE_LOCATION_SUBFIELDS = new Set([
  *   categories using the update mask."
  *
  * Wer hier einen Unterpfad schickt, bekommt von Google einen Fehler —
- * oder schlimmer, das Feld wird stillschweigend geleert. Deshalb
- * verwirft sanitizeLocationPatch solche Pfade ausdruecklich.
- *
- * Profile steht bewusst NICHT hier: Es hat nur das Unterfeld
- * description, profile.description ist damit gleichbedeutend mit
- * profile und nicht eingeschraenkt.
+ * oder schlimmer, das Feld wird stillschweigend geleert.
  */
-export const WHOLE_OBJECT_ONLY_FIELDS = new Set([
-  'phoneNumbers',
-  'categories',
-]);
+export const WHOLE_OBJECT_ONLY_FIELDS = new Set(nurGanzeObjekte());
 
 /** Setzt einen Wert unter einem Punktpfad, ohne Geschwisterfelder anzufassen. */
 function setzeTiefenwert(ziel: Record<string, unknown>, pfad: string, wert: unknown): void {

@@ -2,13 +2,15 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import {
-  MapPin, Star, MessageSquare, RefreshCw, CheckCircle,
+  MapPin, Star, MessageSquare, RefreshCw, CheckCircle, Settings,
   AlertTriangle, Clock, ArrowRight, Send, FileText,
 } from 'lucide-react';
 import { useIndustry } from '../../context/IndustryContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
+import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
+import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -46,16 +48,6 @@ const RefreshMarke = styled.span`
   color: var(--color-text-muted); white-space: nowrap;
 `;
 
-const EditorHinweis = styled.div`
-  font-family: var(--font-body); font-size: .8rem; line-height: 1.5;
-  border-radius: 6px; padding: 9px 12px;
-  border-left: 3px solid ${p => p.$art === 'ok' ? '#1E7E34' : '#D93025'};
-  background: ${p => p.$art === 'ok' ? '#E8F5E9' : '#FDECEA'};
-  color: ${p => p.$art === 'ok' ? '#1B5E20' : '#8B1A12'};
-  strong { display: inline; }
-  small { color: inherit; opacity: .8; }
-`;
-
 const HistorieZeile = styled.p`
   font-family: var(--font-body); font-size: .76rem;
   color: var(--color-text-muted); line-height: 1.55;
@@ -88,15 +80,6 @@ const LocationStats = styled.div`
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   padding-top: 10px; border-top: 1px solid var(--color-border);
   font-family: var(--font-body); font-size: .8rem; color: var(--color-text);
-`;
-const ProfileInput = styled.input`
-  width: 100%; padding: 9px 10px; border: 1px solid var(--color-border);
-  border-radius: 7px; font: .82rem var(--font-body); background: var(--color-bg);
-`;
-const ProfileTextarea = styled.textarea`
-  width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px;
-  border: 1px solid var(--color-border); border-radius: 7px;
-  font: .82rem var(--font-body); background: var(--color-bg);
 `;
 
 const SyncBar = styled(Card)`
@@ -308,6 +291,12 @@ export default function DashboardGoogleBusiness() {
   /* 'never' als eigener Zustand: vorher stand bei einem frisch
      verbundenen Konto "Daten sind aktuell / Zuletzt abgeglichen noch
      nie" — beides gleichzeitig, und das eine widerlegt das andere. */
+  /* Der ausgewaehlte Betrieb. Die Profilverwaltung bezieht sich immer
+     auf genau einen — alles andere vermischte Daten. */
+  const ausgewaehlterStandort = selectedLocation
+    ? locations.find((l) => l.id === selectedLocation) ?? null
+    : null;
+
   const visibleLocations = selectedLocation
     ? locations.filter((l) => l.id === selectedLocation)
     : locations;
@@ -558,11 +547,33 @@ export default function DashboardGoogleBusiness() {
                         <Clock size={12} />{formatRelative(location.last_synced_at)}
                       </span>
                     </LocationStats>
-                    <LocationProfileEditor location={location} onSave={updateLocation} />
                   </LocationCard>
                 ))}
               </LocationGrid>
             )}
+
+          {/* ── GOOGLE-PROFIL VERWALTEN ──
+              Gemeinsame Struktur mit Unternavigation. Welche Felder ein
+              Bereich hat und ob sie fuer DIESEN Betrieb bearbeitbar
+              sind, kommt aus src/utils/gbpFieldModel.js. */}
+          {!loading && ausgewaehlterStandort && (
+            <>
+              <SectionTitle><Settings size={15} /> Google-Profil verwalten</SectionTitle>
+              <Card>
+                <GoogleProfilVerwalten
+                  location={ausgewaehlterStandort}
+                  bereiche={{
+                    stammdaten: (
+                      <StammdatenEditor
+                        location={ausgewaehlterStandort}
+                        onSave={updateLocation}
+                      />
+                    ),
+                  }}
+                />
+              </Card>
+            </>
+          )}
 
           {/* ── NEUESTE BEWERTUNGEN ── */}
           <SectionTitle><Star size={15} /> Neueste Bewertungen</SectionTitle>
@@ -573,146 +584,10 @@ export default function DashboardGoogleBusiness() {
   );
 }
 
-/**
- * Profil-Editor.
- *
- * Drei Regeln, die diese Komponente einhalten muss:
- *
- * 1. NUR tatsaechlich geaenderte Felder werden uebertragen. Vorher
- *    gingen bei jedem Speichern alle drei raus — mit updateMask
- *    "phoneNumbers,profile,websiteUri". Google ersetzt bei
- *    updateMask=profile das GESAMTE profile-Objekt: Wer nur die
- *    Beschreibung aenderte, loeschte damit jedes andere Unterfeld,
- *    das Google dort fuehrt. Jetzt Punktpfade, also
- *    profile.description.
- *
- * 2. Die Rueckmeldung behauptet nicht mehr, als bekannt ist. Eine
- *    erfolgreiche PATCH-Antwort heisst: Google hat die Aenderung
- *    ANGENOMMEN. Ob sie oeffentlich auf Maps erscheint, sagt die API
- *    nicht — Google prueft eingereichte Aenderungen und veroeffentlicht
- *    sie spaeter oder gar nicht. "Von Google bestaetigt" war deshalb
- *    falsch.
- *
- * 3. Erfolg und Fehler sind getrennte Zustaende. Vorher landeten beide
- *    im selben notice-String und sahen gleich aus.
- */
-function LocationProfileEditor({ location, onSave }) {
-  /* Ausgangswerte aus dem bestaetigten Google-Stand. */
-  const urspruenglich = React.useMemo(() => ({
-    telefon:      location.primary_phone || '',
-    website:      location.website_uri || '',
-    beschreibung: location.google_profile?.profile?.description || '',
-  }), [location.primary_phone, location.website_uri, location.google_profile]);
-
-  const [telefon, setTelefon]           = React.useState(urspruenglich.telefon);
-  const [website, setWebsite]           = React.useState(urspruenglich.website);
-  const [beschreibung, setBeschreibung] = React.useState(urspruenglich.beschreibung);
-
-  const [busy, setBusy]       = React.useState(false);
-  const [erfolg, setErfolg]   = React.useState(null);
-  const [fehler, setFehler]   = React.useState(null);
-
-  /* Nach erfolgreichem Speichern liefert der Server den bestaetigten
-     Stand; die Ausgangswerte wandern nach. Ohne das gaelte das Feld
-     weiterhin als geaendert und ginge beim naechsten Mal erneut raus. */
-  React.useEffect(() => {
-    setTelefon(urspruenglich.telefon);
-    setWebsite(urspruenglich.website);
-    setBeschreibung(urspruenglich.beschreibung);
-  }, [urspruenglich]);
-
-  const geaendert = {
-    telefon:      telefon.trim()      !== urspruenglich.telefon,
-    website:      website.trim()      !== urspruenglich.website,
-    beschreibung: beschreibung.trim() !== urspruenglich.beschreibung,
-  };
-  const etwasGeaendert = Object.values(geaendert).some(Boolean);
-
-  const speichern = async () => {
-    setBusy(true); setErfolg(null); setFehler(null);
-
-    /* Punktpfade: Jeder Eintrag ersetzt genau dieses Unterfeld.
-       Unveraenderte Felder tauchen gar nicht erst auf und landen damit
-       auch nicht in der updateMask. */
-    const aenderungen = {};
-
-    /* phoneNumbers akzeptiert Google NUR als Ganzes — das Discovery-
-       Dokument sagt ausdruecklich, dass primaryPhone und
-       additionalPhones nicht einzeln ueber die updateMask geaendert
-       werden duerfen. Die vorhandenen additionalPhones werden deshalb
-       mitgeschickt, sonst loescht das Speichern sie. */
-    if (geaendert.telefon) {
-      aenderungen.phoneNumbers = {
-        ...(location.google_profile?.phoneNumbers || {}),
-        primaryPhone: telefon.trim() || null,
-      };
-    }
-
-    if (geaendert.website) aenderungen.websiteUri = website.trim() || null;
-
-    /* profile hat nur das Unterfeld description — hier ist der
-       Punktpfad zulaessig und genauer. */
-    if (geaendert.beschreibung) aenderungen['profile.description'] = beschreibung.trim() || null;
-
-    try {
-      const antwort = await onSave(location.id, aenderungen);
-
-      /* Nur bei confirmed: true. Alles andere ist keine Bestaetigung. */
-      if (antwort?.confirmed) {
-        setErfolg({
-          felder: antwort.updateMask ? antwort.updateMask.split(',') : Object.keys(aenderungen),
-        });
-      } else {
-        setFehler('Google hat die Änderung nicht bestätigt. Bitte versuche es erneut.');
-      }
-    } catch (error) {
-      setFehler(error.message || 'Die Änderung konnte nicht gespeichert werden.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--color-border)', paddingTop: 10 }}>
-      <small>Name, Adresse und Verifizierungsstatus werden von Google nur lesend angezeigt.</small>
-
-      <ProfileInput aria-label="Telefonnummer" value={telefon}
-        onChange={(e) => setTelefon(e.target.value)} placeholder="Telefonnummer" />
-      <ProfileInput aria-label="Website" value={website}
-        onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
-      <ProfileTextarea aria-label="Unternehmensbeschreibung" value={beschreibung}
-        onChange={(e) => setBeschreibung(e.target.value)} placeholder="Unternehmensbeschreibung" />
-
-      {location.google_diff_mask?.length > 0 && (
-        <Badge $variant="warning">Google-Änderung: {location.google_diff_mask.join(', ')}</Badge>
-      )}
-
-      <div>
-        <GhostBtn onClick={speichern} disabled={busy || !etwasGeaendert}>
-          {busy ? <Spinner size={14} /> : <Send size={14} />}
-          {busy ? 'Wird übermittelt…' : 'Bei Google speichern'}
-        </GhostBtn>
-      </div>
-
-      {erfolg && (
-        <EditorHinweis $art="ok">
-          <strong>An Google übermittelt.</strong>{' '}
-          Google kann die Veröffentlichung noch überprüfen — bis dahin ist im
-          Unternehmensprofil weiterhin der bisherige Stand sichtbar.
-          {erfolg.felder.length > 0 && (
-            <><br /><small>Übermittelt: {erfolg.felder.join(', ')}</small></>
-          )}
-        </EditorHinweis>
-      )}
-
-      {fehler && (
-        <EditorHinweis $art="fehler" role="alert">
-          <strong>Nicht gespeichert.</strong> {fehler}
-        </EditorHinweis>
-      )}
-    </div>
-  );
-}
+/* Der Profil-Editor ist am 29.09.2026 nach
+   components/dashboard/StammdatenEditor.js umgezogen und wird dort
+   ueber GoogleProfilVerwalten eingebunden. Seine Sicherheitskorrekturen
+   sind vollstaendig mitgewandert. */
 
 /* ─────────────────────────────────────────────
    Neueste Bewertungen

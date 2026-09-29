@@ -29,6 +29,7 @@ import {
   type GoogleLocationForPersistence,
 } from './location-mapper.ts';
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
+import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -4336,8 +4337,34 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
   const body = await readJsonBody<{ locationId?: string; changes?: Record<string, unknown> }>(request);
   if (!body.locationId || !body.changes) throw new GbpError('bad_request', 'locationId oder changes fehlt');
   const location = await loadOwnLocation(body.locationId, user.id);
+
+  /* ── Erste Stufe: Was erlaubt die API ueberhaupt? ──
+     Verwirft alles, was nicht im Feldmodell steht, und baut die
+     kleinstmoegliche updateMask. */
   const { patch, updateMask } = sanitizeLocationPatch(body.changes);
   if (!updateMask) throw new GbpError('bad_request', 'Keine unterstützten Änderungen');
+
+  /* ── Zweite Stufe: Was erlaubt DIESER Standort? ──
+     Das Feldmodell beschreibt die API-Struktur. Ob ein konkreter
+     Betrieb ein Feld bearbeiten darf, haengt an den Google-Metadaten
+     dieses Standorts — etwa canModifyServiceList oder
+     hasVoiceOfMerchant.
+
+     Diese Pruefung ist die verbindliche. Die Oberflaeche sperrt
+     dieselben Felder, aber ein Aufrufer, der sie umgeht, kommt hier
+     nicht weiter. */
+  const gesperrt = updateMask.split(',')
+    .map((pfad) => ({ pfad, pruefung: istBearbeitbar(pfad, location) }))
+    .filter((e) => !e.pruefung.erlaubt);
+
+  if (gesperrt.length > 0) {
+    await writeAuditLog({
+      userId: user.id, action: 'location.update_blocked',
+      entityType: 'google_location', entityId: location.id,
+      metadata: { felder: gesperrt.map((e) => e.pfad), codes: gesperrt.map((e) => e.pruefung.code) },
+    });
+    throw new GbpError('bad_request', gesperrt[0].pruefung.grund ?? 'Dieses Feld ist für diesen Betrieb gesperrt.');
+  }
   const client = createGbpClient(user.id, location.account_id);
   await client.updateLocation(location.location_resource_name, patch as GbpLocationPatch, { updateMask });
   const confirmed = await client.getLocation(location.location_resource_name);

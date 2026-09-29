@@ -690,3 +690,34 @@ export function formatRelative(value) {
   const days = Math.round(hours / 24);
   return days === 1 ? 'gestern' : `vor ${days} Tagen`;
 }
+
+/* ─────────────────────────────────────────────
+   EINGABEFELDER DER PROFILVERWALTUNG
+
+   Verschoben aus DashboardGoogleBusiness.js am 29.09.2026: Seit der
+   Stammdaten-Editor eine eigene Komponente ist, brauchen sie beide
+   Seiten. Eine zweite Bausteinsammlung waere der Anfang von zwei
+   Gestaltungen.
+
+   disabled ist ergaenzt — gesperrte Felder muessen sichtbar gesperrt
+   sein, nicht nur nicht absendbar.
+───────────────────────────────────────────── */
+
+export const ProfileInput = styled.input`
+  width: 100%; padding: 9px 10px; border: 1px solid var(--color-border);
+  border-radius: 7px; font: .82rem var(--font-body); background: var(--color-bg);
+
+  &:disabled {
+    background: #F4F5F7; color: var(--color-text-muted); cursor: not-allowed;
+  }
+`;
+
+export const ProfileTextarea = styled.textarea`
+  width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  font: .82rem var(--font-body); background: var(--color-bg);
+
+  &:disabled {
+    background: #F4F5F7; color: var(--color-text-muted); cursor: not-allowed;
+  }
+`;
