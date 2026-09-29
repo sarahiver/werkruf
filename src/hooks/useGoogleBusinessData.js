@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
 
+/* Nur fuer den Fall, dass die Antwort keinen lesbaren Text enthaelt —
+   etwa bei einem Netzwerkabbruch oder einer Antwort ohne JSON. */
+const FALLBACK_SELECT_ERROR = 'Der Betrieb konnte nicht ausgewählt werden. Bitte versuche es in einem Moment erneut.';
+
 /* ─────────────────────────────────────────────
    useGoogleBusinessData
 
@@ -217,7 +221,24 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ locationId }),
     });
-    if (!response.ok) throw new Error('Der Betrieb konnte nicht ausgewählt werden.');
+    if (!response.ok) {
+      /* Die Edge Function antwortet strukturiert:
+           { error: { code, message, retryable } }
+         Der Text darin ist bereits fuer Nutzer geschrieben — ihn
+         wegzuwerfen und pauschal "konnte nicht ausgewaehlt werden" zu
+         zeigen, nimmt genau die Auskunft weg, die weiterhilft. */
+      const payload = await response.json().catch(() => null);
+      const code = payload?.error?.code ?? `http_${response.status}`;
+
+      /* Nur Fehlercode und Statuscode ins Protokoll — keine Tokens,
+         keine E-Mail, keine Standort- oder Nutzerkennung. */
+      console.error('[useGoogleBusinessData] location/select', { code, status: response.status });
+
+      throw Object.assign(
+        new Error(payload?.error?.message || FALLBACK_SELECT_ERROR),
+        { code },
+      );
+    }
 
     /* Der Bewertungs-Sync gilt genau diesem Betrieb — kein
        Standortimport über alle Unternehmen.

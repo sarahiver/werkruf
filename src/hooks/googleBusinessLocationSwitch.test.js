@@ -55,12 +55,33 @@ function standorte({ gewaehlt = null } = {}) {
 /** Absteigend nach created_at — so liefert es die Abfrage im Hook. */
 const jobs = (liste) => liste.map((j) => ({ job_type: 'sync_reviews', ...j }));
 
+/**
+ * Bildet die korrigierte select_google_location nach: erst alle
+ * zuruecksetzen, dann genau eine setzen. Damit prueft der Test, ob das
+ * Frontend mit dem Ergebnis richtig umgeht — die SQL-Korrektur selbst
+ * laesst sich hier nicht pruefen, dafuer braucht es die Datenbank.
+ */
+function serverWaehltAus(locationId) {
+  state.rows.google_locations = state.rows.google_locations.map((l) => ({
+    ...l,
+    selected_at: l.id === locationId ? '2026-09-29T12:00:00Z' : null,
+    is_primary:  l.id === locationId,
+  }));
+}
+
+const fetchMitAuswahl = () => jest.fn((url, optionen) => {
+  if (url.endsWith('/location/select')) {
+    serverWaehltAus(JSON.parse(optionen.body).locationId);
+  }
+  return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+});
+
 beforeEach(() => {
   state.rows = {
     google_locations: standorte(),
     sync_jobs: [], google_reviews: [], review_replies: [],
   };
-  global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+  global.fetch = fetchMitAuswahl();
   process.env.REACT_APP_SUPABASE_URL = 'https://projekt.supabase.co';
 });
 
@@ -215,5 +236,78 @@ describe('Daten des ausgewaehlten Betriebs', () => {
     expect(result.current.lastFailedJob).toBeNull();
     expect(result.current.stats.totalReviews).toBe(0);
     expect(result.current.stats.averageRating).toBeNull();
+  });
+});
+
+describe('Wechsel zwischen zwei Betrieben (Regression 29.09.)', () => {
+  /* Der Fehler: select_google_location setzte alte und neue Auswahl in
+     einer UPDATE-Anweisung. Je nach Zeilenreihenfolge waren kurzzeitig
+     beide gesetzt — Unique-Verstoss 23505, und der Wechsel scheiterte
+     mit "Der Betrieb konnte nicht ausgewaehlt werden". */
+
+  const gewaehlt = (result) =>
+    result.current.locations.filter((l) => l.selected_at).map((l) => l.id);
+
+  it('wechselt S&I. → WERKRUF → S&I. mit jeweils genau einer Auswahl', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: SI });
+    const { result } = await laden();
+    expect(gewaehlt(result)).toEqual([SI]);
+
+    await act(async () => { await result.current.selectLocation(WERKRUF); });
+    await waitFor(() => expect(gewaehlt(result)).toEqual([WERKRUF]));
+
+    await act(async () => { await result.current.selectLocation(SI); });
+    await waitFor(() => expect(gewaehlt(result)).toEqual([SI]));
+  });
+
+  it('haelt die Auswahl nach einem Reload', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: SI });
+    const erst = await laden();
+    await act(async () => { await erst.result.current.selectLocation(WERKRUF); });
+    await waitFor(() => expect(gewaehlt(erst.result)).toEqual([WERKRUF]));
+
+    /* Neuer Hook-Aufbau entspricht einem Seitenneuladen: gelesen wird
+       ausschliesslich selected_at aus der Datenbank. */
+    const nachReload = await laden();
+    expect(gewaehlt(nachReload.result)).toEqual([WERKRUF]);
+  });
+
+  it('zeigt die Meldung der Edge Function statt eines pauschalen Textes', async () => {
+    const { result } = await laden();
+    global.fetch = jest.fn((url) => Promise.resolve(
+      url.endsWith('/location/select')
+        ? { ok: false, status: 500, json: () => Promise.resolve({
+            error: { code: 'internal_error', message: 'Standortauswahl nicht speicherbar', retryable: true },
+          }) }
+        : { ok: true, json: () => Promise.resolve({}) },
+    ));
+
+    let fehler = null;
+    await act(async () => {
+      try { await result.current.selectLocation(WERKRUF); } catch (e) { fehler = e; }
+    });
+
+    expect(fehler.message).toBe('Standortauswahl nicht speicherbar');
+    expect(fehler.code).toBe('internal_error');
+  });
+
+  it('protokolliert keine Kennungen, nur Code und Status', async () => {
+    const { result } = await laden();
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = jest.fn((url) => Promise.resolve(
+      url.endsWith('/location/select')
+        ? { ok: false, status: 409, json: () => Promise.resolve({ error: { code: 'conflict', message: 'Konflikt' } }) }
+        : { ok: true, json: () => Promise.resolve({}) },
+    ));
+
+    await act(async () => {
+      try { await result.current.selectLocation(WERKRUF); } catch (_) { /* erwartet */ }
+    });
+
+    const ausgabe = JSON.stringify(log.mock.calls);
+    expect(ausgabe).toContain('conflict');
+    expect(ausgabe).not.toContain(WERKRUF);
+    expect(ausgabe).not.toContain('token');
+    log.mockRestore();
   });
 });
