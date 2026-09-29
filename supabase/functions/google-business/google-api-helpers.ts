@@ -22,11 +22,35 @@ export const EDITABLE_LOCATION_FIELDS = new Set([
  * Mit updateMask=profile.description bleibt der Rest unangetastet.
  */
 export const EDITABLE_LOCATION_SUBFIELDS = new Set([
-  'phoneNumbers.primaryPhone',
-  'phoneNumbers.additionalPhones',
   'profile.description',
   'serviceArea.businessType',
   'serviceArea.places',
+]);
+
+/**
+ * Felder, die Google NUR als Ganzes akzeptiert.
+ *
+ * Belegt aus dem Discovery-Dokument vom 27.09.2026:
+ *
+ *   PhoneNumbers: "During updates, both fields must be set. Clients may
+ *   not update just the primary or additional phone numbers using the
+ *   update mask."
+ *
+ *   Categories: "During updates, both fields must be set. Clients are
+ *   prohibited from individually updating the primary or additional
+ *   categories using the update mask."
+ *
+ * Wer hier einen Unterpfad schickt, bekommt von Google einen Fehler —
+ * oder schlimmer, das Feld wird stillschweigend geleert. Deshalb
+ * verwirft sanitizeLocationPatch solche Pfade ausdruecklich.
+ *
+ * Profile steht bewusst NICHT hier: Es hat nur das Unterfeld
+ * description, profile.description ist damit gleichbedeutend mit
+ * profile und nicht eingeschraenkt.
+ */
+export const WHOLE_OBJECT_ONLY_FIELDS = new Set([
+  'phoneNumbers',
+  'categories',
 ]);
 
 /** Setzt einen Wert unter einem Punktpfad, ohne Geschwisterfelder anzufassen. */
@@ -61,6 +85,13 @@ export function sanitizeLocationPatch(input: Record<string, unknown>) {
 
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined) continue;
+
+    /* Unterpfad eines Feldes, das Google nur ganz akzeptiert — wird
+       verworfen, nicht stillschweigend zum Oberfeld erweitert. Sonst
+       schickte der Aufrufer ein unvollstaendiges Objekt und loeschte
+       damit die uebrigen Unterfelder. */
+    const oberfeld = key.includes('.') ? key.split('.')[0] : null;
+    if (oberfeld && WHOLE_OBJECT_ONLY_FIELDS.has(oberfeld)) continue;
 
     if (EDITABLE_LOCATION_SUBFIELDS.has(key)) {
       setzeTiefenwert(patch, key, value);

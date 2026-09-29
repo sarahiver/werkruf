@@ -25,9 +25,18 @@ pruefe('Punktpfad ergibt feine Maske', r.updateMask === 'profile.description');
 pruefe('Punktpfad baut verschachtelt auf', r.patch.profile?.description === 'Neu');
 pruefe('kein anderes Feld im Patch', Object.keys(r.patch).length === 1);
 
+/* Google akzeptiert phoneNumbers und categories nur als Ganzes —
+   Unterpfade muessen verworfen werden, nicht stillschweigend zum
+   Oberfeld erweitert. */
 r = sanitizeLocationPatch({ 'phoneNumbers.primaryPhone': '+49 40 1' });
-pruefe('Telefon einzeln', r.updateMask === 'phoneNumbers.primaryPhone');
-pruefe('additionalPhones unberuehrt', r.patch.phoneNumbers.additionalPhones === undefined);
+pruefe('Telefon-Unterpfad verworfen', r.updateMask === '' && Object.keys(r.patch).length === 0);
+
+r = sanitizeLocationPatch({ 'categories.primaryCategory': { name: 'x' } });
+pruefe('Kategorie-Unterpfad verworfen', r.updateMask === '');
+
+r = sanitizeLocationPatch({ phoneNumbers: { primaryPhone: '+49 40 1', additionalPhones: ['+49 40 2'] } });
+pruefe('ganzes phoneNumbers erlaubt', r.updateMask === 'phoneNumbers');
+pruefe('additionalPhones bleiben erhalten', r.patch.phoneNumbers.additionalPhones.length === 1);
 
 r = sanitizeLocationPatch({ 'profile.description': 'A', websiteUri: 'https://x' });
 pruefe('mehrere Felder sortiert', r.updateMask === 'profile.description,websiteUri');

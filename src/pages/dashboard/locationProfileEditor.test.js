@@ -109,7 +109,6 @@ describe('Nur geaenderte Felder uebertragen', () => {
 
     const schluessel = Object.keys(aenderungen);
     expect(schluessel).not.toContain('websiteUri');
-    expect(schluessel).not.toContain('phoneNumbers.primaryPhone');
     expect(schluessel).not.toContain('phoneNumbers');
   });
 
@@ -128,10 +127,16 @@ describe('Nur geaenderte Felder uebertragen', () => {
     /* Object.keys statt toHaveProperty: Jest deutet einen Punkt im
        Namen als Pfad, "phoneNumbers.primaryPhone" waere dort also ein
        verschachtelter Zugriff statt eines Schluessels. */
+    /* Korrektur vom 29.09. nach Auswertung des Discovery-Dokuments:
+       phoneNumbers darf NICHT als Unterpfad geschickt werden — Google
+       verlangt das ganze Objekt. Die vorhandenen additionalPhones
+       muessen deshalb mitgehen, sonst loescht das Speichern sie. */
     const schluessel = Object.keys(aenderungen);
-    expect(schluessel).toContain('phoneNumbers.primaryPhone');
+    expect(schluessel).toContain('phoneNumbers');
+    expect(schluessel).not.toContain('phoneNumbers.primaryPhone');
     expect(schluessel).not.toContain('profile');
-    expect(schluessel).not.toContain('phoneNumbers');
+    expect(aenderungen.phoneNumbers.primaryPhone).toBe('+49 40 999');
+    expect(aenderungen.phoneNumbers.additionalPhones).toEqual(['+49 40 7654321']);
   });
 
   it('uebertraegt mehrere Aenderungen gemeinsam, aber nur die geaenderten', async () => {

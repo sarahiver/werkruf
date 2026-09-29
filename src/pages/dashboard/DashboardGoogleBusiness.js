@@ -635,9 +635,24 @@ function LocationProfileEditor({ location, onSave }) {
        Unveraenderte Felder tauchen gar nicht erst auf und landen damit
        auch nicht in der updateMask. */
     const aenderungen = {};
-    if (geaendert.telefon)      aenderungen['phoneNumbers.primaryPhone'] = telefon.trim() || null;
-    if (geaendert.website)      aenderungen.websiteUri                   = website.trim() || null;
-    if (geaendert.beschreibung) aenderungen['profile.description']       = beschreibung.trim() || null;
+
+    /* phoneNumbers akzeptiert Google NUR als Ganzes — das Discovery-
+       Dokument sagt ausdruecklich, dass primaryPhone und
+       additionalPhones nicht einzeln ueber die updateMask geaendert
+       werden duerfen. Die vorhandenen additionalPhones werden deshalb
+       mitgeschickt, sonst loescht das Speichern sie. */
+    if (geaendert.telefon) {
+      aenderungen.phoneNumbers = {
+        ...(location.google_profile?.phoneNumbers || {}),
+        primaryPhone: telefon.trim() || null,
+      };
+    }
+
+    if (geaendert.website) aenderungen.websiteUri = website.trim() || null;
+
+    /* profile hat nur das Unterfeld description — hier ist der
+       Punktpfad zulaessig und genauer. */
+    if (geaendert.beschreibung) aenderungen['profile.description'] = beschreibung.trim() || null;
 
     try {
       const antwort = await onSave(location.id, aenderungen);
