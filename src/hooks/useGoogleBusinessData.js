@@ -37,8 +37,17 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
   const [stats, setStats]         = useState(null);
   const [syncJobs, setSyncJobs]   = useState([]);
   const [replyCounts, setReplyCounts] = useState({ draft: 0, approved: 0, published: 0, failed: 0 });
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
+  /* loading  = erstes Laden, die Seite hat noch nichts anzuzeigen
+     refreshing = stille Hintergrundaktualisierung waehrend eines
+                  laufenden Abgleichs; die Oberflaeche bleibt stehen
+
+     Vorher setzte jedes reload() loading auf true. Beim Polling
+     wechselte die gesamte Seite dadurch alle drei Sekunden zu
+     Skeletons — Standortkarten wurden neu aufgebaut, offene Formulare
+     verloren ihren Inhalt. */
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -46,7 +55,7 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     if (!enabled) {
       if (mountedRef.current) {
         setLocations([]);
@@ -58,8 +67,10 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       }
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (silent) setRefreshing(true); else setLoading(true);
+    /* Beim stillen Nachladen die bestehende Fehlermeldung stehen
+       lassen — sie verschwindet erst, wenn der Abruf gelingt. */
+    if (!silent) setError(null);
 
     try {
       /* Zuerst die autorisierten Standorte laden. Erst die persistierte
@@ -163,16 +174,25 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
         if (key in counts) counts[key] += 1;
       }
       setReplyCounts(counts);
+      setError(null);
 
     } catch (err) {
       console.error('[useGoogleBusinessData]', err);
       if (mountedRef.current) setError(GENERIC_ERROR);
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [enabled]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* Stille Aktualisierung fuer das Polling. Eigene Referenz, damit sie
+     als Effekt-Abhaengigkeit stabil bleibt und kein Intervall neu
+     startet. */
+  const refresh = useCallback(() => load({ silent: true }), [load]);
 
   /* ── Sync anstossen ──
      Reiht nur einen Job ein; das Ergebnis kommt beim nächsten Laden.
@@ -290,7 +310,26 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
      syncJobs[0] ist damit der jüngste Job dieses Betriebs. */
   const latestJob = syncJobs[0] ?? null;
 
-  const runningJob = syncJobs.find((j) => j.status === 'running' || j.status === 'queued') ?? null;
+  /* NUR der juengste Job bestimmt "laeuft gerade".
+
+     Vorher stand hier find(queued|running) ueber die ganze Liste. Ein
+     alter Job, der nie zu Ende lief — etwa weil der Worker damals
+     stand —, blieb dadurch fuer immer "queued" und liess das Dashboard
+     dauerhaft "Abgleich laeuft" melden, obwohl danach laengst ein
+     erfolgreicher Lauf war.
+
+     syncJobs ist absteigend nach created_at sortiert und bei
+     getroffener Auswahl bereits auf deren location_id gefiltert. */
+  const runningJob = (latestJob?.status === 'running' || latestJob?.status === 'queued')
+    ? latestJob
+    : null;
+
+  /* Aeltere offene Jobs bleiben fuer die Diagnose sichtbar, ohne den
+     Zustand zu bestimmen. Ein dauerhaft wachsender Wert hier heisst:
+     Jobs werden eingereiht, aber nicht abgearbeitet. */
+  const stalledJobs = syncJobs
+    .slice(1)
+    .filter((j) => j.status === 'running' || j.status === 'queued');
 
   /* NUR wenn der jüngste Job gescheitert ist, beschreibt das den
      aktuellen Zustand.
@@ -307,9 +346,10 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
 
   return {
     locations, stats, syncJobs, replyCounts,
-    lastSyncedAt, latestJob, runningJob, lastFailedJob, failedJobHistory,
-    loading, error,
+    lastSyncedAt, latestJob, runningJob, lastFailedJob, failedJobHistory, stalledJobs,
+    loading, refreshing, error,
     reload: load,
+    refresh,
     triggerSync, updateLocation, selectLocation,
   };
 }

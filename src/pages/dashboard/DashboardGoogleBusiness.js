@@ -41,6 +41,15 @@ const LocationHead = styled.div`
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
 `;
 
+const SyncAktionen = styled.div`
+  display: flex; align-items: center; gap: 12px;
+`;
+
+const RefreshMarke = styled.span`
+  font-family: var(--font-body); font-size: .72rem;
+  color: var(--color-text-muted); white-space: nowrap;
+`;
+
 const HistorieZeile = styled.p`
   font-family: var(--font-body); font-size: .76rem;
   color: var(--color-text-muted); line-height: 1.55;
@@ -149,13 +158,19 @@ const FooterLink = styled(Link)`
   &:hover { text-decoration: underline; }
 `;
 
+/* 40 × 3 s = zwei Minuten. Danach fragt die Seite nicht weiter nach;
+   der Job im Backend laeuft davon unberuehrt weiter. */
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX = 40;
+
 export default function DashboardGoogleBusiness() {
   const { brand } = useIndustry();
   const googleBusiness = useGoogleBusiness();
   const { isConnected, loading: connectionLoading } = googleBusiness;
   const {
     locations, stats, replyCounts, lastSyncedAt, latestJob, runningJob, lastFailedJob,
-    failedJobHistory, loading, error, reload, triggerSync, updateLocation, selectLocation,
+    failedJobHistory, stalledJobs, loading, refreshing, error,
+    reload, refresh, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const [syncing, setSyncing] = React.useState(false);
@@ -172,20 +187,22 @@ export default function DashboardGoogleBusiness() {
     triggerSync(null).catch(() => setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
   }, [isConnected, connectionLoading, loading, locations.length, triggerSync]);
 
+  /* Wartet auf den ersten Standortimport nach dem Verbinden.
+     refresh() statt reload(): still nachladen, ohne die Seite auf
+     Skeletons zurueckzusetzen. */
   React.useEffect(() => {
     if (!isConnected || locations.length > 0 || lastFailedJob) return undefined;
     let polls = 0;
     const timer = window.setInterval(() => {
       polls += 1;
-      reload();
-      // A missing worker must not leave the browser polling forever.
+      refresh();
       if (polls >= 48) {
         window.clearInterval(timer);
         setSyncError('Das Laden dauert ungewöhnlich lange. Bitte versuche den Abgleich erneut.');
       }
     }, 2500);
     return () => window.clearInterval(timer);
-  }, [isConnected, locations.length, lastFailedJob, reload]);
+  }, [isConnected, locations.length, lastFailedJob, refresh]);
 
   /* Nach dem Start eines Abgleichs den Status nachladen, bis ein
      endgültiges Ergebnis vorliegt.
@@ -194,19 +211,57 @@ export default function DashboardGoogleBusiness() {
      ist — dann steht succeeded oder failed fest — oder nach zwei
      Minuten. Ein fehlender Worker darf den Browser nicht endlos
      nachfragen lassen. */
+  /*
+   * Ein Polling-Zyklus je Job — nicht mehr.
+   *
+   * Der Effekt haengt allein an runningJob.id. Das Objekt selbst
+   * aendert sich bei jedem Laden, die ID nicht; ohne diese Einengung
+   * wuerde jeder Abruf das Intervall neu starten und mehrere Zyklen
+   * liefen nebeneinander.
+   *
+   * Beendet wird der Zyklus, sobald der Job nicht mehr queued oder
+   * running ist — dann steht succeeded oder failed fest und
+   * runningJob wird null, was den Effekt aufraeumt. Beim
+   * Betriebswechsel wechselt die ID ebenfalls, das alte Intervall
+   * wird verworfen. Beim Verlassen der Seite greift die
+   * Aufraeumfunktion.
+   *
+   * Nach dem Zeitlimit wird NICHT weiter gefragt und der Job NICHT als
+   * gescheitert markiert — das entscheidet allein das Backend. Die
+   * Oberflaeche zeigt stattdessen einen Verzoegerungszustand.
+   */
+  const [delayedJobId, setDelayedJobId] = React.useState(null);
+
   React.useEffect(() => {
-    if (!runningJob?.id) return undefined;
+    const jobId = runningJob?.id;
+    if (!jobId) return undefined;
+
+    setDelayedJobId((aktuell) => (aktuell === jobId ? aktuell : null));
+
+    let abgelaufen = false;
     let polls = 0;
+
     const timer = window.setInterval(() => {
+      if (abgelaufen) return;
       polls += 1;
-      reload();
-      if (polls >= 40) {
+      refresh();
+      if (polls >= POLL_MAX) {
+        abgelaufen = true;
         window.clearInterval(timer);
-        setSyncError('Der Abgleich dauert ungewöhnlich lange. Sieh in ein paar Minuten erneut nach.');
+        setDelayedJobId(jobId);
       }
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [runningJob?.id, reload]);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      abgelaufen = true;
+      window.clearInterval(timer);
+    };
+  }, [runningJob?.id, refresh]);
+
+  /* Der Verzoegerungshinweis gilt nur fuer den Job, der ihn ausgeloest
+     hat. Sobald ein anderer Job laeuft oder keiner mehr offen ist,
+     verschwindet er von selbst. */
+  const jobVerzoegert = Boolean(delayedJobId) && delayedJobId === runningJob?.id;
 
   /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
      Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
@@ -305,7 +360,8 @@ export default function DashboardGoogleBusiness() {
      lastFailedJob ist seit dem 29.09. nur noch gesetzt, wenn der
      juengste Job gescheitert ist — ein alter Fehlschlag verdraengt
      keinen spaeteren Erfolg mehr. */
-  const syncState = runningJob ? 'running'
+  const syncState = jobVerzoegert ? 'delayed'
+    : runningJob ? 'running'
     : lastFailedJob ? 'error'
     : lastSyncedAt ? 'ok'
     : latestJob?.status === 'succeeded' ? 'ok'
@@ -435,12 +491,14 @@ export default function DashboardGoogleBusiness() {
             <SyncBar $state={syncState}>
               <SyncInfo>
                 {syncState === 'error'   ? <AlertTriangle size={19} color="#D93025" />
+                  : syncState === 'delayed' ? <Clock size={19} color="#D48A00" />
                   : syncState === 'running' ? <Spinner size={19} color="var(--color-accent)" />
                   : syncState === 'never'   ? <Clock size={19} color="#D48A00" />
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
                     {syncState === 'error'   ? 'Letzter Abgleich fehlgeschlagen'
+                      : syncState === 'delayed' ? 'Abgleich dauert länger als üblich'
                       : syncState === 'running' ? 'Abgleich läuft'
                       : syncState === 'never'   ? 'Noch kein Abgleich gelaufen'
                       : 'Daten sind aktuell'}
@@ -448,6 +506,11 @@ export default function DashboardGoogleBusiness() {
                   <p>
                     {syncState === 'error'
                       ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
+                      : syncState === 'delayed'
+                        /* Bewusst KEINE Fehlermeldung: Der Job läuft im
+                           Hintergrund weiter, nur diese Seite fragt
+                           nicht mehr nach. */
+                        ? 'Der Auftrag ist weiterhin eingereiht. Lade die Seite später neu oder starte den Abgleich erneut.'
                       : syncState === 'never'
                         ? 'Starte den ersten Abgleich, um Standorte und Bewertungen zu laden.'
                         : `Zuletzt abgeglichen ${formatRelative(lastSyncedAt)}`}
@@ -455,9 +518,15 @@ export default function DashboardGoogleBusiness() {
                 </SyncText>
               </SyncInfo>
 
-              <GhostBtn onClick={handleSync} disabled={syncing}>
-                {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
-              </GhostBtn>
+              <SyncAktionen>
+                {/* Dezenter Hinweis auf die stille Aktualisierung.
+                    Bewusst KEIN Skeleton: Kennzahlen, Standortkarten und
+                    offene Formulare bleiben stehen. */}
+                {refreshing && <RefreshMarke>wird aktualisiert…</RefreshMarke>}
+                <GhostBtn onClick={handleSync} disabled={syncing}>
+                  {syncing ? <Spinner size={14} /> : <RefreshCw size={14} />} Jetzt abgleichen
+                </GhostBtn>
+              </SyncAktionen>
             </SyncBar>
           )}
 
@@ -465,6 +534,15 @@ export default function DashboardGoogleBusiness() {
               aber nicht mehr den aktuellen Zustand — genau das war der
               Fehler: Ein Fehlversuch von vor Wochen meldete dauerhaft
               einen Fehler, den es nicht mehr gab. */}
+          {stalledJobs.length > 0 && (
+            <HistorieZeile>
+              {stalledJobs.length === 1
+                ? 'Ein älterer Auftrag steht noch offen'
+                : `${stalledJobs.length} ältere Aufträge stehen noch offen`}
+              {' — '}sie bestimmen den Status oben nicht. Häufen sie sich, werden Aufträge eingereiht, aber nicht abgearbeitet.
+            </HistorieZeile>
+          )}
+
           {syncState !== 'error' && failedJobHistory.length > 0 && (
             <HistorieZeile>
               {failedJobHistory.length === 1

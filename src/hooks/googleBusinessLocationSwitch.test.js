@@ -311,3 +311,103 @@ describe('Wechsel zwischen zwei Betrieben (Regression 29.09.)', () => {
     log.mockRestore();
   });
 });
+
+describe('Stille Hintergrundaktualisierung (Regression 29.09.)', () => {
+  /* Der Fehler: reload() setzte jedes Mal loading = true. Beim Polling
+     wechselte die Seite alle drei Sekunden zu Skeletons. */
+
+  it('setzt beim stillen Nachladen kein loading', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: SI });
+    const { result } = await laden();
+    expect(result.current.loading).toBe(false);
+
+    let zwischenLoading = null;
+    await act(async () => {
+      const laeuft = result.current.refresh();
+      zwischenLoading = result.current.loading;
+      await laeuft;
+    });
+
+    expect(zwischenLoading).toBe(false);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('haelt Standorte und Kennzahlen waehrend der Aktualisierung sichtbar', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: SI });
+    state.rows.google_reviews = [
+      { id: 'r1', location_id: SI, star_rating: 4, is_answered: true, status: 'active' },
+    ];
+    const { result } = await laden();
+    const vorher = result.current.locations.length;
+
+    await act(async () => { await result.current.refresh(); });
+
+    expect(result.current.locations).toHaveLength(vorher);
+    expect(result.current.stats.totalReviews).toBe(1);
+  });
+
+  it('setzt loading beim ersten Laden sehr wohl', async () => {
+    const hook = renderHook(() => useGoogleBusinessData({ enabled: true }));
+    expect(hook.result.current.loading).toBe(true);
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  });
+});
+
+describe('Laufender Abgleich (Regression 29.09.)', () => {
+  it('meldet keinen laufenden Job, wenn danach ein Erfolg kam', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: WERKRUF });
+    state.rows.sync_jobs = jobs([
+      { id: 'j2', location_id: WERKRUF, status: 'succeeded', created_at: '2026-09-29T10:00:00Z' },
+      { id: 'j1', location_id: WERKRUF, status: 'queued',    created_at: '2026-09-01T10:00:00Z' },
+    ]);
+    const { result } = await laden();
+
+    expect(result.current.runningJob).toBeNull();
+    expect(result.current.latestJob.id).toBe('j2');
+    // Der alte offene Job bleibt fuer die Diagnose sichtbar.
+    expect(result.current.stalledJobs.map((j) => j.id)).toEqual(['j1']);
+  });
+
+  it('erkennt den Abschluss eines laufenden Syncs beim naechsten Nachladen', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: WERKRUF });
+    state.rows.sync_jobs = jobs([
+      { id: 'j1', location_id: WERKRUF, status: 'running', created_at: '2026-09-29T10:00:00Z' },
+    ]);
+    const { result } = await laden();
+    expect(result.current.runningJob?.id).toBe('j1');
+
+    state.rows.sync_jobs = jobs([
+      { id: 'j1', location_id: WERKRUF, status: 'succeeded', created_at: '2026-09-29T10:00:00Z' },
+    ]);
+    await act(async () => { await result.current.refresh(); });
+
+    expect(result.current.runningJob).toBeNull();
+    expect(result.current.lastFailedJob).toBeNull();
+  });
+
+  it('beruecksichtigt nur Jobs des ausgewaehlten Betriebs', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: WERKRUF });
+    state.rows.sync_jobs = jobs([
+      { id: 'fremd', location_id: SI,      status: 'queued',    created_at: '2026-09-29T11:00:00Z' },
+      { id: 'eigen', location_id: WERKRUF, status: 'succeeded', created_at: '2026-09-29T10:00:00Z' },
+    ]);
+    const { result } = await laden();
+
+    // Der offene Job von S&I. darf WERKRUF nicht als laufend zeigen.
+    expect(result.current.runningJob).toBeNull();
+    expect(result.current.latestJob.id).toBe('eigen');
+  });
+
+  it('behaelt den laufenden Job ueber einen Betriebswechsel hinweg korrekt zugeordnet', async () => {
+    state.rows.google_locations = standorte({ gewaehlt: SI });
+    state.rows.sync_jobs = jobs([
+      { id: 'si-job',  location_id: SI,      status: 'succeeded', created_at: '2026-09-29T10:00:00Z' },
+      { id: 'wr-job',  location_id: WERKRUF, status: 'running',   created_at: '2026-09-29T09:00:00Z' },
+    ]);
+    const { result } = await laden();
+    expect(result.current.runningJob).toBeNull();
+
+    await act(async () => { await result.current.selectLocation(WERKRUF); });
+    await waitFor(() => expect(result.current.runningJob?.id).toBe('wr-job'));
+  });
+});
