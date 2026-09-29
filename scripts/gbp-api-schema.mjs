@@ -256,4 +256,3 @@ export function dienstHostAus(discovery) {
     return new URL(discovery.rootUrl ?? discovery.baseUrl ?? '').host;
   } catch { return null; }
 }
-
