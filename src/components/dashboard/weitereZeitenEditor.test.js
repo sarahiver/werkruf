@@ -108,6 +108,98 @@ describe('Arten stammen von Google', () => {
   });
 });
 
+describe('Benennung', () => {
+  it('bevorzugt den übersetzten Namen vor dem englischen', () => {
+    /* MoreHoursType hat beide Felder. Eine frühere Fassung las den
+       englischen zuerst — dadurch stand im deutschen Dashboard
+       „Drive through" statt „Durchfahrt". */
+    metadaten.wert = {
+      moreHoursTypes: [{
+        hoursTypeId: 'DRIVE_THROUGH',
+        displayName: 'Drive through',
+        localizedDisplayName: 'Durchfahrt',
+      }],
+      laeuft: false, abrufGescheitert: false,
+    };
+    render(<WeitereZeitenEditor location={standort()} onSave={onSave} />);
+
+    expect(screen.getByLabelText('Durchfahrt aktivieren')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Drive through aktivieren')).not.toBeInTheDocument();
+  });
+
+  it('nimmt den englischen Namen, wenn kein übersetzter kommt', () => {
+    metadaten.wert = {
+      moreHoursTypes: [{ hoursTypeId: 'PICKUP', displayName: 'Pickup' }],
+      laeuft: false, abrufGescheitert: false,
+    };
+    render(<WeitereZeitenEditor location={standort()} onSave={onSave} />);
+    expect(screen.getByLabelText('Pickup aktivieren')).toBeInTheDocument();
+  });
+
+  it('erklärt die Zeitart in eigenen Worten', () => {
+    /* Googles Namen sind knapp: „Access" heisst nicht „Zugang zum
+       Laden". Die Erläuterung stammt von WERKRUF und steht neben dem
+       Namen, nicht an dessen Stelle. */
+    metadaten.wert = {
+      moreHoursTypes: [{ hoursTypeId: 'ACCESS', localizedDisplayName: 'Zugang' }],
+      laeuft: false, abrufGescheitert: false,
+    };
+    render(<WeitereZeitenEditor location={standort()} onSave={onSave} />);
+
+    expect(screen.getByText('Zugang')).toBeInTheDocument();
+    expect(screen.getByText(/Gelände oder Gebäude zugänglich/)).toBeInTheDocument();
+  });
+
+  it('erfindet keine Erläuterung für unbekannte Arten', () => {
+    metadaten.wert = {
+      moreHoursTypes: [{ hoursTypeId: 'GANZ_NEUE_ART', localizedDisplayName: 'Neue Art' }],
+      laeuft: false, abrufGescheitert: false,
+    };
+    render(<WeitereZeitenEditor location={standort()} onSave={onSave} />);
+
+    expect(screen.getByLabelText('Neue Art aktivieren')).toBeInTheDocument();
+  });
+});
+
+describe('Hinterlegte Arten, die nicht zur Kategorie passen', () => {
+  const mitAltlast = () => standort({
+    moreHours: [{ hoursTypeKey: 'HAPPY_HOUR', periods: [fenster('MONDAY', '17:00', '19:00')] }],
+  });
+
+  it('sperrt das Speichern NICHT mit einem unsichtbaren Fehler', () => {
+    /* Der Fehler vom 30.09.: Die Leiste meldete „Bitte zuerst die
+       markierten Angaben korrigieren", während nichts markiert war und
+       nichts markiert werden konnte. */
+    render(<WeitereZeitenEditor location={mitAltlast()} onSave={onSave} />);
+    expect(screen.queryByText(/Google würde sie ablehnen/)).not.toBeInTheDocument();
+  });
+
+  it('benennt sie sichtbar', () => {
+    render(<WeitereZeitenEditor location={mitAltlast()} onSave={onSave} />);
+    expect(screen.getByText(/passt nicht zu deiner Unternehmenskategorie/i)).toBeInTheDocument();
+    expect(screen.getByText('HAPPY_HOUR')).toBeInTheDocument();
+  });
+
+  it('lässt sie entfernen', async () => {
+    render(<WeitereZeitenEditor location={mitAltlast()} onSave={onSave} />);
+    await klicke(screen.getByLabelText('HAPPY_HOUR entfernen'));
+
+    expect(screen.queryByText('HAPPY_HOUR')).not.toBeInTheDocument();
+    expect(speichern()).not.toBeDisabled();
+  });
+
+  it('zählt mehrere richtig', () => {
+    const l = standort({
+      moreHours: [
+        { hoursTypeKey: 'HAPPY_HOUR', periods: [] },
+        { hoursTypeKey: 'KITCHEN', periods: [] },
+      ],
+    });
+    render(<WeitereZeitenEditor location={l} onSave={onSave} />);
+    expect(screen.getByText(/2 hinterlegte Zeitarten passen/i)).toBeInTheDocument();
+  });
+});
+
 describe('Bearbeiten', () => {
   it('blendet Zeiten erst nach dem Aktivieren ein', async () => {
     render(<WeitereZeitenEditor location={standort()} onSave={onSave} />);

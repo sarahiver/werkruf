@@ -120,6 +120,46 @@ const Stand = styled.span`
   font-family: var(--font-body); font-size: .78rem; color: var(--color-text-muted);
 `;
 
+/**
+ * Anzeigename einer Zeitart.
+ *
+ * MoreHoursType hat ZWEI Namensfelder: `displayName` ist der
+ * englische, `localizedDisplayName` der übersetzte. Eine frühere
+ * Fassung las den englischen zuerst — dadurch standen im deutschen
+ * Dashboard „Breakfast", „Drive through" und „Senior hours".
+ */
+function anzeigename(typ) {
+  return typ?.localizedDisplayName || typ?.displayName || typ?.hoursTypeId || '—';
+}
+
+/**
+ * Was eine Zeitart bedeutet — in eigenen Worten.
+ *
+ * Googles Anzeigenamen sind knapp und für Handwerksbetriebe nicht
+ * immer selbsterklärend: „Access" heisst nicht „Zugang zum Laden",
+ * sondern wann das Gelände betretbar ist. Diese Erläuterungen stammen
+ * von WERKRUF, nicht von Google — deshalb stehen sie getrennt vom
+ * Namen und nicht an dessen Stelle.
+ *
+ * Fehlt eine Erläuterung, wird nur Googles Name gezeigt. Nichts wird
+ * erfunden.
+ */
+const ERLAEUTERUNG = {
+  ACCESS: 'Wann das Gelände oder Gebäude zugänglich ist — auch außerhalb der Öffnungszeiten.',
+  DELIVERY: 'Wann du lieferst.',
+  PICKUP: 'Wann Kunden bestellte Ware abholen können.',
+  TAKEOUT: 'Wann Ware zum Mitnehmen bereitsteht.',
+  DRIVE_THROUGH: 'Wann die Durchfahrt bedient ist.',
+  ONLINE_SERVICE_HOURS: 'Wann du telefonisch oder online erreichbar bist — auch wenn der Betrieb geschlossen hat.',
+  SENIOR_HOURS: 'Zeiten, die du besonders für ältere Kundschaft reservierst.',
+  HAPPY_HOUR: 'Zeiten mit besonderen Angeboten.',
+  KITCHEN: 'Wann die Küche geöffnet ist.',
+  BREAKFAST: 'Frühstückszeiten.',
+  BRUNCH: 'Brunchzeiten.',
+  LUNCH: 'Mittagszeiten.',
+  DINNER: 'Abendzeiten.',
+};
+
 /* ─────────────────────────────────────────────
    ZEITEN EINER ART
 ───────────────────────────────────────────── */
@@ -251,7 +291,26 @@ export default function WeitereZeitenEditor({ location, onSave }) {
 
   /* Nur Arten, die Google für diese Kategorie liefert. */
   const erlaubteIds = (moreHoursTypes ?? []).map((t) => t.hoursTypeId);
-  const befund = pruefeWeitereZeiten(eintraege, erlaubteIds.length > 0 ? erlaubteIds : null);
+
+  /*
+   * Einträge, die Google für diese Kategorie nicht mehr anbietet.
+   *
+   * Sie kommen vor: Das Profil kann unter einer anderen Kategorie
+   * angelegt worden sein, oder Google hat eine Art zurückgezogen. Sie
+   * stehen im Profil, tauchen in der Auswahlliste aber nicht auf.
+   *
+   * Vorher erzeugten sie einen Fehler, der NIRGENDS sichtbar war: Die
+   * Leiste meldete „Bitte zuerst die markierten Angaben korrigieren",
+   * während nichts markiert war und nichts markiert werden konnte.
+   * Jetzt bekommen sie einen eigenen Block — sichtbar und entfernbar.
+   */
+  const unbekannte = eintraege.filter(
+    (e) => e?.hoursTypeKey && !erlaubteIds.includes(e.hoursTypeKey));
+
+  /* Geprüft wird nur, was die Oberfläche auch zeigt. */
+  const sichtbare = eintraege.filter(
+    (e) => e?.hoursTypeKey && erlaubteIds.includes(e.hoursTypeKey));
+  const befund = pruefeWeitereZeiten(sichtbare, erlaubteIds.length > 0 ? erlaubteIds : null);
   const ungueltig = befund.length > 0;
 
   const etwasGeaendert = weitereZeitenGeaendert(vorher.moreHours ?? [], eintraege);
@@ -334,9 +393,9 @@ export default function WeitereZeitenEditor({ location, onSave }) {
       {moreHoursTypes.map((typ) => {
         const eintrag = eintraege.find((e) => e.hoursTypeKey === typ.hoursTypeId);
         const aktiv = Boolean(eintrag);
-        const index = eintraege.findIndex((e) => e.hoursTypeKey === typ.hoursTypeId);
+        const index = sichtbare.findIndex((e) => e.hoursTypeKey === typ.hoursTypeId);
         const meineFehler = befund.filter((f) => f.index === index);
-        const anzeige = typ.displayName ?? typ.localizedDisplayName ?? typ.hoursTypeId;
+        const anzeige = anzeigename(typ);
 
         return (
           <ArtBlock key={typ.hoursTypeId} $aktiv={aktiv}>
@@ -350,7 +409,9 @@ export default function WeitereZeitenEditor({ location, onSave }) {
                 />
                 <span>
                   {anzeige}
-                  <small>{typ.hoursTypeId}</small>
+                  {ERLAEUTERUNG[typ.hoursTypeId] && (
+                    <small>{ERLAEUTERUNG[typ.hoursTypeId]}</small>
+                  )}
                 </span>
               </label>
             </ArtKopf>
@@ -367,6 +428,34 @@ export default function WeitereZeitenEditor({ location, onSave }) {
           </ArtBlock>
         );
       })}
+
+      {unbekannte.length > 0 && (
+        <Hinweis $art="warnung" role="status" style={{ marginTop: 14 }}>
+          <AlertTriangle size={14} />
+          <span>
+            <strong>
+              {unbekannte.length === 1 ? 'Eine hinterlegte Zeitart passt' : `${unbekannte.length} hinterlegte Zeitarten passen`}
+              {' '}nicht zu deiner Unternehmenskategorie.
+            </strong>
+            {' '}Google bietet sie hier nicht mehr an — vermutlich stammen sie aus
+            einer früheren Kategorie.
+            <br />
+            {unbekannte.map((e) => (
+              <span key={e.hoursTypeKey} style={{ display: 'inline-block', marginTop: 6, marginRight: 10 }}>
+                <code>{e.hoursTypeKey}</code>{' '}
+                <KleinBtn
+                  onClick={() => setEintraege(
+                    eintraege.filter((x) => x.hoursTypeKey !== e.hoursTypeKey))}
+                  disabled={!sperre.erlaubt}
+                  aria-label={`${e.hoursTypeKey} entfernen`}
+                >
+                  <X size={10} /> entfernen
+                </KleinBtn>
+              </span>
+            ))}
+          </span>
+        </Hinweis>
+      )}
 
       <AktionsLeiste>
         <GhostBtn onClick={speichern}
