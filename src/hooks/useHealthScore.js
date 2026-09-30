@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { calculateHealthScoreInputs, HEALTH_WEIGHTS as WEIGHTS } from '../utils/healthScore';
+import { calculateHealthScoreInputs, HEALTH_WEIGHTS as WEIGHTS, SCORE_VERSION } from '../utils/healthScore';
 
 /* ─────────────────────────────────────────────
    useHealthScore
@@ -46,7 +46,34 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     }
 
     const factors = [];
-    const location = locations?.[0];
+
+    /*
+     * Der Standort, auf den sich der Score bezieht.
+     *
+     * Vorher stand hier locations?.[0]. Das ist falsch, sobald mehr als
+     * ein Betrieb verbunden ist: Die Bewertungen in `stats` sind bereits
+     * auf den ausgewaehlten Betrieb gefiltert, die Profildaten kamen
+     * aber vom ersten der Liste. Zwei Betriebe in einem Wert.
+     *
+     * Verbindlich, und identisch zur SQL-Berechnung:
+     *   genau ein Standort            → dieser
+     *   mehrere mit Auswahl           → der ausgewaehlte (selected_at)
+     *   mehrere ohne gueltige Auswahl → kein Score. Raten waere
+     *                                   schlimmer als nichts zu zeigen.
+     */
+    const alle = locations ?? [];
+    const gewaehlt = alle.find((l) => l?.selected_at);
+    const location = alle.length === 1 ? alle[0] : gewaehlt ?? null;
+
+    if (alle.length > 1 && !gewaehlt) {
+      return {
+        score: null, level: 'kein_standort', factors: [],
+        summary: 'Wähle einen Betrieb aus, um den WERKRUF Score zu sehen.',
+        headline: 'Kein Betrieb ausgewählt',
+        locationId: null,
+      };
+    }
+
     const canonical = calculateHealthScoreInputs({ stats, location });
     const { total, answered, responseRate: rate } = canonical;
 
@@ -199,7 +226,16 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
       ? `Am meisten holst du raus bei: ${weakest.label.toLowerCase()}. ${weakest.verdict}`
       : 'Alle Punkte, die sich beeinflussen lassen, sind erledigt.';
 
-    return { score, level, factors, headline, summary, weakest };
+    return {
+      score, level, factors, headline, summary, weakest,
+      /* Auf welchen Betrieb sich der Wert bezieht — damit die
+         Oberflaeche ihn benennen kann und nichts vermischt. */
+      locationId: location?.id ?? null,
+      locationTitle: location?.title ?? null,
+      /* Fassung der Formel. Aendert sie sich, duerfen alte und neue
+         Werte nicht als unmittelbar vergleichbar gelten. */
+      scoreVersion: SCORE_VERSION,
+    };
   }, [stats, locations, loading]);
 }
 

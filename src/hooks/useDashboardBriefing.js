@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAuthContext } from '../context/AuthContext';
 import { useGoogleBusiness } from './useGoogleBusiness';
 import { useGoogleBusinessData } from './useGoogleBusinessData';
+import { useHealthScore } from './useHealthScore';
 
 /* ─────────────────────────────────────────────
    useDashboardBriefing
@@ -49,7 +50,7 @@ import { useGoogleBusinessData } from './useGoogleBusinessData';
 const STALE_HOURS = 48;
 
 export function useDashboardBriefing() {
-  const { profile } = useAuthContext();
+  useAuthContext();   /* profile wird hier nicht mehr gebraucht — der Score kommt aus useHealthScore */
   const {
     isConnected, needsReauth, brokenConnection,
     loading: connectionLoading,
@@ -60,6 +61,11 @@ export function useDashboardBriefing() {
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   const loading = connectionLoading || dataLoading;
+
+  /* Der kanonische WERKRUF Score des ausgewaehlten Betriebs. Eine
+     Quelle fuer Dashboard, Engine und Mail — siehe
+     src/utils/healthScore.js. */
+  const healthScore = useHealthScore({ stats, locations, replyCounts, loading });
 
   const hoursSinceSync = useMemo(() => {
     if (!lastSyncedAt) return null;
@@ -183,9 +189,21 @@ export function useDashboardBriefing() {
       });
     }
 
-    /* Profil unvollständig — wichtig, aber nie dringend. Steht
-       deshalb immer unten, egal wie niedrig der Wert ist. */
-    const score = profile?.visibility_score;
+    /*
+     * Profil unvollständig — wichtig, aber nie dringend. Steht deshalb
+     * immer unten, egal wie niedrig der Wert ist.
+     *
+     * Ausgewertet wird der WERKRUF Score des ausgewaehlten Betriebs,
+     * nicht profile.visibility_score.
+     *
+     * Der visibility_score stammt aus dem oeffentlichen SmartCheck —
+     * berechnet aus Places-Daten, ohne verbundenes Google-Konto, nach
+     * einer anderen Formel (siehe docs/score-calculations.md). Ihn im
+     * eingeloggten Dashboard eine Empfehlung steuern zu lassen hiess,
+     * zwei verschiedene Messungen als dieselbe zu behandeln — und bei
+     * mehreren Betrieben zusaetzlich betriebsunabhaengig.
+     */
+    const score = healthScore?.score;
     if (isConnected && typeof score === 'number' && score < 70) {
       items.push({
         id: 'incomplete',
@@ -203,7 +221,7 @@ export function useDashboardBriefing() {
   }, [
     loading, isConnected, needsReauth, replyCounts, stats,
     locations.length, runningJob, lastFailedJob, hoursSinceSync,
-    profile?.visibility_score,
+    healthScore?.score,
   ]);
 
   /* ── Frage 1: Wie steht der Betrieb da? ──

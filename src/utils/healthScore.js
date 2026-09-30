@@ -5,6 +5,22 @@
  * decision engine. Keep this module in lockstep with the production baseline;
  * the conformance test compares both implementations' weights and vectors.
  */
+/*
+ * Fassung der Score-Formel.
+ *
+ * Gewichte: Antwortquote 30, Bewertung 25, Aktualitaet 20,
+ * Profilangaben 15, Fotos 10 — zusammen 100.
+ *
+ * Die Funktionen aus den Paketen A bis C (Kategorien, Attribute,
+ * weitere Zeiten) fliessen BEWUSST NICHT ein. Eine Formel heimlich zu
+ * erweitern hiesse, dass der Wert von gestern und der von heute
+ * verschiedene Dinge messen, ohne dass es jemand merkt.
+ *
+ * Eine spaetere Erweiterung erhoeht diese Nummer. Alte und neue Werte
+ * duerfen dann nicht als unmittelbar vergleichbar dargestellt werden.
+ */
+export const SCORE_VERSION = 1;
+
 export const HEALTH_WEIGHTS = Object.freeze({
   responseRate: 30,
   rating: 25,
