@@ -52,7 +52,15 @@ export function alsZeit(text) {
   if (!treffer) return null;
   const hours = Number(treffer[1]);
   const minutes = Number(treffer[2]);
-  if (hours > 23 || minutes > 59) return null;
+
+  /* 24:00 ist gueltig. Die Referenz sagt zu openTime und closeTime:
+     "Valid values are 00:00-24:00, where 24:00 represents midnight at
+     the end of the specified day field."
+
+     Eine fruehere Fassung wies es als ungueltig ab — damit liess sich
+     ein Sondertag, der bis Mitternacht geht, gar nicht eintragen. */
+  if (hours > 24 || minutes > 59) return null;
+  if (hours === 24 && minutes !== 0) return null;
   /* hours: 0 weglassen waere zulaessig — Google behandelt fehlende
      Felder als 0. Explizit ist es aber eindeutiger, und der Vergleich
      zweier Zeitfenster wird dadurch unempfindlicher. */
@@ -212,13 +220,47 @@ const alsDatum = (text) => {
 
 export { alsDatumstext, alsDatum };
 
+/** Tage zwischen zwei Datumsangaben. Beide als {year, month, day}. */
+function tageDazwischen(a, b) {
+  const ms = Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day);
+  return Math.round(ms / 86400000);
+}
+
+/** Minuten eines Sonderzeitraums, ueber das Enddatum hinweg. */
+function dauerInMinuten(p) {
+  const start = p.startDate;
+  const ende = p.endDate ?? p.startDate;
+  if (!start || !ende) return null;
+  const tage = tageDazwischen(start, ende);
+  const auf = Number(p.openTime?.hours ?? 0) * 60 + Number(p.openTime?.minutes ?? 0);
+  const zu  = Number(p.closeTime?.hours ?? 0) * 60 + Number(p.closeTime?.minutes ?? 0);
+  return tage * 1440 + zu - auf;
+}
+
 /**
  * Prüft Sonderöffnungszeiten.
  *
- * Die wichtigste Regel: Ist `closed` gesetzt, dürfen openTime und
- * closeTime NICHT gesetzt sein. Google lehnt die Kombination ab, und
- * eine Oberfläche, die beides gleichzeitig anbietet, führt geradewegs
- * hinein.
+ * Belegt aus der Referenz zu SpecialHourPeriod:
+ *
+ *   „A special hour period must represent a range of less than 24
+ *   hours. The open_time and start_date must predate the close_time and
+ *   end_date. The close_time and end_date can extend to 11:59 a.m. on
+ *   the day after the specified start_date."
+ *
+ *   Gültig:   start=23.11., open=08:00, close=18:00
+ *             start=23.11., end=24.11., open=13:00, close=11:59
+ *   Ungültig: start=23.11., open=13:00, close=11:59  (ohne Enddatum)
+ *             start=23.11., end=24.11., open=13:00, close=12:00
+ *             start=23.11., end=25.11., open=08:00, close=18:00
+ *
+ * MEHRERE Zeitfenster am selben Tag sind ausdrücklich erlaubt — Googles
+ * Hilfe beschreibt „To add multiple sets of hours for the date" und
+ * nennt als Beispiel zwei getrennte Zeiträume am 26. Dezember. Eine
+ * frühere Fassung dieser Prüfung lehnte doppelte Daten pauschal ab und
+ * machte damit geteilte Öffnungszeiten an Feiertagen unmöglich.
+ *
+ * Widersprüchlich bleibt: derselbe Tag einmal geschlossen und einmal
+ * mit Zeiten, oder zwei sich überschneidende Zeitfenster.
  */
 export function pruefeSonderzeiten(perioden) {
   const fehler = [];
@@ -251,32 +293,100 @@ export function pruefeSonderzeiten(perioden) {
       return;
     }
 
-    const ende = alsDatumstext(p.endDate) || start;
-    if (ende < start) {
+    const endeText = alsDatumstext(p.endDate) || start;
+    const tage = p.endDate ? tageDazwischen(p.startDate, p.endDate) : 0;
+
+    if (tage < 0) {
       fehler.push({ index: i, feld: 'endDate', meldung: 'Das Enddatum liegt vor dem Startdatum.' });
+      return;
     }
 
-    /* Gleicher Tag, Schließzeit vor Öffnungszeit: nur zulässig, wenn
-       endDate den Folgetag nennt. Sonst ist es ein Tippfehler. */
-    if (ende === start && zu < auf && auf !== '00:00') {
+    if (tage > 1) {
+      fehler.push({
+        index: i, feld: 'endDate',
+        meldung: 'Ein Sondertag darf höchstens bis zum Folgetag reichen.',
+      });
+      return;
+    }
+
+    const dauer = dauerInMinuten(p);
+
+    if (dauer !== null && dauer <= 0) {
       fehler.push({
         index: i, feld: 'zeit',
-        meldung: `${auf} bis ${zu} reicht über Mitternacht. Dann muss das Enddatum der Folgetag sein.`,
+        meldung: endeText === start
+          ? `${auf} bis ${zu} reicht über Mitternacht. Dann muss das Enddatum der Folgetag sein.`
+          : `${auf} bis ${zu} ergibt kein Zeitfenster.`,
+      });
+      return;
+    }
+
+    if (dauer !== null && dauer >= 1440) {
+      fehler.push({
+        index: i, feld: 'zeit',
+        meldung: 'Ein Sondertag muss kürzer als 24 Stunden sein.',
+      });
+      return;
+    }
+
+    /* Reicht der Zeitraum in den Folgetag, ist bei 11:59 Schluss. */
+    if (tage === 1 && zu > '11:59') {
+      fehler.push({
+        index: i, feld: 'zeit',
+        meldung: `Bis in den Folgetag erlaubt Google höchstens 11:59 — ${zu} ist zu spät.`,
       });
     }
   });
 
-  /* Doppelte Daten. Zwei Angaben für denselben Tag sind nicht
-     eindeutig, und Google entscheidet dann selbst. */
-  const gesehen = new Map();
+  /* ── Widersprüche zwischen Einträgen desselben Tages ── */
+  const nachTag = new Map();
   liste.forEach((p, i) => {
     const key = alsDatumstext(p?.startDate);
     if (!key) return;
-    if (gesehen.has(key)) {
-      fehler.push({ index: i, feld: 'startDate', meldung: `Für den ${key} gibt es bereits einen Eintrag.` });
-    }
-    gesehen.set(key, i);
+    if (!nachTag.has(key)) nachTag.set(key, []);
+    nachTag.get(key).push({ p, i });
   });
+
+  for (const [tagText, eintraege] of nachTag) {
+    if (eintraege.length < 2) continue;
+
+    const geschlossen = eintraege.filter((e) => e.p.closed === true);
+    const offen = eintraege.filter((e) => e.p.closed !== true);
+
+    if (geschlossen.length > 0 && offen.length > 0) {
+      fehler.push({
+        index: offen[0].i, feld: 'startDate',
+        meldung: `Der ${tagText} ist einmal als geschlossen und einmal mit Zeiten eingetragen.`,
+      });
+      continue;
+    }
+
+    if (geschlossen.length > 1) {
+      fehler.push({
+        index: geschlossen[1].i, feld: 'startDate',
+        meldung: `Der ${tagText} ist mehrfach als geschlossen eingetragen.`,
+      });
+      continue;
+    }
+
+    /* Mehrere Zeitfenster am selben Tag sind erlaubt — solange sie
+       sich nicht überschneiden. */
+    for (let a = 0; a < offen.length; a++) {
+      for (let b = a + 1; b < offen.length; b++) {
+        const x = offen[a].p, y = offen[b].p;
+        const xAuf = alsText(x.openTime), xZu = alsText(x.closeTime);
+        const yAuf = alsText(y.openTime), yZu = alsText(y.closeTime);
+        if (!xAuf || !xZu || !yAuf || !yZu) continue;
+
+        if (xAuf < yZu && yAuf < xZu) {
+          fehler.push({
+            index: offen[b].i, feld: 'zeit',
+            meldung: `Überschneidet sich mit dem anderen Zeitfenster am ${tagText} (${xAuf}–${xZu}).`,
+          });
+        }
+      }
+    }
+  }
 
   return fehler;
 }

@@ -89,6 +89,11 @@ const Marke = styled.span`
   color: var(--color-text-muted); padding: 6px 2px;
 `;
 
+const SondertagBlock = styled.div`
+  padding: 10px 0; border-top: 1px solid var(--color-border);
+  &:first-of-type { border-top: 0; }
+`;
+
 const Fehlertext = styled.p`
   font-family: var(--font-body); font-size: .75rem; line-height: 1.5;
   color: #8B1A12; margin: 2px 0 0; display: flex; gap: 5px; align-items: flex-start;
@@ -261,78 +266,143 @@ function RegulaereZeiten({ karte, setKarte, gesperrt, fehler }) {
    SONDERÖFFNUNGSZEITEN
 ───────────────────────────────────────────── */
 
+/**
+ * Sonder- und Feiertagszeiten.
+ *
+ * Gruppiert nach Datum, weil Google mehrere Zeitfenster am selben Tag
+ * erlaubt: „To add multiple sets of hours for the date" — etwa
+ * 10:00–16:00 und 17:00–18:00 am 26. Dezember.
+ *
+ * Eine frühere Fassung zeigte jeden SpecialHourPeriod als eigene
+ * Zeile mit eigenem Datumsfeld. Das war nah an der API, aber fern von
+ * der Frage, die der Kunde hat: „Wie habe ich an Heiligabend
+ * geöffnet?"
+ */
 function Sonderzeiten({ perioden, setPerioden, gesperrt, fehler }) {
-  const aendere = (i, teil) => setPerioden(
-    perioden.map((p, idx) => (idx === i ? { ...p, ...teil } : p)));
+  /* Nach Datum gruppieren, Reihenfolge der Tage beibehalten. */
+  const tage = [];
+  perioden.forEach((p, index) => {
+    const key = alsDatumstext(p.startDate) || `__ohne_datum_${index}`;
+    let gruppe = tage.find((t) => t.key === key);
+    if (!gruppe) { gruppe = { key, datum: p.startDate, eintraege: [] }; tage.push(gruppe); }
+    gruppe.eintraege.push({ p, index });
+  });
 
-  const umschalten = (i) => {
-    const p = perioden[i];
-    /* Geschlossen und Uhrzeiten schliessen einander aus — Google lehnt
-       die Kombination ab. Beim Umschalten werden sie deshalb entfernt
-       beziehungsweise gesetzt, nicht nur ausgeblendet. */
-    aendere(i, p.closed
-      ? { closed: false, openTime: alsZeit('08:00'), closeTime: alsZeit('17:00') }
-      : { closed: true, openTime: undefined, closeTime: undefined });
+  const ersetze = (index, teil) => setPerioden(
+    perioden.map((p, i) => (i === index ? { ...p, ...teil } : p)));
+
+  const datumAendern = (gruppe, wert) => {
+    const neu = alsDatum(wert);
+    setPerioden(perioden.map((p, i) =>
+      (gruppe.eintraege.some((e) => e.index === i) ? { ...p, startDate: neu } : p)));
   };
+
+  const aufGeschlossen = (gruppe) => {
+    /* Alle Fenster dieses Tages durch EINEN geschlossenen Eintrag
+       ersetzen. Google lehnt geschlossen neben Zeiten am selben Tag
+       ab — sie nur auszublenden reichte nicht. */
+    const behalten = perioden.filter((_, i) => !gruppe.eintraege.some((e) => e.index === i));
+    setPerioden([...behalten, { startDate: gruppe.datum, closed: true }]);
+  };
+
+  const aufZeiten = (gruppe) => {
+    const behalten = perioden.filter((_, i) => !gruppe.eintraege.some((e) => e.index === i));
+    setPerioden([...behalten, {
+      startDate: gruppe.datum,
+      openTime: alsZeit('08:00'), closeTime: alsZeit('12:00'),
+    }]);
+  };
+
+  const fensterErgaenzen = (gruppe) => setPerioden([...perioden, {
+    startDate: gruppe.datum,
+    openTime: alsZeit('13:00'), closeTime: alsZeit('17:00'),
+  }]);
+
+  const tagEntfernen = (gruppe) => setPerioden(
+    perioden.filter((_, i) => !gruppe.eintraege.some((e) => e.index === i)));
 
   const fehlerZu = new Map((fehler ?? []).map((f) => [f.index, f.meldung]));
 
   return (
     <div>
-      {perioden.length === 0 && (
-        <Marke>Keine Sonderöffnungszeiten hinterlegt.</Marke>
+      {tage.length === 0 && (
+        <Marke>Noch keine Sonder- oder Feiertagszeiten hinterlegt.</Marke>
       )}
 
-      {perioden.map((p, i) => (
-        <div key={i}>
-          <FensterZeile>
-            <Datumsfeld
-              type="date" aria-label={`Sondertag ${i + 1} Datum`}
-              value={alsDatumstext(p.startDate)} disabled={gesperrt}
-              data-fehler={fehlerZu.has(i) ? 'ja' : 'nein'}
-              onChange={(e) => aendere(i, { startDate: alsDatum(e.target.value) })}
-            />
+      {tage.map((gruppe, nr) => {
+        const geschlossen = gruppe.eintraege.every((e) => e.p.closed === true);
+        return (
+          <SondertagBlock key={gruppe.key}>
+            <FensterZeile>
+              <Datumsfeld
+                type="date" aria-label={`Sondertag ${nr + 1} Datum`}
+                value={alsDatumstext(gruppe.datum)} disabled={gesperrt}
+                onChange={(e) => datumAendern(gruppe, e.target.value)}
+              />
+              <KleinBtn
+                onClick={() => (geschlossen ? aufZeiten(gruppe) : aufGeschlossen(gruppe))}
+                disabled={gesperrt}
+              >
+                {geschlossen ? 'Zeiten eintragen' : 'Geschlossen'}
+              </KleinBtn>
+              <KleinBtn onClick={() => tagEntfernen(gruppe)} disabled={gesperrt}
+                aria-label={`Sondertag ${nr + 1} entfernen`}>
+                <X size={11} />
+              </KleinBtn>
+            </FensterZeile>
 
-            {p.closed ? (
-              <Marke>Geschlossen</Marke>
+            {geschlossen ? (
+              <Marke>Ganztägig geschlossen</Marke>
             ) : (
-              <>
-                <Zeitfeld
-                  aria-label={`Sondertag ${i + 1} Öffnung`}
-                  value={alsText(p.openTime)} disabled={gesperrt}
-                  onChange={(e) => aendere(i, { openTime: alsZeit(e.target.value) })}
-                  placeholder="08:00"
-                />
-                <span>–</span>
-                <Zeitfeld
-                  aria-label={`Sondertag ${i + 1} Schließung`}
-                  value={alsText(p.closeTime)} disabled={gesperrt}
-                  onChange={(e) => aendere(i, { closeTime: alsZeit(e.target.value) })}
-                  placeholder="12:00"
-                />
-              </>
+              gruppe.eintraege.map((e, j) => (
+                <div key={e.index}>
+                  <FensterZeile>
+                    <Zeitfeld
+                      aria-label={`Sondertag ${nr + 1} Öffnung ${j + 1}`}
+                      value={alsText(e.p.openTime)} disabled={gesperrt}
+                      data-fehler={fehlerZu.has(e.index) ? 'ja' : 'nein'}
+                      onChange={(ev) => ersetze(e.index, { openTime: alsZeit(ev.target.value) })}
+                      placeholder="08:00"
+                    />
+                    <span>–</span>
+                    <Zeitfeld
+                      aria-label={`Sondertag ${nr + 1} Schließung ${j + 1}`}
+                      value={alsText(e.p.closeTime)} disabled={gesperrt}
+                      data-fehler={fehlerZu.has(e.index) ? 'ja' : 'nein'}
+                      onChange={(ev) => ersetze(e.index, { closeTime: alsZeit(ev.target.value) })}
+                      placeholder="12:00"
+                    />
+                    {gruppe.eintraege.length > 1 && (
+                      <KleinBtn
+                        onClick={() => setPerioden(perioden.filter((_, i) => i !== e.index))}
+                        disabled={gesperrt}
+                        aria-label={`Sondertag ${nr + 1} Zeitfenster ${j + 1} entfernen`}>
+                        <X size={11} />
+                      </KleinBtn>
+                    )}
+                    {j === gruppe.eintraege.length - 1 && (
+                      <KleinBtn onClick={() => fensterErgaenzen(gruppe)} disabled={gesperrt}
+                        aria-label={`Sondertag ${nr + 1} Zeitfenster hinzufügen`}>
+                        <Plus size={11} /> Fenster
+                      </KleinBtn>
+                    )}
+                  </FensterZeile>
+
+                  {fehlerZu.has(e.index) && (
+                    <Fehlertext role="alert">
+                      <AlertTriangle size={11} /> {fehlerZu.get(e.index)}
+                    </Fehlertext>
+                  )}
+                </div>
+              ))
             )}
-
-            <KleinBtn onClick={() => umschalten(i)} disabled={gesperrt}>
-              {p.closed ? 'Zeiten eintragen' : 'Geschlossen'}
-            </KleinBtn>
-            <KleinBtn onClick={() => setPerioden(perioden.filter((_, idx) => idx !== i))}
-              disabled={gesperrt} aria-label={`Sondertag ${i + 1} entfernen`}>
-              <X size={11} />
-            </KleinBtn>
-          </FensterZeile>
-
-          {fehlerZu.has(i) && (
-            <Fehlertext role="alert">
-              <AlertTriangle size={11} /> {fehlerZu.get(i)}
-            </Fehlertext>
-          )}
-        </div>
-      ))}
+          </SondertagBlock>
+        );
+      })}
 
       <KleinBtn
         onClick={() => setPerioden([...perioden, { startDate: null, closed: true }])}
-        disabled={gesperrt} style={{ marginTop: 8 }}
+        disabled={gesperrt} style={{ marginTop: 10 }}
       >
         <Plus size={11} /> Sondertag
       </KleinBtn>
@@ -413,10 +483,12 @@ export default function OeffnungszeitenEditor({ location, onSave, erlaubteZeitar
       </Block>
 
       <Block>
-        <h4><Calendar size={14} /> Sonderöffnungszeiten</h4>
+        <h4><Calendar size={14} /> Sonder- &amp; Feiertagszeiten</h4>
         <p>
-          Feiertage und einzelne Ausnahmen. Ein Tag ist entweder geschlossen
-          oder hat Uhrzeiten — beides zusammen lehnt Google ab.
+          Hier kannst du für Feiertage, Betriebsferien oder einzelne Tage
+          abweichende Öffnungszeiten hinterlegen. Ein Tag ist entweder
+          geschlossen oder hat Uhrzeiten — mehrere Zeitfenster pro Tag sind
+          möglich.
         </p>
         {!sperre.sonder.erlaubt && (
           <Sperrgrund><Lock size={12} /> {sperre.sonder.grund}</Sperrgrund>

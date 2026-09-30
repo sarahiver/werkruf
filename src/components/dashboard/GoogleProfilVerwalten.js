@@ -122,6 +122,10 @@ export function Feldliste({ bereich, location }) {
 
           {!f.erlaubt && f.code === 'nur_lesbar' ? (
             <Marke $art="lesen"><Lock size={11} /> nur lesbar</Marke>
+          ) : !f.erlaubt && f.code === 'noch_nicht_umgesetzt' ? (
+            /* Nicht „gesperrt" — das klänge nach einer Schranke.
+               Hier kommt es noch. */
+            <Marke $art="lesen">folgt</Marke>
           ) : !f.erlaubt ? (
             <Marke $art="gesperrt"><Lock size={11} /> gesperrt</Marke>
           ) : (

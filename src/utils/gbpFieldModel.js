@@ -62,6 +62,15 @@ export const SCHREIBART = Object.freeze({
   /** Nur lesbar — die API gibt es nicht zum Schreiben frei. */
   LESEN: 'lesen',
   /**
+   * Von Google unterstützt, in WERKRUF noch nicht umgesetzt.
+   *
+   * Ein eigener Zustand, weil die Auskunft eine andere ist: Hier
+   * kommt es noch, dort kommt es nicht. Ein Feld als „bearbeitbar"
+   * zu zeigen, für das es keine Eingabemaske gibt, wäre ein
+   * Versprechen, das die Oberfläche nicht einlöst.
+   */
+  NOCH_NICHT: 'noch_nicht',
+  /**
    * Die API erlaubt es, WERKRUF nicht.
    *
    * Ein eigener Zustand, weil der Grund ein anderer ist: Hier ist es
@@ -182,9 +191,17 @@ export const FELDER = Object.freeze([
   },
   {
     pfad: 'moreHours', bereich: 'oeffnungszeiten', label: 'Weitere Zeiten',
-    art: SCHREIBART.GANZ, typ: 'liste',
+    /* Google unterstützt das Feld, WERKRUF noch nicht: Welche
+       hoursTypeKey-Werte zulässig sind, liefert categories.batchGet mit
+       view=FULL — kategorieabhängig. Ohne diese Liste lässt sich keine
+       sinnvolle Eingabemaske bauen, und eine feste Liste wäre falsch.
+
+       Kommt mit Paket C. Bis dahin wird das Feld gelesen, verglichen
+       und validiert, aber nicht zur Bearbeitung angeboten. */
+    art: SCHREIBART.NOCH_NICHT, typ: 'liste',
+    nochNichtGrund: 'Von Google unterstützt – abhängig von Kategorie. '
+                  + 'Die Bearbeitung in WERKRUF folgt.',
     ganzGrund: 'Die Liste wird als Ganzes ersetzt.',
-    hinweis: 'Welche Typen möglich sind, hängt von der Hauptkategorie ab.',
     kategorieabhaengig: true,
   },
 
@@ -226,15 +243,21 @@ export const FELDER = Object.freeze([
 
 /** Alle Pfade, die überhaupt geschrieben werden dürfen. */
 export function schreibbarePfade() {
+  /* NOCH_NICHT steht bewusst nicht in dieser Liste: Der Server soll
+     ein Feld ohne Eingabemaske gar nicht erst annehmen. */
   return FELDER
-    .filter((f) => f.art !== SCHREIBART.LESEN && f.art !== SCHREIBART.GESPERRT)
+    .filter((f) => f.art !== SCHREIBART.LESEN
+                && f.art !== SCHREIBART.GESPERRT
+                && f.art !== SCHREIBART.NOCH_NICHT)
     .map((f) => f.pfad);
 }
 
 /** Felder, die Google nur als ganzes Objekt annimmt. */
 export function nurGanzeObjekte() {
+  /* Auch noch nicht umgesetzte Felder gehören hierher: Sobald die
+     Eingabemaske kommt, gilt die Regel unverändert. */
   return FELDER
-    .filter((f) => f.art === SCHREIBART.GANZ)
+    .filter((f) => f.art === SCHREIBART.GANZ || f.art === SCHREIBART.NOCH_NICHT)
     .map((f) => f.pfad);
 }
 
@@ -283,6 +306,11 @@ export function istBearbeitbar(pfad, location) {
   if (feld.art === SCHREIBART.LESEN) {
     return { erlaubt: false, code: 'nur_lesbar',
              grund: feld.lesenGrund ?? 'Dieses Feld liefert Google nur lesend.' };
+  }
+
+  if (feld.art === SCHREIBART.NOCH_NICHT) {
+    return { erlaubt: false, code: 'noch_nicht_umgesetzt',
+             grund: feld.nochNichtGrund ?? 'Von Google unterstützt, in WERKRUF noch nicht bearbeitbar.' };
   }
 
   if (feld.art === SCHREIBART.GESPERRT) {

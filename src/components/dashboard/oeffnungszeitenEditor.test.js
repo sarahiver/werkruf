@@ -149,6 +149,26 @@ describe('Nichts geht verloren', () => {
     expect(Object.keys(aenderungen)).toEqual(['specialHours']);
   });
 
+  it('löst ohne Änderung gar keinen Schreibzugriff aus', async () => {
+    /* Der Knopf ist gesperrt — aber auch ein erzwungener Aufruf darf
+       nichts senden, denn baueZeitAenderungen liefert ein leeres
+       Objekt. */
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    expect(speichern()).toBeDisabled();
+    await klicke(speichern());
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('sendet nach dem Hin- und Zurückändern eines Werts nichts', async () => {
+    /* Der Vergleich arbeitet auf Werten, nicht auf „wurde angefasst". */
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+    expect(speichern()).not.toBeDisabled();
+
+    tippe(screen.getByLabelText('Montag Schließung 1'), '17:00');
+    expect(speichern()).toBeDisabled();
+  });
+
   it('überträgt die vollständige Woche, nicht nur den geänderten Tag', async () => {
     /* regularHours nimmt Google nur als Ganzes — ein Teilobjekt
        löschte die übrigen Tage. */
@@ -192,41 +212,132 @@ describe('Validierung vor dem Senden', () => {
   });
 });
 
-describe('Sonderöffnungszeiten', () => {
-  it('schaltet zwischen geschlossen und Uhrzeiten um', async () => {
+describe('Sonder- und Feiertagszeiten', () => {
+  it('nennt den Bereich verständlich und erklärt ihn', () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    expect(screen.getByText(/Sonder- & Feiertagszeiten/)).toBeInTheDocument();
+    expect(screen.getByText(/Feiertage, Betriebsferien oder einzelne Tage/)).toBeInTheDocument();
+  });
+
+  it('lässt ein beliebiges künftiges Datum wählen', () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    const feld = screen.getByLabelText('Sondertag 1 Datum');
+
+    expect(feld).toHaveAttribute('type', 'date');
+    /* Keine Einschränkung auf bestimmte Tage — Feiertage liegen im
+       ganzen Jahr. */
+    expect(feld).not.toHaveAttribute('min');
+    expect(feld).not.toHaveAttribute('max');
+
+    tippe(feld, '2027-10-03');
+    expect(feld).toHaveValue('2027-10-03');
+  });
+
+  it('schaltet einen Feiertag auf individuelle Zeiten', async () => {
     render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
     await klicke(screen.getByRole('button', { name: 'Zeiten eintragen' }));
 
-    expect(screen.getByLabelText('Sondertag 1 Öffnung')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sondertag 1 Öffnung 1')).toBeInTheDocument();
+    expect(screen.queryByText('Ganztägig geschlossen')).not.toBeInTheDocument();
   });
 
   it('entfernt beim Umschalten auf geschlossen die Uhrzeiten', async () => {
     /* Google lehnt geschlossen MIT Uhrzeiten ab — sie nur auszublenden
-       reichte nicht. Deshalb wird hier der gesendete Stand geprüft,
-       nicht die Anzeige. */
+       reichte nicht. */
     render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
-
-    // Auf Uhrzeiten umschalten und eine setzen, damit sich etwas ändert.
     await klicke(screen.getByRole('button', { name: 'Zeiten eintragen' }));
-    tippe(screen.getByLabelText('Sondertag 1 Öffnung'), '09:00');
+    tippe(screen.getByLabelText('Sondertag 1 Öffnung 1'), '09:00');
     await klicke(speichern());
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     const offen = onSave.mock.calls[0][1].specialHours.specialHourPeriods[0];
-    expect(offen.closed).toBe(false);
-    expect(offen.openTime).toEqual({ hours: 9, minutes: 0 });
+    expect(offen.closed).toBeFalsy();
 
-    // Zurück auf geschlossen — die Uhrzeiten müssen verschwinden.
     onSave.mockClear();
     await klicke(screen.getByRole('button', { name: 'Geschlossen' }));
-    expect(screen.queryByLabelText('Sondertag 1 Öffnung')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Sondertag 1 Öffnung 1')).not.toBeInTheDocument();
+    expect(screen.getByText('Ganztägig geschlossen')).toBeInTheDocument();
   });
 
-  it('fügt einen Sondertag hinzu', async () => {
+  it('erlaubt MEHRERE Zeitfenster an einem Sondertag', async () => {
+    /* Googles Hilfe beschreibt das ausdrücklich — etwa 10:00–16:00
+       und 17:00–18:00 am 26. Dezember. */
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    await klicke(screen.getByRole('button', { name: 'Zeiten eintragen' }));
+    await klicke(screen.getByLabelText('Sondertag 1 Zeitfenster hinzufügen'));
+
+    expect(screen.getByLabelText('Sondertag 1 Öffnung 2')).toBeInTheDocument();
+  });
+
+  it('überträgt beide Zeitfenster eines Tages', async () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    await klicke(screen.getByRole('button', { name: 'Zeiten eintragen' }));
+    tippe(screen.getByLabelText('Sondertag 1 Öffnung 1'), '10:00');
+    tippe(screen.getByLabelText('Sondertag 1 Schließung 1'), '16:00');
+    await klicke(screen.getByLabelText('Sondertag 1 Zeitfenster hinzufügen'));
+    tippe(screen.getByLabelText('Sondertag 1 Öffnung 2'), '17:00');
+    tippe(screen.getByLabelText('Sondertag 1 Schließung 2'), '18:00');
+    await klicke(speichern());
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const perioden = onSave.mock.calls[0][1].specialHours.specialHourPeriods;
+    expect(perioden).toHaveLength(2);
+    expect(perioden.every((p) => p.startDate.day === 25)).toBe(true);
+  });
+
+  it('beanstandet sich überschneidende Zeitfenster am selben Tag', async () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    await klicke(screen.getByRole('button', { name: 'Zeiten eintragen' }));
+    tippe(screen.getByLabelText('Sondertag 1 Schließung 1'), '16:00');
+    await klicke(screen.getByLabelText('Sondertag 1 Zeitfenster hinzufügen'));
+    tippe(screen.getByLabelText('Sondertag 1 Öffnung 2'), '15:00');
+
+    expect(screen.getByText(/Google würde sie ablehnen/)).toBeInTheDocument();
+    expect(speichern()).toBeDisabled();
+  });
+
+  it('fügt einen weiteren Sondertag hinzu', async () => {
     render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
     await klicke(screen.getByRole('button', { name: /^\s*Sondertag\s*$/ }));
 
     expect(screen.getByLabelText('Sondertag 2 Datum')).toBeInTheDocument();
+  });
+
+  it('entfernt einen ganzen Sondertag', async () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    await klicke(screen.getByLabelText('Sondertag 1 entfernen'));
+
+    expect(screen.queryByLabelText('Sondertag 1 Datum')).not.toBeInTheDocument();
+    expect(screen.getByText(/Noch keine Sonder- oder Feiertagszeiten/)).toBeInTheDocument();
+  });
+});
+
+describe('Weitere Zeiten vor Paket C', () => {
+  it('wird NICHT als bearbeitbar dargestellt', () => {
+    /* moreHours hat noch keine Eingabemaske — die zulässigen Typen
+       kommen erst über categories.batchGet. Ein Feld als bearbeitbar
+       zu zeigen, für das es keine Maske gibt, wäre ein Versprechen,
+       das die Oberfläche nicht einlöst. */
+    const { istBearbeitbar } = require('../../utils/gbpFieldModel');
+    const p = istBearbeitbar('moreHours', standort());
+
+    expect(p.erlaubt).toBe(false);
+    expect(p.code).toBe('noch_nicht_umgesetzt');
+    expect(p.grund).toMatch(/abhängig von Kategorie/);
+  });
+
+  it('steht nicht in den serverseitig schreibbaren Pfaden', () => {
+    const { schreibbarePfade } = require('../../utils/gbpFieldModel');
+    expect(schreibbarePfade()).not.toContain('moreHours');
+  });
+
+  it('wird ohne Änderung nicht übertragen', async () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+    await klicke(speichern());
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][1]).not.toHaveProperty('moreHours');
   });
 });
 

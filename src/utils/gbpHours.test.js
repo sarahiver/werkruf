@@ -42,8 +42,17 @@ describe('Umwandlung', () => {
     expect(alsZeit('9:05')).toEqual({ hours: 9, minutes: 5 });
   });
 
+  it('lässt 24:00 zu', () => {
+    /* Die Referenz: „Valid values are 00:00-24:00, where 24:00
+       represents midnight at the end of the specified day field."
+       Eine frühere Fassung wies es ab — damit liess sich ein
+       Sondertag bis Mitternacht gar nicht eintragen. */
+    expect(alsZeit('24:00')).toEqual({ hours: 24, minutes: 0 });
+  });
+
   it('weist unmögliche Zeiten ab', () => {
-    expect(alsZeit('24:00')).toBeNull();
+    expect(alsZeit('24:30')).toBeNull();
+    expect(alsZeit('25:00')).toBeNull();
     expect(alsZeit('12:60')).toBeNull();
     expect(alsZeit('Mittag')).toBeNull();
     expect(alsZeit('')).toBeNull();
@@ -164,70 +173,125 @@ describe('Reguläre Öffnungszeiten', () => {
   });
 });
 
-describe('Sonderöffnungszeiten', () => {
-  const heiligabend = {
-    startDate: alsDatum('2026-12-24'),
-    openTime: alsZeit('08:00'), closeTime: alsZeit('12:00'),
-  };
-
-  it('nimmt einen gültigen Eintrag an', () => {
-    expect(pruefeSonderzeiten([heiligabend])).toEqual([]);
+describe('Sonder- und Feiertagszeiten', () => {
+  const P = (start, ende, auf, zu, geschlossen) => ({
+    startDate: alsDatum(start),
+    ...(ende ? { endDate: alsDatum(ende) } : {}),
+    ...(auf ? { openTime: alsZeit(auf) } : {}),
+    ...(zu ? { closeTime: alsZeit(zu) } : {}),
+    ...(geschlossen ? { closed: true } : {}),
   });
 
-  it('nimmt einen geschlossenen Tag ohne Uhrzeiten an', () => {
-    expect(pruefeSonderzeiten([
-      { startDate: alsDatum('2026-12-25'), closed: true },
-    ])).toEqual([]);
+  describe('Googles eigene Beispiele aus der Referenz', () => {
+    it('nimmt an: 23.11., 08:00–18:00', () => {
+      expect(pruefeSonderzeiten([P('2015-11-23', null, '08:00', '18:00')])).toEqual([]);
+    });
+
+    it('nimmt an: mit gleichem Enddatum', () => {
+      expect(pruefeSonderzeiten([P('2015-11-23', '2015-11-23', '08:00', '18:00')])).toEqual([]);
+    });
+
+    it('nimmt an: 23.→24.11., 13:00–11:59', () => {
+      expect(pruefeSonderzeiten([P('2015-11-23', '2015-11-24', '13:00', '11:59')])).toEqual([]);
+    });
+
+    it('lehnt ab: 13:00–11:59 ohne Enddatum', () => {
+      const f = pruefeSonderzeiten([P('2015-11-23', null, '13:00', '11:59')]);
+      expect(f).toHaveLength(1);
+      expect(f[0].meldung).toMatch(/Folgetag/);
+    });
+
+    it('lehnt ab: 23.→24.11., 13:00–12:00', () => {
+      /* 12:00 ist eine Minute zu spät — Google lässt bis 11:59. */
+      expect(pruefeSonderzeiten([P('2015-11-23', '2015-11-24', '13:00', '12:00')])).toHaveLength(1);
+    });
+
+    it('lehnt ab: 23.→25.11. (mehr als ein Tag)', () => {
+      const f = pruefeSonderzeiten([P('2015-11-23', '2015-11-25', '08:00', '18:00')]);
+      expect(f[0].meldung).toMatch(/höchstens bis zum Folgetag/);
+    });
   });
 
-  it('beanstandet geschlossen MIT Uhrzeiten', () => {
-    /* Google lehnt die Kombination ab. Eine Oberfläche, die beides
-       gleichzeitig anbietet, führt geradewegs hinein. */
-    const f = pruefeSonderzeiten([{
-      startDate: alsDatum('2026-12-25'), closed: true,
-      openTime: alsZeit('08:00'), closeTime: alsZeit('12:00'),
-    }]);
-    expect(f).toHaveLength(1);
-    expect(f[0].feld).toBe('closed');
-    expect(f[0].meldung).toMatch(/keine Uhrzeiten/);
+  describe('Feiertage', () => {
+    it('nimmt einen geschlossenen Feiertag an', () => {
+      expect(pruefeSonderzeiten([P('2026-12-25', null, null, null, true)])).toEqual([]);
+    });
+
+    it('nimmt einen Feiertag mit individuellen Zeiten an', () => {
+      expect(pruefeSonderzeiten([P('2026-12-24', null, '08:00', '12:00')])).toEqual([]);
+    });
+
+    it('nimmt MEHRERE Zeitfenster am selben Tag an', () => {
+      /* Googles Hilfe: „To add multiple sets of hours for the date".
+         Eine frühere Fassung lehnte doppelte Daten pauschal ab und
+         machte geteilte Feiertagszeiten damit unmöglich. */
+      expect(pruefeSonderzeiten([
+        P('2026-12-26', null, '10:00', '16:00'),
+        P('2026-12-26', null, '17:00', '18:00'),
+      ])).toEqual([]);
+    });
+
+    it('nimmt mehrere verschiedene Sondertage an', () => {
+      expect(pruefeSonderzeiten([
+        P('2026-12-24', null, '08:00', '12:00'),
+        P('2026-12-25', null, null, null, true),
+        P('2026-12-26', null, null, null, true),
+        P('2026-10-03', null, null, null, true),
+      ])).toEqual([]);
+    });
+
+    it('nimmt einen Sondertag bis 24:00 an', () => {
+      expect(pruefeSonderzeiten([P('2026-12-31', null, '18:00', '24:00')])).toEqual([]);
+    });
   });
 
-  it('beanstandet einen Eintrag ohne Datum', () => {
-    expect(pruefeSonderzeiten([{ openTime: alsZeit('08:00') }])[0].feld).toBe('startDate');
-  });
+  describe('Widersprüche', () => {
+    it('lehnt geschlossen MIT Uhrzeiten ab', () => {
+      const f = pruefeSonderzeiten([{
+        startDate: alsDatum('2026-12-25'), closed: true,
+        openTime: alsZeit('08:00'), closeTime: alsZeit('12:00'),
+      }]);
+      expect(f).toHaveLength(1);
+      expect(f[0].feld).toBe('closed');
+    });
 
-  it('beanstandet fehlende Uhrzeiten bei geöffnetem Tag', () => {
-    const f = pruefeSonderzeiten([{ startDate: alsDatum('2026-12-24') }]);
-    expect(f[0].meldung).toMatch(/als geschlossen markieren/);
-  });
+    it('lehnt denselben Tag einmal geschlossen und einmal mit Zeiten ab', () => {
+      const f = pruefeSonderzeiten([
+        P('2026-12-25', null, null, null, true),
+        P('2026-12-25', null, '10:00', '16:00'),
+      ]);
+      expect(f.some((x) => x.meldung.includes('geschlossen und einmal mit Zeiten'))).toBe(true);
+    });
 
-  it('beanstandet ein Enddatum vor dem Startdatum', () => {
-    const f = pruefeSonderzeiten([{
-      startDate: alsDatum('2026-12-24'), endDate: alsDatum('2026-12-23'),
-      openTime: alsZeit('08:00'), closeTime: alsZeit('12:00'),
-    }]);
-    expect(f.some((x) => x.feld === 'endDate')).toBe(true);
-  });
+    it('lehnt denselben Tag zweimal geschlossen ab', () => {
+      const f = pruefeSonderzeiten([
+        P('2026-12-25', null, null, null, true),
+        P('2026-12-25', null, null, null, true),
+      ]);
+      expect(f.some((x) => x.meldung.includes('mehrfach als geschlossen'))).toBe(true);
+    });
 
-  it('beanstandet über Mitternacht ohne Folgetag als Enddatum', () => {
-    const f = pruefeSonderzeiten([{
-      startDate: alsDatum('2026-12-31'),
-      openTime: alsZeit('20:00'), closeTime: alsZeit('02:00'),
-    }]);
-    expect(f[0].meldung).toMatch(/über Mitternacht/);
-    expect(f[0].meldung).toMatch(/Folgetag/);
-  });
+    it('lehnt sich überschneidende Zeitfenster am selben Tag ab', () => {
+      const f = pruefeSonderzeiten([
+        P('2026-12-26', null, '10:00', '16:00'),
+        P('2026-12-26', null, '15:00', '18:00'),
+      ]);
+      expect(f.some((x) => x.meldung.includes('Überschneidet sich'))).toBe(true);
+    });
 
-  it('nimmt über Mitternacht MIT Folgetag an', () => {
-    expect(pruefeSonderzeiten([{
-      startDate: alsDatum('2026-12-31'), endDate: alsDatum('2027-01-01'),
-      openTime: alsZeit('20:00'), closeTime: alsZeit('02:00'),
-    }])).toEqual([]);
-  });
+    it('lehnt ein Enddatum vor dem Startdatum ab', () => {
+      const f = pruefeSonderzeiten([P('2026-12-24', '2026-12-23', '08:00', '12:00')]);
+      expect(f[0].feld).toBe('endDate');
+    });
 
-  it('beanstandet zwei Einträge für denselben Tag', () => {
-    const f = pruefeSonderzeiten([heiligabend, { ...heiligabend, closeTime: alsZeit('14:00') }]);
-    expect(f.some((x) => x.meldung.includes('bereits einen Eintrag'))).toBe(true);
+    it('lehnt einen Eintrag ohne Datum ab', () => {
+      expect(pruefeSonderzeiten([{ openTime: alsZeit('08:00') }])[0].feld).toBe('startDate');
+    });
+
+    it('lehnt fehlende Uhrzeiten bei geöffnetem Tag ab', () => {
+      const f = pruefeSonderzeiten([{ startDate: alsDatum('2026-12-24') }]);
+      expect(f[0].meldung).toMatch(/als geschlossen markieren/);
+    });
   });
 });
 
