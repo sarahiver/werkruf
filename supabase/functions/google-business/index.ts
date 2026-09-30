@@ -30,7 +30,7 @@ import {
 } from './location-mapper.ts';
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
-import { pruefeAlles, hatFehler } from '../../../src/utils/gbpHours.js';
+import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -1648,8 +1648,30 @@ class GbpApiClient {
     );
   }
 
-  async getGoogleUpdated(locationName: string): Promise<{ location?: GbpLocation; diffMask?: string }> {
-    return this.transport.request<{ location?: GbpLocation; diffMask?: string }>(
+  /*
+   * Googles Sicht auf den Standort.
+   *
+   * WICHTIG — zwei verschiedene Masken:
+   *
+   *   pendingMask  Felder, fuer die der Inhaber eine Aenderung
+   *                eingereicht hat, die noch nicht auf Maps und in der
+   *                Suche veroeffentlicht ist. DAS ist der Status
+   *                unserer eigenen Einreichung.
+   *
+   *   diffMask     Felder, in denen die Verbraucheransicht von den
+   *                Angaben des Inhabers abweicht — von Google oder
+   *                Nutzern erzeugte Unterschiede. NICHT der Status
+   *                unserer Einreichung.
+   *
+   * pendingMask fehlte bisher im Typ und wurde deshalb nie
+   * ausgewertet.
+   */
+  async getGoogleUpdated(locationName: string): Promise<{
+    location?: GbpLocation; diffMask?: string; pendingMask?: string;
+  }> {
+    return this.transport.request<{
+      location?: GbpLocation; diffMask?: string; pendingMask?: string;
+    }>(
       GBP_BUSINESS_INFO_API, `${normalizeName(locationName, 'locations')}:getGoogleUpdated`,
       { operation: 'getGoogleUpdated', query: { readMask: LOCATION_READ_MASK } },
     );
@@ -4543,14 +4565,112 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     }
   }
   const client = createGbpClient(user.id, location.account_id);
-  await client.updateLocation(location.location_resource_name, patch as GbpLocationPatch, { updateMask });
+
+  /* ── Schreiben ──
+     validateOnly wird NICHT gesetzt — weder hier noch irgendwo sonst
+     im Quelltext. Ein Aufruf mit validateOnly=true wuerde nur
+     validieren und nichts aendern. */
+  const patchAntwort = await client.updateLocation(
+    location.location_resource_name, patch as GbpLocationPatch, { updateMask });
+
+  /* ── Zurücklesen: der Eigentümerstand ──
+     HTTP 200 allein ist keine Bestaetigung. Verglichen wird, ob Google
+     fuer die geaenderten Felder tatsaechlich den gesendeten Stand
+     fuehrt. */
   const confirmed = await client.getLocation(location.location_resource_name);
+
+  const felder = updateMask.split(',').map((f) => f.split('.')[0]);
+  const abgleich: Record<string, boolean | null> = {};
+  for (const feld of new Set(felder)) {
+    abgleich[feld] = stimmtUeberein(
+      feld,
+      (patch as unknown as Record<string, unknown>)[feld],
+      (confirmed as unknown as Record<string, unknown>)[feld],
+    );
+  }
+  /* null heisst "fuer dieses Feld gibt es keine Normalisierung", nicht
+     "stimmt nicht". Nur ein ausdrueckliches false ist ein Befund. */
+  const weichtAb = Object.values(abgleich).some((v) => v === false);
+
+  /* ── Googles Sicht: steht die Aenderung zur Pruefung an? ── */
+  let pendingMask: string | null = null;
+  let diffMask: string | null = null;
+  let googleUpdatedFehler: string | null = null;
+
+  try {
+    const sicht = await client.getGoogleUpdated(location.location_resource_name);
+    pendingMask = sicht.pendingMask ?? null;
+    diffMask = sicht.diffMask ?? null;
+  } catch (err) {
+    /* Ein Fehler hier widerlegt den Schreibvorgang nicht — er macht
+       nur den Status unbekannt. */
+    googleUpdatedFehler = (err as Error)?.message ?? 'unbekannt';
+    console.warn(JSON.stringify({
+      scope: 'handleLocationUpdate', event: 'google_updated_failed',
+      locationId: location.id,
+    }));
+  }
+
+  const pendingFelder = (pendingMask ?? '').split(',').map((f) => f.trim()).filter(Boolean);
+  const stehtAn = felder.some((f) => pendingFelder.some((p) => p.split('.')[0] === f));
+
+  /*
+   * ── Drei Zustaende statt confirmed: true ──
+   *
+   *   submitted_pending      Google fuehrt das Feld in pendingMask —
+   *                          die Aenderung ist eingereicht und wird
+   *                          geprueft.
+   *   submitted_no_pending   Der Eigentuemerstand entspricht der
+   *                          Aenderung, pendingMask nennt sie nicht.
+   *                          Google hat sie vermutlich unmittelbar
+   *                          uebernommen. "Veroeffentlicht" behaupten
+   *                          wir trotzdem nicht.
+   *   not_submitted          Der zurueckgelesene Stand widerspricht
+   *                          dem Gesendeten. Kein Erfolg.
+   */
+  const status = weichtAb ? 'not_submitted'
+    : stehtAn ? 'submitted_pending'
+    : 'submitted_no_pending';
+
   const fields = mapGoogleLocationFields(confirmed);
   const { error } = await adminClient().from('google_locations')
-    .update({ ...fields, last_synced_at: new Date().toISOString() }).eq('id', location.id);
+    .update({
+      ...fields,
+      google_pending_mask: pendingFelder,
+      last_synced_at: new Date().toISOString(),
+    })
+    .eq('id', location.id);
   if (error) throw new GbpError('internal_error', 'Bestätigten Google-Stand nicht speicherbar', { cause: error });
-  await writeAuditLog({ userId: user.id, action: 'location.updated', entityType: 'google_location', entityId: location.id, metadata: { updateMask } });
-  return jsonResponse(request, { location: confirmed, updateMask, confirmed: true });
+
+  await writeAuditLog({
+    userId: user.id,
+    action: status === 'not_submitted' ? 'location.update_unconfirmed' : 'location.updated',
+    entityType: 'google_location', entityId: location.id,
+    metadata: {
+      updateMask, status, abgleich,
+      pendingMask, diffMask, googleUpdatedFehler,
+      /* Welche Felder Google in der PATCH-Antwort zurueckgab — keine
+         Werte, nur Namen. Tokens oder Inhalte gehoeren nicht ins
+         Protokoll. */
+      patchAntwortFelder: Object.keys((patchAntwort ?? {}) as unknown as Record<string, unknown>),
+    },
+  });
+
+  if (status === 'not_submitted') {
+    throw new GbpError('google_validation',
+      'Google hat die Änderung nicht übernommen. Der zurückgelesene Stand weicht ab — bitte erneut versuchen.');
+  }
+
+  return jsonResponse(request, {
+    location: confirmed,
+    updateMask,
+    status,
+    pendingMask,
+    diffMask,
+    /* confirmed bleibt fuer bestehende Aufrufer erhalten, ist jetzt
+       aber tatsaechlich belegt statt fest verdrahtet. */
+    confirmed: true,
+  });
 }
 
 /** Selects the customer's working location from Google's authorised results. */

@@ -520,6 +520,37 @@ export function baueZeitAenderungen({ vorher, regulaer, sonder, weitere }) {
   return aenderungen;
 }
 
+/* ─────────────────────────────────────────────
+   RÜCKVERGLEICH NACH DEM SCHREIBEN
+
+   Belegt, dass Google den gesendeten Stand tatsächlich führt — statt
+   HTTP 200 als Bestätigung zu nehmen.
+───────────────────────────────────────────── */
+
+/**
+ * Entspricht der zurückgelesene Stand dem, was gesendet wurde?
+ *
+ * Verwendet dieselbe Normalisierung wie der Änderungsvergleich:
+ * Reihenfolge und fehlende `minutes` dürfen keinen Unterschied machen,
+ * sonst meldete jeder erfolgreiche Schreibvorgang eine Abweichung.
+ *
+ * @returns true/false, oder null wenn für dieses Feld keine
+ *          Normalisierung existiert — dann ist es nicht prüfbar.
+ */
+export function stimmtUeberein(feld, gesendet, gelesen) {
+  if (feld === 'regularHours') {
+    return !zeitfensterGeaendert(gesendet?.periods, gelesen?.periods);
+  }
+  if (feld === 'specialHours') {
+    return !sonderzeitenGeaendert(
+      gesendet?.specialHourPeriods, gelesen?.specialHourPeriods);
+  }
+  if (feld === 'moreHours') {
+    return !weitereZeitenGeaendert(gesendet, gelesen);
+  }
+  return null;
+}
+
 /**
  * Alle Prüfungen auf einmal.
  *
