@@ -12,6 +12,8 @@ import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConn
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
+import KategorienEditor from '../../components/dashboard/KategorienEditor';
+import WeitereZeitenEditor from '../../components/dashboard/WeitereZeitenEditor';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -570,11 +572,30 @@ export default function DashboardGoogleBusiness() {
                         onSave={updateLocation}
                       />
                     ),
-                    oeffnungszeiten: (
-                      <OeffnungszeitenEditor
+                    kategorien: (
+                      <KategorienEditor
                         location={ausgewaehlterStandort}
                         onSave={updateLocation}
                       />
+                    ),
+                    oeffnungszeiten: (
+                      <>
+                        <OeffnungszeitenEditor
+                          location={ausgewaehlterStandort}
+                          onSave={updateLocation}
+                        />
+                        {/* Weitere Zeiten stehen bewusst darunter und
+                            nicht in einem eigenen Reiter: Sie gehören
+                            fachlich zu den Öffnungszeiten, haben aber
+                            einen eigenen Speichervorgang. */}
+                        <SectionTitle style={{ marginTop: 28 }}>
+                          <Clock size={15} /> Weitere Zeiten
+                        </SectionTitle>
+                        <WeitereZeitenEditor
+                          location={ausgewaehlterStandort}
+                          onSave={updateLocation}
+                        />
+                      </>
                     ),
                   }}
                 />

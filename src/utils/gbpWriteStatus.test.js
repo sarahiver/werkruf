@@ -180,6 +180,29 @@ describe('Quelltext des Schreibpfads', () => {
     expect(quelle).toMatch(/throw new GbpError\('google_validation'/);
   });
 
+  it('prüft gesendete Kategorien gegen Google', () => {
+    /* Eine manipulierte Kategorie darf nicht durchgehen. Geprüft wird
+       über categories.batchGet — was Google nicht kennt, kommt dort
+       nicht zurück. Eine Formatprüfung auf „gcid:" wäre leicht zu
+       erfüllen und bewiese nichts. */
+    expect(quelle).toMatch(/location\.category_rejected/);
+    expect(quelle).toMatch(/\.batchGetCategories\(namen/);
+  });
+
+  it('winkt Kategorien nicht durch, wenn die Prüfung scheitert', () => {
+    /* Sonst wäre eine unbekannte Kategorie genau dann erfolgreich,
+       wenn Google gerade nicht antwortet. */
+    const abschnitt = quelle.slice(
+      quelle.indexOf('if (patch.categories)'),
+      quelle.indexOf('Fuenfte Stufe'));
+    expect(abschnitt).toMatch(/throw new GbpError\('google_api_error'/);
+  });
+
+  it('prüft moreHours-Arten gegen die Kategorie-Metadaten', () => {
+    expect(quelle).toMatch(/location\.more_hours_rejected/);
+    expect(quelle).toMatch(/const erlaubt = await erlaubteZeitarten/);
+  });
+
   it('speichert pendingMask getrennt von diffMask', () => {
     expect(quelle).toMatch(/google_pending_mask: pendingFelder/);
   });

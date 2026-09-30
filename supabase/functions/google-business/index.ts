@@ -4531,7 +4531,61 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     throw new GbpError('bad_request', erste?.meldung ?? 'Die Öffnungszeiten sind nicht gültig.');
   }
 
-  /* ── Vierte Stufe: Ist dieser hoursTypeKey fuer die Kategorie erlaubt? ──
+  /* ── Vierte Stufe: Existieren die gesendeten Kategorien ueberhaupt? ──
+   *
+   * Der Client schickt Kategorien als {name, displayName}. Der Name
+   * ist eine stabile Google-ID (gcid:...), aber nichts hindert einen
+   * manipulierten Aufruf daran, eine erfundene zu schicken.
+   *
+   * Geprueft wird ueber categories.batchGet: Was Google nicht kennt,
+   * kommt dort nicht zurueck. Das ist genauer als eine Formatpruefung
+   * auf "gcid:" — die waere leicht zu erfuellen und beweist nichts.
+   */
+  if (patch.categories) {
+    const kat = patch.categories as {
+      primaryCategory?: { name?: string };
+      additionalCategories?: { name?: string }[];
+    };
+
+    const namen = [
+      kat.primaryCategory?.name,
+      ...(kat.additionalCategories ?? []).map((k) => k?.name),
+    ].filter((n): n is string => typeof n === 'string' && n.length > 0);
+
+    if (namen.length === 0) {
+      throw new GbpError('bad_request', 'Mindestens eine Kategorie muss angegeben sein.');
+    }
+
+    const { languageCode, regionCode } = spracheUndRegion(location);
+    let bekannt: Set<string>;
+
+    try {
+      const gefunden = await createGbpClient(user.id, location.account_id)
+        .batchGetCategories(namen, { regionCode, languageCode });
+      bekannt = new Set(
+        gefunden.map((k) => (k as { name?: string })?.name).filter(Boolean) as string[]);
+    } catch (err) {
+      /* Nicht pruefbar heisst nicht durchwinken. Eine unbekannte
+         Kategorie waere sonst genau dann erfolgreich, wenn Google
+         gerade nicht antwortet. */
+      throw new GbpError('google_api_error',
+        'Die Kategorien konnten gerade nicht bei Google geprüft werden. Bitte später erneut versuchen.',
+        { cause: err as Error });
+    }
+
+    const unbekannt = namen.filter((n) => !bekannt.has(n));
+    if (unbekannt.length > 0) {
+      await writeAuditLog({
+        userId: user.id, action: 'location.category_rejected',
+        entityType: 'google_location', entityId: location.id,
+        metadata: { abgelehnt: unbekannt },
+      });
+      throw new GbpError('bad_request',
+        `Google kennt die Kategorie „${unbekannt[0]}" nicht.`);
+    }
+  }
+
+  /* ── Fuenfte Stufe: Ist dieser hoursTypeKey fuer die Kategorie erlaubt? ──
    *
    * Der Client darf das nicht entscheiden. Welche Typen es gibt, sagt
    * allein categories.batchGet?view=FULL fuer die Hauptkategorie
