@@ -13,6 +13,15 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
+/* Der Kategorie-Editor zieht ueber seinen Hook supabaseClient herein,
+   und der braucht beim Laden Umgebungsvariablen. In dieser Suite geht
+   es nicht um Netzzugriffe — deshalb nachgebildet, wie schon
+   useGoogleBusinessData. */
+jest.mock('../../supabaseClient', () => ({
+  __esModule: true,
+  default: { auth: { getSession: () => Promise.resolve({ data: { session: null } }) } },
+}));
+
 jest.mock('../../hooks/useGoogleBusinessData', () => ({ useGoogleBusinessData: jest.fn() }));
 jest.mock('../../hooks/useGoogleBusiness', () => ({
   __esModule: true,
