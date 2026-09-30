@@ -245,11 +245,16 @@ class GbpError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly context?: Record<string, unknown>;
+  /** Ist die Meldung fuer den Kunden geschrieben und gefahrlos? */
+  readonly anzeigbar: boolean;
 
   constructor(
     code: GbpErrorCode,
     message: string,
-    options: { status?: number; retryable?: boolean; cause?: unknown; context?: Record<string, unknown> } = {},
+    options: {
+      status?: number; retryable?: boolean; cause?: unknown;
+      context?: Record<string, unknown>; anzeigbar?: boolean;
+    } = {},
   ) {
     super(message, { cause: options.cause });
     this.name = 'GbpError';
@@ -257,13 +262,30 @@ class GbpError extends Error {
     this.status = options.status ?? DEFAULT_STATUS[code];
     this.retryable = options.retryable ?? (this.status >= 500 || this.status === 429);
     this.context = options.context;
+    this.anzeigbar = options.anzeigbar === true;
   }
 
+  /*
+   * Was der Kunde zu sehen bekommt.
+   *
+   * Standard ist eine allgemeine Meldung — interne Fehlertexte koennen
+   * Details ueber Aufbau und Daten verraten.
+   *
+   * Pruefmeldungen sind anders: Sie sind fuer den Kunden geschrieben,
+   * nennen keine Interna und sind der einzige Weg, ihm zu sagen, was er
+   * aendern soll. Sie werden mit anzeigbar: true geworfen.
+   *
+   * Vorher landeten sie alle unter GENERIC_MESSAGE. Ein abgelehnter
+   * Kategoriename wurde dadurch zu "Es ist ein Fehler aufgetreten" —
+   * wahr, aber nutzlos.
+   */
   toPublic() {
     return {
       error: {
         code: this.code,
-        message: SAFE_MESSAGES[this.code] ?? GENERIC_MESSAGE,
+        message: this.anzeigbar
+          ? this.message
+          : (SAFE_MESSAGES[this.code] ?? GENERIC_MESSAGE),
         retryable: this.retryable,
       },
     };
@@ -1421,7 +1443,7 @@ function retryDelayMs(attempt: number, retryAfterHeader: string | null): number 
 ───────────────────────────────────────────── */
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
-  query?: Record<string, string | number | undefined>;
+  query?: Record<string, string | number | string[] | undefined>;
   body?: unknown;
   /** Für Logs — die rohe URL kann Ressourcennamen enthalten. */
   operation: string;
@@ -1556,10 +1578,29 @@ class GbpTransport {
   }
 }
 
-function buildUrl(baseUrl: string, path: string, query?: Record<string, string | number | undefined>): string {
+function buildUrl(
+  baseUrl: string,
+  path: string,
+  query?: Record<string, string | number | string[] | undefined>,
+): string {
   const url = new URL(`${baseUrl}/${path.replace(/^\//, '')}`);
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
+    if (value === undefined || value === '') continue;
+
+    /* Wiederholte Parameter: names=a&names=b.
+
+       categories:batchGet erwartet `names` genau so. Ein
+       kommaverbundener String kaeme dort als EIN Kategoriename an —
+       und Google antwortet mit einem Fehler, der in der Oberflaeche
+       als "Es ist ein Fehler aufgetreten" landete. */
+    if (Array.isArray(value)) {
+      for (const einzeln of value) {
+        if (einzeln !== undefined && einzeln !== '') url.searchParams.append(key, String(einzeln));
+      }
+      continue;
+    }
+
+    url.searchParams.set(key, String(value));
   }
   return url.toString();
 }
@@ -1723,7 +1764,8 @@ class GbpApiClient {
       {
         operation: 'batchGetCategories',
         query: {
-          names: names.join(','),
+          /* Als Liste, nicht kommaverbunden — siehe buildUrl. */
+          names,
           regionCode: opts.regionCode,
           languageCode: opts.languageCode,
           view: 'FULL',
@@ -4511,7 +4553,9 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
       entityType: 'google_location', entityId: location.id,
       metadata: { felder: gesperrt.map((e) => e.pfad), codes: gesperrt.map((e) => e.pruefung.code) },
     });
-    throw new GbpError('bad_request', gesperrt[0].pruefung.grund ?? 'Dieses Feld ist für diesen Betrieb gesperrt.');
+    throw new GbpError('bad_request',
+      gesperrt[0].pruefung.grund ?? 'Dieses Feld ist für diesen Betrieb gesperrt.',
+      { anzeigbar: true });
   }
 
   /* ── Dritte Stufe: Sind Oeffnungszeiten in sich stimmig? ──
@@ -4528,7 +4572,8 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
 
   if (hatFehler(zeitBefund)) {
     const erste = [...zeitBefund.regulaer, ...zeitBefund.sonder, ...zeitBefund.weitere][0];
-    throw new GbpError('bad_request', erste?.meldung ?? 'Die Öffnungszeiten sind nicht gültig.');
+    throw new GbpError('bad_request',
+      erste?.meldung ?? 'Die Öffnungszeiten sind nicht gültig.', { anzeigbar: true });
   }
 
   /* ── Vierte Stufe: Existieren die gesendeten Kategorien ueberhaupt? ──
@@ -4553,7 +4598,8 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     ].filter((n): n is string => typeof n === 'string' && n.length > 0);
 
     if (namen.length === 0) {
-      throw new GbpError('bad_request', 'Mindestens eine Kategorie muss angegeben sein.');
+      throw new GbpError('bad_request', 'Mindestens eine Kategorie muss angegeben sein.',
+        { anzeigbar: true });
     }
 
     const { languageCode, regionCode } = spracheUndRegion(location);
@@ -4570,7 +4616,7 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
          gerade nicht antwortet. */
       throw new GbpError('google_api_error',
         'Die Kategorien konnten gerade nicht bei Google geprüft werden. Bitte später erneut versuchen.',
-        { cause: err as Error });
+        { cause: err as Error, anzeigbar: true });
     }
 
     const unbekannt = namen.filter((n) => !bekannt.has(n));
@@ -4581,7 +4627,7 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
         metadata: { abgelehnt: unbekannt },
       });
       throw new GbpError('bad_request',
-        `Google kennt die Kategorie „${unbekannt[0]}" nicht.`);
+        `Google kennt die Kategorie „${unbekannt[0]}" nicht.`, { anzeigbar: true });
     }
   }
 
@@ -4601,7 +4647,8 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
          Liste laesst sich nicht pruefen, und stillschweigend
          durchzulassen hiesse, auf Googles Ablehnung zu hoffen. */
       throw new GbpError('google_api_error',
-        'Die für deine Kategorie zulässigen Zeitarten konnten gerade nicht geladen werden. Bitte später erneut versuchen.');
+        'Die für deine Kategorie zulässigen Zeitarten konnten gerade nicht geladen werden. Bitte später erneut versuchen.',
+        { anzeigbar: true });
     }
 
     const unbekannt = (patch.moreHours as { hoursTypeKey?: string }[])
@@ -4615,7 +4662,8 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
         metadata: { abgelehnt: unbekannt, erlaubt },
       });
       throw new GbpError('bad_request',
-        `Google bietet für deine Unternehmenskategorie keine Zeiten der Art „${unbekannt[0] ?? '—'}" an.`);
+        `Google bietet für deine Unternehmenskategorie keine Zeiten der Art „${unbekannt[0] ?? '—'}" an.`,
+        { anzeigbar: true });
     }
   }
   const client = createGbpClient(user.id, location.account_id);
@@ -4686,15 +4734,44 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     : stehtAn ? 'submitted_pending'
     : 'submitted_no_pending';
 
+  /*
+   * Den bestaetigten Stand lokal festhalten.
+   *
+   * WICHTIG — die Reihenfolge: Google hat zu diesem Zeitpunkt bereits
+   * geschrieben. Ein Fehler HIER bedeutet nicht, dass die Aenderung
+   * nicht angekommen ist; er bedeutet nur, dass WERKRUF sie nicht
+   * mitschreiben konnte.
+   *
+   * Eine frueher hier geworfene internal_error-Meldung sagte dem
+   * Kunden "Nicht gespeichert", obwohl die Kategorie bei Google drin
+   * war. Er haette es erneut versucht — mit derselben Folge.
+   */
   const fields = mapGoogleLocationFields(confirmed);
-  const { error } = await adminClient().from('google_locations')
+  const db = adminClient();
+
+  let { error } = await db.from('google_locations')
     .update({
       ...fields,
       google_pending_mask: pendingFelder,
       last_synced_at: new Date().toISOString(),
     })
     .eq('id', location.id);
-  if (error) throw new GbpError('internal_error', 'Bestätigten Google-Stand nicht speicherbar', { cause: error });
+
+  /* Fehlt die Spalte google_pending_mask, ist die Migration
+     20260930090000 noch nicht eingespielt. Dann ohne sie speichern —
+     der uebrige Stand ist wichtiger als die Maske, und der Kunde soll
+     nicht auf eine Migration warten muessen, von der er nichts weiss. */
+  let maskeFehlt = false;
+  if (error && /google_pending_mask/.test(error.message ?? '')) {
+    maskeFehlt = true;
+    console.warn(JSON.stringify({
+      scope: 'handleLocationUpdate', event: 'pending_mask_spalte_fehlt',
+      hinweis: 'Migration 20260930090000_google_pending_mask.sql einspielen',
+    }));
+    ({ error } = await db.from('google_locations')
+      .update({ ...fields, last_synced_at: new Date().toISOString() })
+      .eq('id', location.id));
+  }
 
   await writeAuditLog({
     userId: user.id,
@@ -4707,12 +4784,16 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
          Werte, nur Namen. Tokens oder Inhalte gehoeren nicht ins
          Protokoll. */
       patchAntwortFelder: Object.keys((patchAntwort ?? {}) as unknown as Record<string, unknown>),
+      lokalGespeichert: !error,
+      maskeFehlt,
+      lokalerFehler: error ? String(error.code ?? error.message) : null,
     },
   });
 
   if (status === 'not_submitted') {
     throw new GbpError('google_validation',
-      'Google hat die Änderung nicht übernommen. Der zurückgelesene Stand weicht ab — bitte erneut versuchen.');
+      'Google hat die Änderung nicht übernommen. Der zurückgelesene Stand weicht ab — bitte erneut versuchen.',
+      { anzeigbar: true });
   }
 
   return jsonResponse(request, {
@@ -4721,8 +4802,13 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     status,
     pendingMask,
     diffMask,
-    /* confirmed bleibt fuer bestehende Aufrufer erhalten, ist jetzt
-       aber tatsaechlich belegt statt fest verdrahtet. */
+    /* Google hat geschrieben. Ob WERKRUF den Stand auch lokal
+       festhalten konnte, ist eine getrennte Auskunft — und kein Grund,
+       dem Kunden "nicht gespeichert" zu melden. */
+    lokalGespeichert: !error,
+    ...(error ? {
+      hinweis: 'Die Änderung ist bei Google angekommen, WERKRUF konnte sie aber nicht zwischenspeichern. Sie erscheint beim nächsten Abgleich.',
+    } : {}),
     confirmed: true,
   });
 }

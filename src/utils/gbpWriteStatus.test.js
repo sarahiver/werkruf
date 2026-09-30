@@ -180,6 +180,49 @@ describe('Quelltext des Schreibpfads', () => {
     expect(quelle).toMatch(/throw new GbpError\('google_validation'/);
   });
 
+  it('sendet wiederholte Parameter einzeln, nicht kommaverbunden', () => {
+    /* categories:batchGet erwartet names=a&names=b. Ein
+       kommaverbundener String kam bei Google als EIN Kategoriename an —
+       der Aufruf scheiterte, und die Oberfläche zeigte „Es ist ein
+       Fehler aufgetreten". */
+    expect(quelle).toMatch(/if \(Array\.isArray\(value\)\)/);
+    expect(quelle).toMatch(/url\.searchParams\.append\(key/);
+    /* names wird als Liste übergeben, nicht gejoint. */
+    expect(quelle).not.toMatch(/names: names\.join/);
+  });
+
+  it('zeigt Prüfmeldungen dem Kunden, statt sie zu maskieren', () => {
+    /* bad_request steht nicht in SAFE_MESSAGES. Alle Prüfmeldungen
+       wurden dadurch zu „Es ist ein Fehler aufgetreten" — wahr, aber
+       nutzlos. */
+    expect(quelle).toMatch(/readonly anzeigbar: boolean/);
+    expect(quelle).toMatch(/this\.anzeigbar\n?\s*\? this\.message/);
+    expect(quelle).toMatch(/Google kennt die Kategorie.*\n?.*anzeigbar: true/);
+  });
+
+  it('macht nur Prüfmeldungen sichtbar, nicht jeden Fehler', () => {
+    /* Interne Fehlertexte können Aufbau und Daten verraten. Der
+       Standard bleibt die allgemeine Meldung. */
+    expect(quelle).toMatch(/this\.anzeigbar = options\.anzeigbar === true/);
+    expect(quelle).toMatch(/SAFE_MESSAGES\[this\.code\] \?\? GENERIC_MESSAGE/);
+  });
+
+  it('meldet einen lokalen Speicherfehler NICHT als Fehlschlag', () => {
+    /* Der Fehler vom 30.09.: Fehlt die Spalte google_pending_mask,
+       schlug das lokale Speichern fehl — NACHDEM Google die Änderung
+       angenommen hatte. Der Kunde las „Nicht gespeichert" und hätte es
+       erneut versucht, mit derselben Folge. */
+    expect(quelle).toMatch(/lokalGespeichert: !error/);
+    expect(quelle).toMatch(/Die Änderung ist bei Google angekommen/);
+  });
+
+  it('kommt ohne die Spalte google_pending_mask zurecht', () => {
+    /* Solange die Migration nicht eingespielt ist, wird ohne sie
+       gespeichert. Der übrige Stand ist wichtiger als die Maske. */
+    expect(quelle).toMatch(/pending_mask_spalte_fehlt/);
+    expect(quelle).toMatch(/if \(error && \/google_pending_mask\/\.test/);
+  });
+
   it('prüft gesendete Kategorien gegen Google', () => {
     /* Eine manipulierte Kategorie darf nicht durchgehen. Geprüft wird
        über categories.batchGet — was Google nicht kennt, kommt dort
