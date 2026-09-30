@@ -194,7 +194,73 @@ begin
 end $$;
 
 /* ═══════════════════════════════════════════════════════
-   8 — Score-Fassung wird mitgeliefert
+   8 — Fotos zaehlen je Standort, nicht nutzerweit
+   ═══════════════════════════════════════════════════════ */
+do $$
+declare v_si jsonb; v_wr jsonb;
+begin
+  /* S&I: acht Medien, WERKRUF: zwei. */
+  update public.google_locations
+     set google_media = (select jsonb_agg(jsonb_build_object('name', 'media/' || g))
+                         from generate_series(1, 8) g)
+   where id = (select id from t_ids where name='si');
+
+  update public.google_locations
+     set google_media = (select jsonb_agg(jsonb_build_object('name', 'media/' || g))
+                         from generate_series(1, 2) g)
+   where id = (select id from t_ids where name='werkruf');
+
+  v_si := public.compute_location_health_score(
+    (select id from t_ids where name='user'), (select id from t_ids where name='si'));
+  v_wr := public.compute_location_health_score(
+    (select id from t_ids where name='user'), (select id from t_ids where name='werkruf'));
+
+  assert (v_si -> 'photoCount')::int = 8, 'S&I hat acht Medien';
+  assert (v_wr -> 'photoCount')::int = 2, 'WERKRUF hat zwei';
+
+  /* Fuenf Medien sind das Ziel — acht ergeben die vollen zehn Punkte,
+     zwei ergeben vier. */
+  assert (v_si -> 'factors' -> 'photos')::int = 10, 'Acht Medien → volle 10 Punkte';
+  assert (v_wr -> 'factors' -> 'photos')::int = 4,  'Zwei Medien → 4 Punkte';
+
+  assert (v_si -> 'factors' -> 'photos')::int <> (v_wr -> 'factors' -> 'photos')::int,
+    'Der Foto-Faktor darf sich zwischen Betrieben unterscheiden — vorher zaehlte er nutzerweit';
+
+  assert v_si ->> 'photoSource' = 'google_media',
+    'Quelle ist der Google-Medienstand, nicht business_photos';
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   9 — Kaputte Medienfelder brechen die Berechnung nicht
+   ═══════════════════════════════════════════════════════ */
+do $$
+declare v jsonb;
+begin
+  assert public.werkruf_media_count(null::jsonb) = 0, 'null → 0';
+  assert public.werkruf_media_count('[]'::jsonb) = 0, 'leer → 0';
+  assert public.werkruf_media_count('{"a":1}'::jsonb) = 0, 'Objekt statt Liste → 0, kein Fehler';
+  assert public.werkruf_media_count('"text"'::jsonb) = 0, 'Zeichenkette → 0';
+
+  /* Ein Objekt statt einer Liste darf die Score-Berechnung nicht in
+     den exception-Zweig schicken. */
+  update public.google_locations set google_media = '{"kaputt": true}'::jsonb
+   where id = (select id from t_ids where name='si');
+
+  v := public.compute_location_health_score(
+    (select id from t_ids where name='user'), (select id from t_ids where name='si'));
+
+  assert v -> 'score' is not null, 'Trotz kaputtem Medienfeld gibt es einen Score';
+  assert (v -> 'factors' -> 'photos')::int = 0, 'Nur der Foto-Faktor faellt auf 0';
+  assert v ->> 'grund' is null, 'Kein Fehlerzweig';
+
+  update public.google_locations
+     set google_media = (select jsonb_agg(jsonb_build_object('name', 'media/' || g))
+                         from generate_series(1, 8) g)
+   where id = (select id from t_ids where name='si');
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   10 — Score-Fassung wird mitgeliefert
    ═══════════════════════════════════════════════════════ */
 do $$
 declare v jsonb;

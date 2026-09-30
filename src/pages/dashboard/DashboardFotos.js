@@ -222,6 +222,35 @@ const SpinnerIcon = styled(Loader)`animation: ${spin} .8s linear infinite;`;
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
+/**
+ * Zu welchem Betrieb gehoert ein Foto-Upload?
+ *
+ * Dieselbe Regel wie beim WERKRUF Score (siehe
+ * supabase/migrations/20260930120000_location_health_score.sql):
+ * Bei mehreren Betrieben ohne Auswahl wird NICHT geraten.
+ *
+ * Ein stiller Rueckfall auf is_primary oder den aeltesten Standort
+ * waere hier besonders unangenehm: Ein Foto beim falschen Betrieb ist
+ * oeffentlich sichtbar und muss von Hand wieder entfernt werden.
+ *
+ * @returns {Promise<{id: string, title: string}|null>}
+ */
+export async function bestimmeZielstandort() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from('google_locations')
+    .select('id, title, selected_at')
+    .eq('user_id', user.id)
+    .is('deleted_at', null);
+
+  if (error || !Array.isArray(data) || data.length === 0) return null;
+  if (data.length === 1) return data[0];
+
+  return data.find((l) => l.selected_at) ?? null;
+}
+
 export default function DashboardFotos() {
   const { user } = useAuthContext();
   const [photos,  setPhotos]  = useState([]);
@@ -295,11 +324,30 @@ export default function DashboardFotos() {
           setPhotos(prev => [newPhoto, ...prev]);
         }
 
-        // The file selection is the explicit publish action. Google receives
-        // only the public HTTPS URL, never browser-side OAuth credentials.
-        const { data: location } = await supabase.from('google_locations')
-          .select('id').order('is_primary', { ascending: false }).limit(1).maybeSingle();
-        if (location?.id) {
+        /*
+         * Die Dateiauswahl ist die ausdrueckliche Veroeffentlichung.
+         * Google bekommt nur die oeffentliche HTTPS-Adresse, nie
+         * Anmeldedaten aus dem Browser.
+         *
+         * Welcher Betrieb — verbindlich, wie beim WERKRUF Score:
+         *
+         *   genau ein Standort            → dieser
+         *   mehrere mit Auswahl           → der ausgewaehlte
+         *   mehrere ohne gueltige Auswahl → NICHT veroeffentlichen
+         *
+         * Vorher stand hier order('is_primary').limit(1) — ohne Filter
+         * auf den Nutzer und ohne Beruecksichtigung der Auswahl. Wer
+         * WERKRUF ausgewaehlt hatte, lud damit Fotos zu S&I hoch.
+         */
+        const location = await bestimmeZielstandort();
+
+        if (!location) {
+          throw new Error(
+            'Es ist kein Betrieb ausgewählt. Wähle unter „Dein Profil" einen Betrieb, '
+            + 'bevor du Fotos bei Google veröffentlichst.');
+        }
+
+        {
           const { data: { session } } = await supabase.auth.getSession();
           const response = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/media/create`, {
             method: 'POST',
