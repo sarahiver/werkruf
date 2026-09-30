@@ -274,6 +274,52 @@ describe('Aktionsleiste', () => {
   });
 });
 
+describe('Weitere Zeiten blockieren nicht', () => {
+  it('lässt sich speichern, obwohl moreHours unvollständig ist', async () => {
+    /* Der Fehler vom 30.09.: Ein Eintrag ohne hoursTypeKey im
+       Google-Profil sperrte den Speicherknopf — mit einer Meldung über
+       „markierte Angaben", obwohl nichts markiert war und nichts
+       markiert werden konnte. Für „Weitere Zeiten" gibt es bis Paket C
+       keine Eingabemaske. */
+    const l = standort({ moreHours: [{}] });
+    render(<OeffnungszeitenEditor location={l} onSave={onSave} />);
+
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+    expect(speichern()).not.toBeDisabled();
+
+    await klicke(speichern());
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+  });
+
+  it('lässt sich speichern, obwohl moreHours einen kaputten Eintrag hat', () => {
+    const l = standort({ moreHours: [{ periods: [{ openDay: 'MONDAY' }] }] });
+    render(<OeffnungszeitenEditor location={l} onSave={onSave} />);
+
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+    expect(speichern()).not.toBeDisabled();
+  });
+
+  it('überträgt moreHours dabei nicht', async () => {
+    const l = standort({ moreHours: [{}] });
+    render(<OeffnungszeitenEditor location={l} onSave={onSave} />);
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+    await klicke(speichern());
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][1]).not.toHaveProperty('moreHours');
+  });
+
+  it('meldet nur Fehler, die auch sichtbar sind', () => {
+    /* Der eigentliche Konstruktionsfehler: eine Sperrmeldung über
+       „markierte Angaben", ohne dass etwas markiert ist. */
+    const l = standort({ moreHours: [{}] });
+    render(<OeffnungszeitenEditor location={l} onSave={onSave} />);
+
+    expect(screen.queryByText(/Google würde sie ablehnen/)).not.toBeInTheDocument();
+    expect(screen.getByText('Keine Änderungen.')).toBeInTheDocument();
+  });
+});
+
 describe('Sonder- und Feiertagszeiten', () => {
   it('nennt den Bereich verständlich und erklärt ihn', () => {
     render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);

@@ -309,6 +309,13 @@ describe('Weitere Zeiten', () => {
     expect(pruefeWeitereZeiten([{ periods: [] }])[0].feld).toBe('hoursTypeKey');
   });
 
+  it('übergeht einen völlig leeren Eintrag', () => {
+    /* Google liefert bei manchen Profilen Platzhalter zurück. Ein
+       Fehler dafür wäre nichts, was der Kunde beheben könnte. */
+    expect(pruefeWeitereZeiten([{}])).toEqual([]);
+    expect(pruefeWeitereZeiten([null])).toEqual([]);
+  });
+
   it('beanstandet eine für die Kategorie unzulässige Art', () => {
     /* Welche Arten möglich sind, sagt categories.batchGet mit
        view=FULL — kategorieabhängig, nicht fest einprogrammiert. */

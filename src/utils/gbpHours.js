@@ -407,7 +407,12 @@ export function pruefeWeitereZeiten(moreHours, erlaubteTypen = null) {
   const liste = Array.isArray(moreHours) ? moreHours : [];
 
   liste.forEach((eintrag, i) => {
-    if (!eintrag?.hoursTypeKey) {
+    /* Ein voellig leerer Eintrag wird uebergangen, nicht beanstandet.
+       Google liefert bei manchen Profilen Platzhalter zurueck, und ein
+       Fehler dafuer waere nichts, was der Kunde beheben koennte. */
+    if (!eintrag || Object.keys(eintrag).length === 0) return;
+
+    if (!eintrag.hoursTypeKey) {
       fehler.push({ index: i, feld: 'hoursTypeKey', meldung: 'Art der Zeiten fehlt.' });
       return;
     }

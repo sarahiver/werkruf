@@ -488,10 +488,21 @@ export default function OeffnungszeitenEditor({ location, onSave, erlaubteZeitar
   }, [vorher.regularHours, vorher.specialHours]);
 
   const regulaer = alsListe(karte);
-  const befund = pruefeAlles({
-    regulaer, sonder, weitere: vorher.moreHours ?? [],
-    erlaubteTypen: erlaubteZeitarten,
-  });
+  /*
+   * Geprueft wird NUR, was der Editor auch bearbeiten kann.
+   *
+   * moreHours stand hier zunaechst mit drin — mit der Folge, dass ein
+   * unvollstaendiger Eintrag aus dem Google-Profil das Speichern der
+   * regulaeren Zeiten sperrte, ohne dass die Oberflaeche den Fehler
+   * haette anzeigen koennen: Fuer "Weitere Zeiten" gibt es bis Paket C
+   * gar keine Eingabemaske. Der Knopf blieb aus, und niemand konnte
+   * etwas dagegen tun.
+   *
+   * Ein Bereich, der als "folgt" gekennzeichnet ist, darf das Speichern
+   * anderer Bereiche nicht blockieren. Sobald die Maske existiert,
+   * kommt moreHours hier wieder dazu.
+   */
+  const befund = pruefeAlles({ regulaer, sonder });
   const ungueltig = hatFehler(befund);
 
   const aenderungen = baueZeitAenderungen({ vorher, regulaer, sonder });
