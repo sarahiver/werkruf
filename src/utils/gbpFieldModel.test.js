@@ -64,6 +64,14 @@ describe('Abgeleitete Listen für den Server', () => {
     expect(unterpfadErlaubt()).toContain('profile.description');
   });
 
+  it('führt moreHours jetzt als schreibbar', () => {
+    /* Bis Paket C stand es als „noch nicht umgesetzt" drin. Jetzt gibt
+       es eine Eingabemaske — die Verfügbarkeit hängt an der
+       Kategorie, nicht mehr am Stand der Umsetzung. */
+    expect(schreibbarePfade()).toContain('moreHours');
+    expect(nurGanzeObjekte()).toContain('moreHours');
+  });
+
   it('nimmt gesperrte und nur lesbare Felder aus den schreibbaren heraus', () => {
     const schreibbar = schreibbarePfade();
     expect(schreibbar).not.toContain('title');        // Produktentscheidung
@@ -142,6 +150,83 @@ describe('Betriebsspezifische Prüfung', () => {
     const p = istBearbeitbar('gibtEsNicht', offen());
     expect(p.erlaubt).toBe(false);
     expect(p.code).toBe('unbekannt');
+  });
+});
+
+describe('Kategorieabhängige Verfügbarkeit (Paket C)', () => {
+  const MIT_TYPEN = { moreHoursTypes: [{ hoursTypeId: 'PICKUP', displayName: 'Abholung' }] };
+  const OHNE_TYPEN = { moreHoursTypes: [] };
+  const GESCHEITERT = { abrufErfolgreich: false };
+
+  it('sperrt nicht, solange die Metadaten noch fehlen', () => {
+    /* Ohne Metadaten sähe sonst jedes Feld gesperrt aus, solange sie
+       laden. */
+    expect(istBearbeitbar('moreHours', offen()).erlaubt).toBe(true);
+    expect(istBearbeitbar('moreHours', offen(), null).erlaubt).toBe(true);
+  });
+
+  it('gibt moreHours frei, wenn Google Typen liefert', () => {
+    expect(istBearbeitbar('moreHours', offen(), MIT_TYPEN).erlaubt).toBe(true);
+  });
+
+  it('unterscheidet „keine Typen" von „gesperrt"', () => {
+    const p = istBearbeitbar('moreHours', offen(), OHNE_TYPEN);
+    expect(p.erlaubt).toBe(false);
+    expect(p.code).toBe('fuer_kategorie_nicht_verfuegbar');
+    expect(p.grund).toMatch(/bietet Google keine weiteren Öffnungszeiten/);
+  });
+
+  it('unterscheidet „Abruf gescheitert" von „keine Typen"', () => {
+    /* Der wichtigste Unterschied: Google sagt nichts, oder wir konnten
+       nicht nachsehen. Beides als „keine Optionen" zu zeigen wäre
+       falsch. */
+    const p = istBearbeitbar('moreHours', offen(), GESCHEITERT);
+    expect(p.erlaubt).toBe(false);
+    expect(p.code).toBe('metadaten_fehlen');
+    expect(p.grund).toMatch(/nicht von Google geladen/);
+    expect(p.code).not.toBe('fuer_kategorie_nicht_verfuegbar');
+  });
+
+  it('kennt vier unterscheidbare Zustände', () => {
+    /* bearbeitbar, nur lesbar, für diesen Betrieb nicht verfügbar,
+       in WERKRUF nicht vorgesehen. */
+    expect(istBearbeitbar('websiteUri', offen()).code).toBeNull();
+    expect(istBearbeitbar('name', offen()).code).toBe('nur_lesbar');
+    expect(istBearbeitbar('moreHours', offen(), OHNE_TYPEN).code)
+      .toBe('fuer_kategorie_nicht_verfuegbar');
+    expect(istBearbeitbar('title', offen()).code).toBe('nicht_in_werkruf');
+  });
+
+  it('gibt Metadaten an die Bereichsübersicht weiter', () => {
+    const mit = bereichFuerStandort('oeffnungszeiten', offen(), MIT_TYPEN);
+    const ohne = bereichFuerStandort('oeffnungszeiten', offen(), OHNE_TYPEN);
+
+    expect(mit.find((f) => f.pfad === 'moreHours').erlaubt).toBe(true);
+    expect(ohne.find((f) => f.pfad === 'moreHours').erlaubt).toBe(false);
+  });
+
+  it('zählt Bereiche je nach Metadaten unterschiedlich', () => {
+    const mit = bereicheMitStatus(offen(), MIT_TYPEN).find((b) => b.key === 'oeffnungszeiten');
+    const ohne = bereicheMitStatus(offen(), OHNE_TYPEN).find((b) => b.key === 'oeffnungszeiten');
+
+    expect(mit.felderBearbeitbar).toBeGreaterThan(ohne.felderBearbeitbar);
+  });
+
+  it('verwirft moreHours beim Aufbereiten, wenn keine Typen verfügbar sind', () => {
+    const { nutzlast, verworfen } = baueAenderungen(
+      [{ pfad: 'moreHours', wert: [{ hoursTypeKey: 'PICKUP' }] }],
+      offen(), OHNE_TYPEN,
+    );
+    expect(nutzlast).toEqual({});
+    expect(verworfen[0].pfad).toBe('moreHours');
+  });
+
+  it('nimmt moreHours an, wenn Typen verfügbar sind', () => {
+    const { nutzlast } = baueAenderungen(
+      [{ pfad: 'moreHours', wert: [{ hoursTypeKey: 'PICKUP' }] }],
+      offen(), MIT_TYPEN,
+    );
+    expect(nutzlast.moreHours).toEqual([{ hoursTypeKey: 'PICKUP' }]);
   });
 });
 

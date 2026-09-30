@@ -198,11 +198,17 @@ export const FELDER = Object.freeze([
 
        Kommt mit Paket C. Bis dahin wird das Feld gelesen, verglichen
        und validiert, aber nicht zur Bearbeitung angeboten. */
-    art: SCHREIBART.NOCH_NICHT, typ: 'liste',
-    nochNichtGrund: 'Von Google unterstützt – abhängig von Kategorie. '
-                  + 'Die Bearbeitung in WERKRUF folgt.',
+    art: SCHREIBART.GANZ, typ: 'liste',
     ganzGrund: 'Die Liste wird als Ganzes ersetzt.',
     kategorieabhaengig: true,
+    /* Ob dieses Feld tatsaechlich bearbeitbar ist, haengt an der
+       Kategorie: Liefert Google keine moreHoursTypes, gibt es nichts
+       einzutragen. Das ist kein Fehler und keine Sperre — es ist eine
+       Eigenschaft der Kategorie. Deshalb ein eigener Zustand.
+
+       Die Liste kommt aus categories.batchGet?view=FULL und wird als
+       metadaten.moreHoursTypes uebergeben. */
+    braucht: 'moreHoursTypes',
   },
 
   /* ── Kategorien und Attribute ── */
@@ -218,7 +224,11 @@ export const FELDER = Object.freeze([
   {
     pfad: 'attributes', bereich: 'kategorien', label: 'Attribute',
     art: SCHREIBART.GANZ, typ: 'liste',
+    /* NICHT über locations.patch: Google sieht dafür
+       locations.updateAttributes mit eigener attributeMask vor. Ohne
+       Maske ersetzt Google die gesamte Attributliste. */
     ganzGrund: 'Attribute laufen über einen eigenen Endpunkt mit eigener Maske.',
+    eigenerEndpunktPfad: '/attributes/update',
     eigenerEndpunkt: 'locations.updateAttributes',
     kategorieabhaengig: true,
     hinweis: 'Welche Attribute verfügbar sind, bestimmt Google je Kategorie und Land — und ändert das ohne API-Änderung.',
@@ -295,7 +305,7 @@ export function felderImBereich(bereich) {
  * `code` ist für Tests und Protokolle gedacht, `grund` für die
  * Oberfläche.
  */
-export function istBearbeitbar(pfad, location) {
+export function istBearbeitbar(pfad, location, metadaten = null) {
   const feld = feldNachPfad(pfad);
 
   if (!feld) {
@@ -342,6 +352,30 @@ export function istBearbeitbar(pfad, location) {
     };
   }
 
+  /* ── Kategorieabhängige Verfügbarkeit ──
+     Liefert Google für die Hauptkategorie keine Typen, gibt es nichts
+     einzutragen. Das ist etwas anderes als „gesperrt": Die API
+     unterstützt das Feld, für DIESEN Betrieb gibt es aber keine
+     Auswahl.
+
+     Ohne Metadaten wird NICHT gesperrt — sonst sähe jedes Feld
+     gesperrt aus, solange die Metadaten noch laden. */
+  if (feld.braucht && metadaten) {
+    if (metadaten.abrufErfolgreich === false) {
+      return {
+        erlaubt: false, code: 'metadaten_fehlen',
+        grund: 'Die für deine Kategorie verfügbaren Optionen konnten gerade nicht von Google geladen werden.',
+      };
+    }
+    const verfuegbar = metadaten[feld.braucht];
+    if (Array.isArray(verfuegbar) && verfuegbar.length === 0) {
+      return {
+        erlaubt: false, code: 'fuer_kategorie_nicht_verfuegbar',
+        grund: 'Für diese Unternehmenskategorie bietet Google keine weiteren Öffnungszeiten an.',
+      };
+    }
+  }
+
   /* ── Abhängigkeit von einem anderen Feld ──
      specialHours ohne regularHours lehnt Google ab. */
   if (feld.benoetigtFeld) {
@@ -362,10 +396,10 @@ export function istBearbeitbar(pfad, location) {
  * Alle Felder eines Bereichs mit ihrem Zustand für diesen Standort.
  * Die Oberfläche kann damit unmittelbar rendern.
  */
-export function bereichFuerStandort(bereich, location) {
+export function bereichFuerStandort(bereich, location, metadaten = null) {
   return felderImBereich(bereich).map((feld) => ({
     ...feld,
-    ...istBearbeitbar(feld.pfad, location),
+    ...istBearbeitbar(feld.pfad, location, metadaten),
   }));
 }
 
@@ -373,9 +407,9 @@ export function bereichFuerStandort(bereich, location) {
  * Welche Bereiche haben für diesen Standort überhaupt bearbeitbare
  * Felder? Für die Unternavigation.
  */
-export function bereicheMitStatus(location) {
+export function bereicheMitStatus(location, metadaten = null) {
   return BEREICHE.map((b) => {
-    const felder = bereichFuerStandort(b.key, location);
+    const felder = bereichFuerStandort(b.key, location, metadaten);
     return {
       ...b,
       felderGesamt: felder.length,
@@ -399,12 +433,12 @@ export function bereicheMitStatus(location) {
  * @param {object} location  für das Zusammenführen ganzer Objekte
  * @returns {{ nutzlast: object, verworfen: Array<{pfad: string, grund: string}> }}
  */
-export function baueAenderungen(aenderungen, location) {
+export function baueAenderungen(aenderungen, location, metadaten = null) {
   const nutzlast = {};
   const verworfen = [];
 
   for (const { pfad, wert } of aenderungen) {
-    const pruefung = istBearbeitbar(pfad, location);
+    const pruefung = istBearbeitbar(pfad, location, metadaten);
     if (!pruefung.erlaubt) {
       verworfen.push({ pfad, grund: pruefung.grund });
       continue;

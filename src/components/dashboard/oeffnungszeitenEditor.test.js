@@ -420,26 +420,34 @@ describe('Sonder- und Feiertagszeiten', () => {
   });
 });
 
-describe('Weitere Zeiten vor Paket C', () => {
-  it('wird NICHT als bearbeitbar dargestellt', () => {
-    /* moreHours hat noch keine Eingabemaske — die zulässigen Typen
-       kommen erst über categories.batchGet. Ein Feld als bearbeitbar
-       zu zeigen, für das es keine Maske gibt, wäre ein Versprechen,
-       das die Oberfläche nicht einlöst. */
-    const { istBearbeitbar } = require('../../utils/gbpFieldModel');
-    const p = istBearbeitbar('moreHours', standort());
+describe('Weitere Zeiten nach Paket C', () => {
+  /* Bis Paket C war moreHours als „noch nicht umgesetzt" gekennzeichnet.
+     Jetzt gibt es einen eigenen Endpunkt für die Typen — die
+     Verfügbarkeit hängt an der Kategorie, nicht mehr am Stand der
+     Umsetzung. Die beiden Tests von damals stehen hier in ihrer
+     abgelösten Form. */
+  const { istBearbeitbar, schreibbarePfade } = require('../../utils/gbpFieldModel');
 
+  it('ist schreibbar, sobald Google Typen für die Kategorie liefert', () => {
+    const p = istBearbeitbar('moreHours', standort(),
+      { moreHoursTypes: [{ hoursTypeId: 'PICKUP' }] });
+    expect(p.erlaubt).toBe(true);
+  });
+
+  it('ist nicht verfügbar, wenn Google für die Kategorie keine Typen kennt', () => {
+    const p = istBearbeitbar('moreHours', standort(), { moreHoursTypes: [] });
     expect(p.erlaubt).toBe(false);
-    expect(p.code).toBe('noch_nicht_umgesetzt');
-    expect(p.grund).toMatch(/abhängig von Kategorie/);
+    expect(p.code).toBe('fuer_kategorie_nicht_verfuegbar');
   });
 
-  it('steht nicht in den serverseitig schreibbaren Pfaden', () => {
-    const { schreibbarePfade } = require('../../utils/gbpFieldModel');
-    expect(schreibbarePfade()).not.toContain('moreHours');
+  it('steht jetzt in den serverseitig schreibbaren Pfaden', () => {
+    expect(schreibbarePfade()).toContain('moreHours');
   });
 
-  it('wird ohne Änderung nicht übertragen', async () => {
+  it('wird vom Öffnungszeiten-Editor weiterhin nicht mitgeschickt', async () => {
+    /* Der Editor bearbeitet reguläre und Sonderzeiten. moreHours
+       bekommt einen eigenen Bereich — mitgeschickt wird es hier
+       nicht. */
     render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
     tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
     await klicke(speichern());

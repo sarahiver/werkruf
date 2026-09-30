@@ -1655,6 +1655,114 @@ class GbpApiClient {
     );
   }
 
+  /*
+   * Kategoriesuche.
+   *
+   * Google liefert Anzeigenamen sprach- und regionsabhaengig; gespeichert
+   * wird ausschliesslich die stabile ID (gcid:...). Die Suche laeuft
+   * ueber filter, damit keine vollstaendige Liste geladen werden muss —
+   * es sind mehrere tausend Kategorien.
+   */
+  async listCategories(opts: {
+    regionCode: string; languageCode: string; filter?: string;
+    pageSize?: number; pageToken?: string;
+  }): Promise<{ categories: unknown[]; nextPageToken?: string }> {
+    const query: Record<string, string> = {
+      regionCode: opts.regionCode,
+      languageCode: opts.languageCode,
+      view: 'BASIC',
+      pageSize: String(Math.min(opts.pageSize ?? 20, 100)),
+    };
+    /* Googles filter-Syntax fuer diesen Endpunkt: displayName=foo */
+    if (opts.filter) query.filter = `displayName=${opts.filter}`;
+    if (opts.pageToken) query.pageToken = opts.pageToken;
+
+    const result = await this.transport.request<{
+      categories?: unknown[]; nextPageToken?: string;
+    }>(GBP_BUSINESS_INFO_API, 'categories', { operation: 'listCategories', query });
+
+    return { categories: result.categories ?? [], nextPageToken: result.nextPageToken };
+  }
+
+  /*
+   * Vollstaendige Metadaten einer Kategorie.
+   *
+   * view=FULL liefert serviceTypes und moreHoursTypes — die einzige
+   * Quelle dafuer. Eine fest einprogrammierte Liste waere falsch:
+   * Google aendert beides ohne API-Aenderung.
+   */
+  async batchGetCategories(names: string[], opts: {
+    regionCode: string; languageCode: string;
+  }): Promise<unknown[]> {
+    if (names.length === 0) return [];
+
+    const result = await this.transport.request<{ categories?: unknown[] }>(
+      GBP_BUSINESS_INFO_API, 'categories:batchGet',
+      {
+        operation: 'batchGetCategories',
+        query: {
+          names: names.join(','),
+          regionCode: opts.regionCode,
+          languageCode: opts.languageCode,
+          view: 'FULL',
+        },
+      },
+    );
+    return result.categories ?? [];
+  }
+
+  /*
+   * Verfuegbare Attribute fuer GENAU diesen Standort.
+   *
+   * parent statt categoryName + regionCode: So bestimmt Google selbst,
+   * was fuer diesen Betrieb gilt — weniger Aufrufe, exaktere
+   * Ergebnisse. Das Schema sagt ausdruecklich, dass verfuegbare
+   * Attribute ohne API-Aenderung hinzukommen und wegfallen koennen.
+   */
+  async listAvailableAttributes(locationName: string, opts: {
+    languageCode: string; pageToken?: string;
+  }): Promise<{ attributeMetadata: unknown[]; nextPageToken?: string }> {
+    const query: Record<string, string> = {
+      parent: normalizeName(locationName, 'locations'),
+      languageCode: opts.languageCode,
+      pageSize: '200',
+    };
+    if (opts.pageToken) query.pageToken = opts.pageToken;
+
+    const result = await this.transport.request<{
+      attributeMetadata?: unknown[]; nextPageToken?: string;
+    }>(GBP_BUSINESS_INFO_API, 'attributes', { operation: 'listAttributes', query });
+
+    return {
+      attributeMetadata: result.attributeMetadata ?? [],
+      nextPageToken: result.nextPageToken,
+    };
+  }
+
+  /*
+   * Attribute schreiben.
+   *
+   * Eigener Endpunkt mit eigener Maske — NICHT ueber locations.patch.
+   * attributeMask nennt genau die Attribute, die geaendert werden;
+   * alles andere bleibt unberuehrt. Ohne Maske ersetzt Google die
+   * gesamte Attributliste.
+   */
+  async updateAttributes(
+    locationName: string,
+    attributes: unknown[],
+    attributeMask: string[],
+  ): Promise<{ attributes?: unknown[] }> {
+    return this.transport.request<{ attributes?: unknown[] }>(
+      GBP_BUSINESS_INFO_API, `${normalizeName(locationName, 'locations')}/attributes`,
+      {
+        operation: 'updateAttributes',
+        method: 'PATCH',
+        query: { attributeMask: attributeMask.join(',') },
+        body: { name: `${normalizeName(locationName, 'locations')}/attributes`, attributes },
+      },
+    );
+  }
+
   async getAttributes(locationName: string): Promise<unknown[]> {
     const result = await this.transport.request<{ attributes?: unknown[] }>(
       GBP_BUSINESS_INFO_API, `${normalizeName(locationName, 'locations')}/attributes`,
@@ -1881,6 +1989,15 @@ interface LocationRow {
   average_rating: number | null;
   last_synced_at: string | null;
   deleted_at: string | null;
+  /* loadOwnLocation liest select('*') — diese Spalten sind zur
+     Laufzeit vorhanden, standen aber nicht im Typ. Ohne sie musste
+     jeder Zugriff darauf gecastet werden, und ein Tippfehler im
+     Feldnamen waere unbemerkt geblieben. */
+  google_profile?: Record<string, unknown> | null;
+  google_updated?: Record<string, unknown> | null;
+  google_diff_mask?: string[] | null;
+  google_media?: unknown[] | null;
+  selected_at?: string | null;
 }
 
 /** Ergebnis eines Sync-Laufs. Landet in sync_jobs.result. */
@@ -4391,6 +4508,40 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
     const erste = [...zeitBefund.regulaer, ...zeitBefund.sonder, ...zeitBefund.weitere][0];
     throw new GbpError('bad_request', erste?.meldung ?? 'Die Öffnungszeiten sind nicht gültig.');
   }
+
+  /* ── Vierte Stufe: Ist dieser hoursTypeKey fuer die Kategorie erlaubt? ──
+   *
+   * Der Client darf das nicht entscheiden. Welche Typen es gibt, sagt
+   * allein categories.batchGet?view=FULL fuer die Hauptkategorie
+   * dieses Standorts. Ein manipuliertes Payload mit einem beliebigen
+   * hoursTypeKey wuerde sonst durchgehen und von Google mit einer
+   * unverstaendlichen Meldung abgelehnt — oder schlimmer, angenommen.
+   */
+  if (Array.isArray(patch.moreHours) && patch.moreHours.length > 0) {
+    const erlaubt = await erlaubteZeitarten(user.id, location);
+
+    if (erlaubt === null) {
+      /* Metadaten nicht abrufbar. Dann NICHT schreiben — ohne die
+         Liste laesst sich nicht pruefen, und stillschweigend
+         durchzulassen hiesse, auf Googles Ablehnung zu hoffen. */
+      throw new GbpError('google_api_error',
+        'Die für deine Kategorie zulässigen Zeitarten konnten gerade nicht geladen werden. Bitte später erneut versuchen.');
+    }
+
+    const unbekannt = (patch.moreHours as { hoursTypeKey?: string }[])
+      .map((e) => e?.hoursTypeKey)
+      .filter((k) => !k || !erlaubt.includes(k));
+
+    if (unbekannt.length > 0) {
+      await writeAuditLog({
+        userId: user.id, action: 'location.more_hours_rejected',
+        entityType: 'google_location', entityId: location.id,
+        metadata: { abgelehnt: unbekannt, erlaubt },
+      });
+      throw new GbpError('bad_request',
+        `Google bietet für deine Unternehmenskategorie keine Zeiten der Art „${unbekannt[0] ?? '—'}" an.`);
+    }
+  }
   const client = createGbpClient(user.id, location.account_id);
   await client.updateLocation(location.location_resource_name, patch as GbpLocationPatch, { updateMask });
   const confirmed = await client.getLocation(location.location_resource_name);
@@ -5257,6 +5408,300 @@ const REPLY_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Reques
   retract: { method: 'POST', handler: handleReplyRetract },
 };
 
+/**
+ * Welche moreHours-Arten erlaubt Google fuer die Hauptkategorie dieses
+ * Standorts?
+ *
+ * @returns Liste der erlaubten hoursTypeId, oder null, wenn sich das
+ *          gerade nicht feststellen laesst. null ist NICHT dasselbe wie
+ *          eine leere Liste: leer heisst "Google bietet keine an",
+ *          null heisst "wir konnten nicht nachsehen".
+ */
+async function erlaubteZeitarten(
+  userId: string,
+  location: LocationRow,
+): Promise<string[] | null> {
+  const profil = (location.google_profile ?? {}) as Record<string, unknown>;
+  const kategorien = (profil.categories ?? {}) as Record<string, unknown>;
+  const haupt = (kategorien.primaryCategory ?? {}) as Record<string, unknown>;
+  const name = haupt.name as string | undefined;
+
+  /* Ohne Hauptkategorie gibt es keine kategorieabhaengigen Typen. Das
+     ist ein Befund, kein Fehler: leere Liste. */
+  if (!name) return [];
+
+  const { languageCode, regionCode } = spracheUndRegion(location);
+  const db = adminClient();
+
+  const { data: zwischenstand } = await db.rpc('gbp_category_metadata_get', {
+    p_category_name: name, p_language_code: languageCode, p_region_code: regionCode,
+  });
+
+  const alsListe = (roh: unknown): string[] =>
+    (Array.isArray(roh) ? roh : [])
+      .map((t) => (t as Record<string, unknown>)?.hoursTypeId as string)
+      .filter((t): t is string => typeof t === 'string');
+
+  if (zwischenstand) {
+    const stand = zwischenstand as Record<string, unknown>;
+    if (stand.abruf_erfolgreich === false) return null;
+    return alsListe(stand.more_hours_types);
+  }
+
+  try {
+    const client = createGbpClient(userId);
+    const kats = await client.batchGetCategories([name], { regionCode, languageCode });
+    const kat = (kats[0] ?? {}) as Record<string, unknown>;
+
+    await db.rpc('gbp_category_metadata_put', {
+      p_category_name: name, p_language_code: languageCode, p_region_code: regionCode,
+      p_display_name: (kat.displayName as string) ?? null,
+      p_service_types: kat.serviceTypes ?? [],
+      p_more_hours_types: kat.moreHoursTypes ?? [],
+    });
+
+    return alsListe(kat.moreHoursTypes);
+  } catch (err) {
+    await db.rpc('gbp_category_metadata_fail', {
+      p_category_name: name, p_language_code: languageCode,
+      p_region_code: regionCode, p_fehler: (err as Error)?.message ?? 'unbekannt',
+    });
+    return null;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   KATEGORIEN UND ATTRIBUTE (Paket C)
+
+   Alle Zugriffe serverseitig. Der Browser bekommt nie ein
+   Google-Token, und jede Route prueft zuerst, ob der Standort dem
+   angemeldeten Nutzer gehoert.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Sprache und Region. Beides bestimmt, welche Kategorien und Attribute
+   Google ueberhaupt liefert — deshalb nicht raten, sondern aus dem
+   Standort ableiten, wo moeglich. */
+function spracheUndRegion(location: LocationRow | null) {
+  const profil = (location?.google_profile ?? {}) as Record<string, unknown>;
+  const adresse = (profil.storefrontAddress ?? {}) as Record<string, unknown>;
+  return {
+    languageCode: (profil.languageCode as string) || 'de',
+    regionCode: (adresse.regionCode as string) || 'DE',
+  };
+}
+
+/** Kategoriesuche. GET /categories/search?q=…&pageToken=… */
+async function handleCategoriesSearch(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const url = new URL(request.url);
+
+  const suche = (url.searchParams.get('q') ?? '').trim();
+  if (suche.length < 2) {
+    /* Keine riesige Liste beim Seitenaufbau: Ohne Suchbegriff gibt es
+       nichts. Google haette mehrere tausend Kategorien. */
+    return jsonResponse(request, { categories: [], hinweis: 'Mindestens zwei Zeichen eingeben.' });
+  }
+
+  const locationId = url.searchParams.get('locationId');
+  const location = locationId ? await loadOwnLocation(locationId, user.id) : null;
+  const { languageCode, regionCode } = spracheUndRegion(location);
+
+  const client = createGbpClient(user.id);
+  const ergebnis = await client.listCategories({
+    regionCode, languageCode, filter: suche,
+    pageToken: url.searchParams.get('pageToken') ?? undefined,
+  });
+
+  return jsonResponse(request, {
+    categories: ergebnis.categories,
+    nextPageToken: ergebnis.nextPageToken ?? null,
+    languageCode, regionCode,
+  });
+}
+
+/**
+ * Metadaten einer Kategorie — serviceTypes und moreHoursTypes.
+ *
+ * GET /categories/metadata?name=gcid:…&locationId=…
+ *
+ * Zuerst aus dem Zwischenspeicher, sonst von Google. Ein gescheiterter
+ * Abruf wird als solcher gemeldet, NICHT als leere Liste: "Google
+ * bietet keine weiteren Zeiten" und "wir konnten nicht nachsehen" sind
+ * verschiedene Auskuenfte.
+ */
+async function handleCategoryMetadata(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const url = new URL(request.url);
+
+  const name = url.searchParams.get('name');
+  if (!name) throw new GbpError('bad_request', 'Kategorie fehlt.');
+
+  const locationId = url.searchParams.get('locationId');
+  const location = locationId ? await loadOwnLocation(locationId, user.id) : null;
+  const { languageCode, regionCode } = spracheUndRegion(location);
+
+  const db = adminClient();
+
+  const { data: zwischenstand } = await db.rpc('gbp_category_metadata_get', {
+    p_category_name: name, p_language_code: languageCode, p_region_code: regionCode,
+  });
+
+  if (zwischenstand) {
+    const stand = zwischenstand as Record<string, unknown>;
+    return jsonResponse(request, {
+      categoryName: name,
+      displayName: stand.display_name,
+      serviceTypes: stand.service_types ?? [],
+      moreHoursTypes: stand.more_hours_types ?? [],
+      abrufErfolgreich: stand.abruf_erfolgreich !== false,
+      ausZwischenspeicher: true,
+    });
+  }
+
+  try {
+    const client = createGbpClient(user.id);
+    const kategorien = await client.batchGetCategories([name], { regionCode, languageCode });
+    const kategorie = (kategorien[0] ?? {}) as Record<string, unknown>;
+
+    await db.rpc('gbp_category_metadata_put', {
+      p_category_name: name,
+      p_language_code: languageCode,
+      p_region_code: regionCode,
+      p_display_name: (kategorie.displayName as string) ?? null,
+      p_service_types: kategorie.serviceTypes ?? [],
+      p_more_hours_types: kategorie.moreHoursTypes ?? [],
+    });
+
+    return jsonResponse(request, {
+      categoryName: name,
+      displayName: kategorie.displayName ?? null,
+      serviceTypes: kategorie.serviceTypes ?? [],
+      moreHoursTypes: kategorie.moreHoursTypes ?? [],
+      abrufErfolgreich: true,
+      ausZwischenspeicher: false,
+    });
+  } catch (err) {
+    const meldung = (err as Error)?.message ?? 'unbekannt';
+    await db.rpc('gbp_category_metadata_fail', {
+      p_category_name: name, p_language_code: languageCode,
+      p_region_code: regionCode, p_fehler: meldung,
+    });
+
+    /* KEINE leeren Listen als Ergebnis. Die Oberflaeche muss
+       unterscheiden koennen. */
+    return jsonResponse(request, {
+      categoryName: name,
+      abrufErfolgreich: false,
+      fehler: 'Die Kategoriedaten konnten gerade nicht von Google geladen werden.',
+    }, 200);
+  }
+}
+
+/** Verfuegbare Attribute fuer diesen Standort. GET /attributes/available?locationId=… */
+async function handleAttributesAvailable(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const url = new URL(request.url);
+
+  const locationId = url.searchParams.get('locationId');
+  if (!locationId) throw new GbpError('bad_request', 'Standort fehlt.');
+
+  const location = await loadOwnLocation(locationId, user.id);
+  const { languageCode } = spracheUndRegion(location);
+
+  const client = createGbpClient(user.id);
+
+  /* Pagination vollstaendig abarbeiten — sonst fehlen Attribute, und
+     die Oberflaeche zeigte einen unvollstaendigen Satz als
+     vollstaendig an. */
+  const alle: unknown[] = [];
+  let pageToken: string | undefined;
+  let seiten = 0;
+
+  do {
+    const seite = await client.listAvailableAttributes(location.location_resource_name, {
+      languageCode, pageToken,
+    });
+    alle.push(...seite.attributeMetadata);
+    pageToken = seite.nextPageToken;
+    seiten += 1;
+  } while (pageToken && seiten < 10);
+
+  return jsonResponse(request, {
+    attributeMetadata: alle,
+    gesetzt: location.google_profile?.attributes ?? [],
+    vollstaendig: !pageToken,
+  });
+}
+
+/**
+ * Attribute schreiben. POST /attributes/update
+ *
+ * Eigener Google-Endpunkt mit eigener Maske. Ohne attributeMask
+ * ersetzt Google die gesamte Attributliste — bestehende, nicht
+ * geaenderte Attribute waeren weg.
+ */
+async function handleAttributesUpdate(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const body = await readJsonBody<{
+    locationId?: string;
+    attributes?: { name?: string }[];
+  }>(request);
+
+  if (!body.locationId) throw new GbpError('bad_request', 'Standort fehlt.');
+  const geaendert = Array.isArray(body.attributes) ? body.attributes : [];
+  if (geaendert.length === 0) throw new GbpError('bad_request', 'Keine Änderungen.');
+
+  const location = await loadOwnLocation(body.locationId, user.id);
+
+  /* Die Maske nennt genau die geaenderten Attribute. */
+  const attributeMask = geaendert
+    .map((a) => a?.name)
+    .filter((n): n is string => typeof n === 'string' && n.length > 0);
+
+  if (attributeMask.length !== geaendert.length) {
+    throw new GbpError('bad_request', 'Jedes Attribut braucht einen Namen.');
+  }
+
+  const client = createGbpClient(user.id);
+  const antwort = await client.updateAttributes(
+    location.location_resource_name, geaendert, attributeMask);
+
+  /* Bestaetigten Stand neu lesen — die Antwort auf PATCH ist nicht
+     zwingend der Stand, den Google fuehrt. */
+  const bestaetigt = await client.getAttributes(location.location_resource_name);
+
+  await adminClient()
+    .from('google_locations')
+    .update({
+      google_profile: { ...(location.google_profile ?? {}), attributes: bestaetigt },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', location.id)
+    .eq('user_id', user.id);
+
+  await writeAuditLog({
+    userId: user.id, action: 'location.attributes_updated',
+    entityType: 'google_location', entityId: location.id,
+    metadata: { attributeMask },
+  });
+
+  return jsonResponse(request, {
+    attributes: bestaetigt,
+    attributeMask: attributeMask.join(','),
+    confirmed: Array.isArray(antwort?.attributes) || Array.isArray(bestaetigt),
+  });
+}
+
+const CATEGORY_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  search: { method: 'GET', handler: handleCategoriesSearch },
+  metadata: { method: 'GET', handler: handleCategoryMetadata },
+};
+
+const ATTRIBUTE_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  available: { method: 'GET', handler: handleAttributesAvailable },
+  update: { method: 'POST', handler: handleAttributesUpdate },
+};
+
 const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   update: { method: 'POST', handler: handleLocationUpdate },
   select: { method: 'POST', handler: handleLocationSelect },
@@ -5284,6 +5729,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
                                    : { method: 'GET' as const, handler: handleRepliesList }) :
     routeName === 'location' && sub ? LOCATION_ROUTES[sub] :
     routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
+    routeName === 'categories' && sub ? CATEGORY_ROUTES[sub] :
+    routeName === 'attributes' && sub ? ATTRIBUTE_ROUTES[sub] :
     ROUTES[routeName];
 
   if (!route) {
