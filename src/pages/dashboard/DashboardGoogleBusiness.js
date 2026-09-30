@@ -14,6 +14,7 @@ import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
 import KategorienEditor from '../../components/dashboard/KategorienEditor';
 import WeitereZeitenEditor from '../../components/dashboard/WeitereZeitenEditor';
+import AttributeEditor from '../../components/dashboard/AttributeEditor';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -573,10 +574,20 @@ export default function DashboardGoogleBusiness() {
                       />
                     ),
                     kategorien: (
-                      <KategorienEditor
-                        location={ausgewaehlterStandort}
-                        onSave={updateLocation}
-                      />
+                      <>
+                        <KategorienEditor
+                          location={ausgewaehlterStandort}
+                          onSave={updateLocation}
+                        />
+                        {/* Attribute laufen ueber einen eigenen
+                            Google-Endpunkt mit eigener Maske — deshalb
+                            ein eigener Speichervorgang, nicht
+                            derselbe wie bei den Kategorien. */}
+                        <SectionTitle style={{ marginTop: 28 }}>
+                          <Settings size={15} /> Eigenschaften deines Betriebs
+                        </SectionTitle>
+                        <AttributeEditor location={ausgewaehlterStandort} />
+                      </>
                     ),
                     oeffnungszeiten: (
                       <>
