@@ -9,7 +9,7 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
-import { alsZeit, alsDatum } from '../../utils/gbpHours';
+import { alsZeit, alsDatum, TAGE } from '../../utils/gbpHours';
 
 const OeffnungszeitenEditor = require('./OeffnungszeitenEditor').default;
 
@@ -209,6 +209,68 @@ describe('Validierung vor dem Senden', () => {
 
     expect(screen.queryByText(/Google würde sie ablehnen/)).not.toBeInTheDocument();
     expect(speichern()).not.toBeDisabled();
+  });
+});
+
+describe('Kein Feststecken', () => {
+  const ganztags = () => standort({
+    regularHours: { periods: TAGE.map((t) => fenster(t.key, '00:00', t.key, '00:00')) },
+  });
+
+  it('bietet bei durchgehend geöffnet einen Weg zu festen Zeiten', () => {
+    /* Vorher war der Tag eine Sackgasse: keine Eingabefelder, kein Weg
+       zurück, nur ein X, das wie „löschen" aussah. */
+    render(<OeffnungszeitenEditor location={ganztags()} onSave={onSave} />);
+    expect(screen.getByLabelText('Montag auf feste Zeiten umstellen')).toBeInTheDocument();
+  });
+
+  it('stellt von durchgehend auf feste Zeiten um', async () => {
+    render(<OeffnungszeitenEditor location={ganztags()} onSave={onSave} />);
+    await klicke(screen.getByLabelText('Montag auf feste Zeiten umstellen'));
+
+    expect(screen.getByLabelText('Montag Öffnung 1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Montag Öffnung 1')).not.toHaveValue('00:00');
+  });
+
+  it('nennt das X bei durchgehend geöffnet beim Namen', () => {
+    /* „Montag schließen" statt „Zeitfenster entfernen" — es tut etwas
+       anderes als bei festen Zeiten. */
+    render(<OeffnungszeitenEditor location={ganztags()} onSave={onSave} />);
+    expect(screen.getByLabelText('Montag schließen')).toBeInTheDocument();
+  });
+
+  it('kommt von leeren Öffnungszeiten aus zu festen Zeiten', async () => {
+    /* Der Ausgangszustand eines frisch verbundenen Betriebs:
+       regularHours ist null. */
+    const leer = { id: 'loc-1', google_profile: { metadata: { hasVoiceOfMerchant: true } } };
+    render(<OeffnungszeitenEditor location={leer} onSave={onSave} />);
+
+    await klicke(screen.getAllByRole('button', { name: /Zeiten/ })[0]);
+    expect(screen.getByLabelText('Montag Öffnung 1')).toBeInTheDocument();
+  });
+});
+
+describe('Aktionsleiste', () => {
+  it('sagt, warum nicht gespeichert werden kann', () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    expect(screen.getByText('Keine Änderungen.')).toBeInTheDocument();
+  });
+
+  it('nennt die zu übermittelnden Blöcke verständlich', () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    tippe(screen.getByLabelText('Montag Schließung 1'), '18:00');
+
+    expect(screen.getByText(/Zu übermitteln: Reguläre Öffnungszeiten/)).toBeInTheDocument();
+    /* Nicht „regularHours" — das ist ein Feldname, kein Deutsch. */
+    expect(screen.queryByText(/regularHours/)).not.toBeInTheDocument();
+  });
+
+  it('begründet die Sperre bei ungültigen Angaben', () => {
+    render(<OeffnungszeitenEditor location={standort()} onSave={onSave} />);
+    tippe(screen.getByLabelText('Montag Schließung 1'), '08:00');
+
+    expect(screen.getByText(/Google würde sie ablehnen/)).toBeInTheDocument();
+    expect(speichern()).toBeDisabled();
   });
 });
 

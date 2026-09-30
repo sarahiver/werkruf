@@ -108,6 +108,27 @@ const Hinweis = styled.div`
   color: ${(p) => (p.$art === 'ok' ? '#1B5E20' : p.$art === 'fehler' ? '#8B1A12' : '#5F6875')};
 `;
 
+/*
+ * Die Aktionsleiste bleibt am unteren Rand stehen.
+ *
+ * Vorher stand der Speicherknopf ganz unten, nach sieben Wochentagen
+ * und der Sondertagsliste — bei einem gefüllten Profil weit ausserhalb
+ * des Sichtbereichs. Wer oben eine Zeit änderte, sah nicht, dass es
+ * überhaupt etwas zu speichern gibt.
+ */
+const AktionsLeiste = styled.div`
+  position: sticky; bottom: 0; z-index: 5;
+  margin: 22px -4px -4px; padding: 12px 4px;
+  background: linear-gradient(to top, var(--color-bg, #fff) 72%, transparent);
+  border-top: 1px solid var(--color-border);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+`;
+
+const Stand = styled.span`
+  font-family: var(--font-body); font-size: .78rem;
+  color: var(--color-text-muted);
+`;
+
 const Sperrgrund = styled.p`
   font-family: var(--font-body); font-size: .76rem; line-height: 1.5;
   color: var(--color-text-muted); margin: 0 0 12px;
@@ -170,6 +191,15 @@ function RegulaereZeiten({ karte, setKarte, gesperrt, fehler }) {
     [tagKey]: karte[tagKey].filter((_, i) => i !== index),
   });
 
+  /* Von „durchgehend" zurueck auf feste Zeiten. */
+  const aufZeiten = (tagKey) => setKarte({
+    ...karte,
+    [tagKey]: [{
+      openDay: tagKey, closeDay: tagKey,
+      openTime: alsZeit('08:00'), closeTime: alsZeit('17:00'),
+    }],
+  });
+
   const ganztags = (tagKey) => setKarte({
     ...karte,
     [tagKey]: [{
@@ -208,7 +238,16 @@ function RegulaereZeiten({ karte, setKarte, gesperrt, fehler }) {
                 <div key={i}>
                   <FensterZeile>
                     {istDurchgehend(f) ? (
-                      <Marke>Durchgehend geöffnet</Marke>
+                      <>
+                        <Marke>Durchgehend geöffnet</Marke>
+                        {/* Ohne diesen Knopf war der Tag eine Sackgasse:
+                            keine Eingabefelder, kein Weg zurück, nur ein
+                            X, das wie „löschen" aussieht. */}
+                        <KleinBtn onClick={() => aufZeiten(t.key)} disabled={gesperrt}
+                          aria-label={`${t.lang} auf feste Zeiten umstellen`}>
+                          Feste Zeiten
+                        </KleinBtn>
+                      </>
                     ) : (
                       <>
                         <Zeitfeld
@@ -231,8 +270,11 @@ function RegulaereZeiten({ karte, setKarte, gesperrt, fehler }) {
                     )}
 
                     <KleinBtn onClick={() => entferne(t.key, i)} disabled={gesperrt}
-                      aria-label={`${t.lang} Zeitfenster ${i + 1} entfernen`}>
+                      aria-label={istDurchgehend(f)
+                        ? `${t.lang} schließen`
+                        : `${t.lang} Zeitfenster ${i + 1} entfernen`}>
                       <X size={11} />
+                      {istDurchgehend(f) && ' Geschlossen'}
                     </KleinBtn>
 
                     {i === fenster.length - 1 && !istDurchgehend(f) && (
@@ -410,6 +452,13 @@ function Sonderzeiten({ perioden, setPerioden, gesperrt, fehler }) {
   );
 }
 
+/** Feldnamen, wie sie im Dashboard heissen. */
+const nenneBlock = (feld) => ({
+  regularHours: 'Reguläre Öffnungszeiten',
+  specialHours: 'Sonder- & Feiertagszeiten',
+  moreHours: 'Weitere Zeiten',
+}[feld] ?? feld);
+
 /* ─────────────────────────────────────────────
    RAHMEN
 ───────────────────────────────────────────── */
@@ -499,18 +548,22 @@ export default function OeffnungszeitenEditor({ location, onSave, erlaubteZeitar
         />
       </Block>
 
-      <div style={{ marginTop: 20 }}>
+      <AktionsLeiste>
         <GhostBtn onClick={speichern} disabled={busy || !etwasGeaendert || ungueltig}>
           {busy ? <Spinner size={14} /> : <Send size={14} />}
           {busy ? 'Wird übermittelt…' : 'Bei Google speichern'}
         </GhostBtn>
-      </div>
 
-      {ungueltig && (
-        <Hinweis $art="fehler">
-          Bitte zuerst die markierten Angaben korrigieren. Google würde sie ablehnen.
-        </Hinweis>
-      )}
+        {/* Warum der Knopf gesperrt ist, gehoert daneben. Ein
+            ausgegrauter Knopf ohne Begruendung ist eine Sackgasse. */}
+        <Stand>
+          {ungueltig
+            ? 'Bitte zuerst die markierten Angaben korrigieren — Google würde sie ablehnen.'
+            : !etwasGeaendert
+              ? 'Keine Änderungen.'
+              : `Zu übermitteln: ${Object.keys(aenderungen).map(nenneBlock).join(', ')}`}
+        </Stand>
+      </AktionsLeiste>
 
       {erfolg && (
         <Hinweis $art="ok">
@@ -518,7 +571,7 @@ export default function OeffnungszeitenEditor({ location, onSave, erlaubteZeitar
           Google kann die Veröffentlichung noch überprüfen — bis dahin sind im
           Unternehmensprofil weiterhin die bisherigen Zeiten sichtbar.
           <br />
-          <small>Übermittelt: {erfolg.felder.join(', ')}</small>
+          <small>Übermittelt: {erfolg.felder.map(nenneBlock).join(', ')}</small>
         </Hinweis>
       )}
 
