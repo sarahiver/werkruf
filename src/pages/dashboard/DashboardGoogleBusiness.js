@@ -11,6 +11,7 @@ import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
+import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
 import {
   Page, PageTitle, PageSub, SectionTitle, Card,
   StatsRow, StatCard, SkeletonList, ErrorState, EmptyState,
@@ -565,6 +566,12 @@ export default function DashboardGoogleBusiness() {
                   bereiche={{
                     stammdaten: (
                       <StammdatenEditor
+                        location={ausgewaehlterStandort}
+                        onSave={updateLocation}
+                      />
+                    ),
+                    oeffnungszeiten: (
+                      <OeffnungszeitenEditor
                         location={ausgewaehlterStandort}
                         onSave={updateLocation}
                       />

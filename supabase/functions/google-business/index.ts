@@ -30,6 +30,7 @@ import {
 } from './location-mapper.ts';
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
+import { pruefeAlles, hatFehler } from '../../../src/utils/gbpHours.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -4372,6 +4373,23 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
       metadata: { felder: gesperrt.map((e) => e.pfad), codes: gesperrt.map((e) => e.pruefung.code) },
     });
     throw new GbpError('bad_request', gesperrt[0].pruefung.grund ?? 'Dieses Feld ist für diesen Betrieb gesperrt.');
+  }
+
+  /* ── Dritte Stufe: Sind Oeffnungszeiten in sich stimmig? ──
+     Dieselbe Pruefung, die die Oberflaeche ausfuehrt — hier aber
+     verbindlich. Sie faengt ab, was Google ohnehin ablehnen wuerde:
+     Fenster ohne Dauer, Ueberschneidungen, geschlossene Sondertage mit
+     Uhrzeiten. Das erspart einen Netzaufruf und liefert eine
+     verstaendlichere Meldung als Googles eigene. */
+  const zeitBefund = pruefeAlles({
+    regulaer: (patch.regularHours as { periods?: unknown[] })?.periods,
+    sonder:   (patch.specialHours as { specialHourPeriods?: unknown[] })?.specialHourPeriods,
+    weitere:  patch.moreHours as unknown[],
+  });
+
+  if (hatFehler(zeitBefund)) {
+    const erste = [...zeitBefund.regulaer, ...zeitBefund.sonder, ...zeitBefund.weitere][0];
+    throw new GbpError('bad_request', erste?.meldung ?? 'Die Öffnungszeiten sind nicht gültig.');
   }
   const client = createGbpClient(user.id, location.account_id);
   await client.updateLocation(location.location_resource_name, patch as GbpLocationPatch, { updateMask });
