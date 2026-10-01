@@ -5952,6 +5952,176 @@ async function handleAttributesUpdate(request: Request): Promise<Response> {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   EMPFEHLUNGS-FEED (Paket D2, Leseseite)
+
+   Die einzige Quelle fuer Dashboard-Aufgaben. Sortierung, Filter und
+   Pagination liegen in SQL — siehe events_feed().
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * GET /events/top
+ *
+ * Fragen:
+ *   locationId        welcher Betrieb. Fehlt er, waehlt der Server
+ *                     nach der D1-Logik — raten tut er nicht.
+ *   limit, offset     Pagination, limit gedeckelt auf 50
+ *   category          optionaler Filter
+ *   lifecycle         Komma-Liste; ohne Angabe nur offene
+ *   includeAccount    Konto-Empfehlungen mitliefern (Standard: ja)
+ */
+async function handleEventsTop(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const url = new URL(request.url);
+
+  const db = adminClient();
+
+  /* Standort bestimmen. Ein fehlender locationId ist kein Fehler —
+     bei genau einem Betrieb ist er entbehrlich. */
+  let locationId = url.searchParams.get('locationId');
+
+  if (!locationId) {
+    const { data } = await db.rpc('werkruf_score_location', { p_user_id: user.id });
+    locationId = (data as string | null) ?? null;
+  }
+
+  /* Mehrere Betriebe ohne Auswahl: keine erfundene Liste. Die
+     Oberflaeche soll "Betrieb auswaehlen" anzeigen, nicht die
+     Empfehlungen eines beliebigen Betriebs. */
+  if (!locationId) {
+    const { count } = await db
+      .from('google_locations')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .is('deleted_at', null);
+
+    if ((count ?? 0) > 1) {
+      return jsonResponse(request, {
+        items: [], total: 0, open: 0,
+        locationResolved: false,
+        multipleLocations: true,
+        hinweis: 'Wähle einen Betrieb aus, um seine Empfehlungen zu sehen.',
+      });
+    }
+  }
+
+  const zahl = (name: string, vorgabe: number) => {
+    const roh = Number(url.searchParams.get(name));
+    return Number.isFinite(roh) ? roh : vorgabe;
+  };
+
+  const lifecycleRoh = url.searchParams.get('lifecycle');
+  const lifecycle = lifecycleRoh
+    ? lifecycleRoh.split(',').map((x) => x.trim()).filter(Boolean)
+    : null;
+
+  const { data, error } = await db.rpc('events_feed', {
+    p_user_id:         user.id,
+    p_location_id:     locationId,
+    p_limit:           zahl('limit', 10),
+    p_offset:          zahl('offset', 0),
+    p_category:        url.searchParams.get('category'),
+    p_lifecycle:       lifecycle,
+    p_include_account: url.searchParams.get('includeAccount') !== 'false',
+  });
+
+  if (error) {
+    console.warn(JSON.stringify({
+      scope: 'handleEventsTop', event: 'events_feed_failed', code: error.code,
+    }));
+    throw new GbpError('internal_error', 'Empfehlungen nicht ladbar', { cause: error });
+  }
+
+  const feed = (data ?? {}) as Record<string, unknown>;
+
+  return jsonResponse(request, {
+    ...feed,
+    locationResolved: Boolean(locationId),
+  });
+}
+
+/**
+ * POST /events/seen
+ *
+ * Bewusst getrennt vom Lesen: Ein Feed-Abruf ist nicht zwingend ein
+ * Ansehen. Die Oberflaeche meldet es, wenn die Karte tatsaechlich im
+ * Sichtbereich war.
+ */
+async function handleEventsSeen(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const body = await readJsonBody<{ ids?: string[] }>(request);
+
+  const ids = Array.isArray(body.ids)
+    ? body.ids.filter((x): x is string => typeof x === 'string').slice(0, 50)
+    : [];
+
+  if (ids.length === 0) {
+    return jsonResponse(request, { marked: 0 });
+  }
+
+  const { data, error } = await adminClient().rpc('events_mark_seen', {
+    p_user_id: user.id, p_ids: ids,
+  });
+
+  if (error) {
+    throw new GbpError('internal_error', 'Status nicht speicherbar', { cause: error });
+  }
+
+  return jsonResponse(request, { marked: (data as number) ?? 0 });
+}
+
+/**
+ * POST /events/action
+ *
+ * Lebenszyklus-Uebergaenge. record_recommendation_action prueft das
+ * Eigentum selbst — p_user_id wird mitgegeben, damit das auch
+ * geschieht.
+ */
+async function handleEventsAction(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const body = await readJsonBody<{ id?: string; action?: string }>(request);
+
+  const ERLAUBT = ['seen', 'opened', 'completed', 'dismissed'];
+
+  if (!body.id || typeof body.id !== 'string') {
+    throw new GbpError('bad_request', 'Empfehlung fehlt.', { anzeigbar: true });
+  }
+  if (!body.action || !ERLAUBT.includes(body.action)) {
+    /* 'resolved' und 'expired' setzt die Engine, nicht der Kunde. */
+    throw new GbpError('bad_request',
+      `Unbekannte Aktion. Erlaubt: ${ERLAUBT.join(', ')}.`, { anzeigbar: true });
+  }
+
+  const { data, error } = await adminClient().rpc('record_recommendation_action', {
+    p_event_id: body.id,
+    p_action:   body.action,
+    p_channel:  'dashboard',
+    p_user_id:  user.id,
+  });
+
+  if (error) {
+    /* insufficient_privilege kommt aus der Funktion, wenn die
+       Empfehlung einem anderen Nutzer gehoert. */
+    if (error.code === '42501' || /Kein Zugriff/.test(error.message ?? '')) {
+      throw new GbpError('not_found', 'Empfehlung nicht gefunden.');
+    }
+    throw new GbpError('internal_error', 'Aktion nicht speicherbar', { cause: error });
+  }
+
+  await writeAuditLog({
+    userId: user.id, action: `recommendation.${body.action}`,
+    entityType: 'event', entityId: body.id, metadata: { channel: 'dashboard' },
+  });
+
+  return jsonResponse(request, { event: data, action: body.action });
+}
+
+const EVENT_FEED_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  top:    { method: 'GET',  handler: handleEventsTop },
+  seen:   { method: 'POST', handler: handleEventsSeen },
+  action: { method: 'POST', handler: handleEventsAction },
+};
+
 const CATEGORY_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   search: { method: 'GET', handler: handleCategoriesSearch },
   metadata: { method: 'GET', handler: handleCategoryMetadata },
@@ -5991,6 +6161,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
     routeName === 'categories' && sub ? CATEGORY_ROUTES[sub] :
     routeName === 'attributes' && sub ? ATTRIBUTE_ROUTES[sub] :
+    routeName === 'events' && sub && EVENT_FEED_ROUTES[sub] ? EVENT_FEED_ROUTES[sub] :
     ROUTES[routeName];
 
   if (!route) {
