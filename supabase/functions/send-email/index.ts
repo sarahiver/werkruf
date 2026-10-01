@@ -342,13 +342,17 @@ interface WeeklyPayload {
   repliesPublished?: number;
   photoCount?: number;
   newestReviewAt?: string | null;
+  /* Standort, auf den sich diese Mail bezieht. */
+  locationTitle?: string | null;
+  /* Die Aufgaben aus der Decision Engine — hoechstens drei. */
+  engineEvents?: unknown[];
 }
 
 interface WeeklyAssessment {
   headline: string;
   insight: string;
   insightTone: 'neutral' | 'good' | 'attention';
-  actions: Array<{ title: string; why: string; effort: string }>;
+  /* Keine actions mehr — die Aufgaben kommen aus der Engine. */
   healthReason: string;
 }
 
@@ -415,34 +419,32 @@ function assessWeek(data: WeeklyPayload): WeeklyAssessment {
 
   /* ── Höchstens drei Empfehlungen ──
      Vier wären eine Liste, und Listen werden aufgeschoben. */
-  const actions: WeeklyAssessment['actions'] = [];
+  /*
+   * HIER ENTSTEHEN KEINE AUFGABEN MEHR.
+   *
+   * Bis zum 02.10.2026 leitete assessWeek drei Empfehlungen aus
+   * Rohwerten ab:
+   *
+   *   unanswered > 0        → "Bewertungen beantworten"
+   *   photoCount < 5        → "Fotos hochladen"
+   *   daysSinceReview > 45  → "Bewertungen einsammeln"
+   *
+   * Das war eine zweite Decision Engine mit eigenen Schwellen. Das
+   * Dashboard zeigte "5 Fotos hochladen" mit Prioritaet 29, die Mail
+   * sagte etwas anderes — aus denselben Daten, nach anderen Regeln.
+   * Welche von beiden stimmt, konnte der Kunde nicht wissen.
+   *
+   * Die Aufgaben kommen jetzt aus `payload.engineEvents`: dieselben
+   * Events, die das Dashboard zeigt, gefiltert auf den Mailkanal.
+   *
+   * Was assessWeek weiterhin tut, ist redaktionell: Ueberschrift,
+   * Einordnung, Tonfall. Das sind Formulierungen ueber die Woche,
+   * keine Entscheidungen darueber, was zu tun ist.
+   */
 
-  if (unanswered > 0) {
-    actions.push({
-      title: unanswered === 1 ? 'Eine Bewertung beantworten' : `${unanswered} Bewertungen beantworten`,
-      why: lowest !== null && lowest <= 2
-        ? 'Die schlechte zuerst — der Vorschlag liegt bereit'
-        : 'Der Vorschlag liegt bereit',
-      effort: `${Math.max(2, unanswered * 2)} Min.`,
-    });
-  }
-  if (photos < 5) {
-    const needed = 5 - photos;
-    actions.push({
-      title: needed === 1 ? 'Ein Foto hochladen' : `${needed} Fotos hochladen`,
-      why: photos === 0 ? 'Profile ohne Bilder werden seltener angeklickt' : `Du hast ${photos}, fünf wirken vollständig`,
-      effort: '5 Min.',
-    });
-  }
-  if (daysSinceReview !== null && daysSinceReview > 45) {
-    actions.push({
-      title: 'Kunden um eine Bewertung bitten',
-      why: 'Bewertungslink oder QR-Code aus dem Dashboard',
-      effort: '2 Min.',
-    });
-  }
-
-  /* ── Warum der Wert sich bewegt hat ── */
+  /* ── Warum der Wert sich bewegt hat ──
+     Redaktionell: eine Erklaerung des Score-Verlaufs, keine
+     Handlungsempfehlung. Bleibt deshalb hier. */
   const healthReason =
     delta === null   ? 'Ab nächster Woche siehst du hier, wie sich der Wert entwickelt.'
     : delta > 0      ? published > 0
@@ -453,7 +455,7 @@ function assessWeek(data: WeeklyPayload): WeeklyAssessment {
         : 'Gesunken — die letzte Bewertung liegt länger zurück.'
     : 'Unverändert zur Vorwoche.';
 
-  return { headline, insight, insightTone, actions: actions.slice(0, 3), healthReason };
+  return { headline, insight, insightTone, healthReason };
 }
 
 function render(template: EmailTemplate, payload: Record<string, unknown>, toName: string | null): RenderedEmail {
@@ -604,6 +606,21 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
       const data = payload as WeeklyPayload;
       const week = assessWeek(data);
 
+      /*
+       * Die Aufgaben der Wochenmail.
+       *
+       * Aus weekly_payload_for → weekly_mail_events: dieselben Events
+       * wie im Dashboard, auf den Mailkanal gefiltert und von der
+       * Engine sortiert. Hier wird nicht neu entschieden und nicht neu
+       * sortiert.
+       */
+      const engineAufgaben = (Array.isArray(data.engineEvents)
+        ? data.engineEvents : []) as Array<{
+          title: string; summary?: string; reason?: string;
+          estimatedMinutes?: number | null; estimatedEffort?: string | null;
+          actionUrl?: string | null;
+        }>;
+
       const rating = data.averageRating;
       const ratingDelta = data.ratingDelta ?? null;
       const ratingLabel =
@@ -641,12 +658,23 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         ]) +
 
         insightBox(escapeHtml(week.insight), week.insightTone) +
-        actionList(week.actions) +
+        /* Die Aufgaben kommen aus der Engine, nicht aus assessWeek.
+           Dieselben Events, die das Dashboard zeigt — gefiltert auf
+           den Mailkanal und auf drei begrenzt. */
+        actionList(engineAufgaben.map((e) => ({
+          title: e.title,
+          why: e.summary ?? e.reason ?? '',
+          /* Die strukturierte Zahl, nicht der Text. */
+          effort: typeof e.estimatedMinutes === 'number'
+            ? (e.estimatedMinutes === 1 ? '1 Minute' : `${e.estimatedMinutes} Minuten`)
+            : (e.estimatedEffort ?? ''),
+          to: e.actionUrl ?? undefined,
+        }))) +
         healthBox(data.healthScore ?? 0, delta, week.healthReason);
 
       const html = layout(brand, subject, body, {
         // Ein Knopf. Zwei wären eine Frage, und Fragen werden vertagt.
-        label: week.actions.length > 0 ? 'Im Dashboard erledigen' : 'Dashboard öffnen',
+        label: engineAufgaben.length > 0 ? 'Im Dashboard erledigen' : 'Dashboard öffnen',
         url: `${brand.appUrl}/dashboard`,
       });
 
