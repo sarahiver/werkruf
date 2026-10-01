@@ -67,7 +67,7 @@ export default function DashboardHome() {
   const {
     status, actions, nextAction,
     healthScore, feedLaedt, feedFehler, feedNeuLaden,
-    standortAuswahlNoetig, datenstand,
+    standortAuswahlNoetig, datenstand, melde,
     isConnected, lastSyncedAt, runningJob,
     locations, stats, replyCounts,
     loading, error, reload,
@@ -190,6 +190,9 @@ export default function DashboardHome() {
         onNeuLaden={feedNeuLaden}
         standortAuswahlNoetig={standortAuswahlNoetig}
         standortAuswahlZiel="/dashboard/google"
+        onGesehen={melde.gesehen}
+        onGeoeffnet={melde.geoeffnet}
+        onWeggeklickt={melde.weggeklickt}
       />
 
       {/* Technischer Hinweis zur Datenlage — keine Aufgabe. Der Kunde

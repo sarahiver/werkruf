@@ -102,7 +102,8 @@ export function useDashboardBriefing() {
    *                 datenstand.
    */
   const { events: engineAufgaben, loading: feedLaedt, error: feedFehler,
-          locationResolved, reload: feedNeuLaden } = useEvents();
+          locationResolved, reload: feedNeuLaden,
+          melde: meldeGesehen, open: meldeGeoeffnet, dismiss: weglegen } = useEvents();
 
   /*
    * Braucht es eine Betriebsauswahl?
@@ -194,6 +195,12 @@ export function useDashboardBriefing() {
     feedNeuLaden,
     standortAuswahlNoetig,
     datenstand,
+    /* Rueckmeldungen an den Lebenszyklus der Engine. */
+    melde: {
+      gesehen: meldeGesehen,
+      geoeffnet: meldeGeoeffnet,
+      weggeklickt: weglegen,
+    },
     /* Der kanonische WERKRUF Score — fuer die Anzeige ganz oben.
        Nicht visibility_score. */
     healthScore,

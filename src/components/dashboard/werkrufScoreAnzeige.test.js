@@ -18,37 +18,76 @@ const FRISCH = [
   F('completeness', 15), F('photos', 0),
 ];
 
-describe('Einordnung', () => {
-  it('nennt, was vollständig ist, und was fehlt', () => {
-    const { satz } = ordneEin(FRISCH);
+describe('Einordnung ohne Bewertungen', () => {
+  it('fasst die drei Bewertungsfaktoren zu einer Lücke zusammen', () => {
+    /* Drei von fünf Faktoren messen Bewertungen. Ohne eine einzige
+       Bewertung sind alle drei bei null — die naive Übersetzung ergäbe
+       „es fehlen Antworten auf Bewertungen, Bewertungen und aktuelle
+       Bewertungen". Wer keine hat, kann keine beantworten. */
+    const { satz } = ordneEin(FRISCH, 0);
 
+    expect(satz).toMatch(/erste Bewertungen/);
+    expect(satz).toMatch(/Fotos/);
+  });
+
+  it('nennt die Teilfaktoren NICHT einzeln', () => {
+    const { satz } = ordneEin(FRISCH, 0);
+
+    expect(satz).not.toMatch(/Antworten auf Bewertungen/);
+    expect(satz).not.toMatch(/aktuelle Bewertungen/);
+  });
+
+  it('nennt, was vollständig ist', () => {
+    const { satz } = ordneEin(FRISCH, 0);
     expect(satz).toMatch(/Profilangaben/);
     expect(satz).toMatch(/vollständig/);
-    expect(satz).toMatch(/fehlen/);
+  });
+
+  it('wiederholt die Lücke nicht als „am meisten Luft"', () => {
+    /* Sie steht schon im Hauptsatz. */
+    expect(ordneEin(FRISCH, 0).schwaeche).toBeNull();
   });
 
   it('erfindet keine Punktzahlen', () => {
-    /* „85 Punkte fehlen wegen Bewertungen" wäre falsch — die 85
-       verteilen sich auf vier Faktoren. */
-    const { satz } = ordneEin(FRISCH);
+    const { satz } = ordneEin(FRISCH, 0);
     expect(satz).not.toMatch(/\d+ Punkte/);
     expect(satz).not.toMatch(/85/);
   });
+});
 
-  it('erzwingt keinen Sieger, wenn mehrere gleich schlecht sind', () => {
-    /* responseRate und rating sind beide bei 0 — aber die Lücke ist
-       unterschiedlich groß (30 gegen 25). */
-    const gleich = [F('rating', 0), F('recency', 0)];
-    const { schwaeche } = ordneEin([...gleich, F('completeness', 15)]);
+describe('Einordnung mit Bewertungen', () => {
+  it('darf die Antwortquote als eigene Lücke benennen', () => {
+    /* Sobald Bewertungen da sind, ist „nicht beantwortet" eine echte,
+       eigene Lücke. */
+    const mitOffenen = [
+      F('responseRate', 0), F('rating', 25), F('recency', 20),
+      F('completeness', 15), F('photos', 10),
+    ];
+    const { satz, schwaeche } = ordneEin(mitOffenen, 12);
 
-    /* rating hat die größere Lücke (25 gegen 20) — also benennbar. */
-    expect(schwaeche).toMatch(/Bewertungen/);
+    expect(`${satz} ${schwaeche}`).toMatch(/Antworten auf Bewertungen/);
   });
 
-  it('sagt bei exakt gleicher Lücke nichts Bestimmtes', () => {
-    const { schwaeche } = ordneEin([F('rating', 5), F('recency', 0)]);
-    /* Beide Lücken sind 20 — kein Sieger. */
+  it('darf fehlende Aktualität benennen', () => {
+    const alt = [
+      F('responseRate', 30), F('rating', 25), F('recency', 0),
+      F('completeness', 15), F('photos', 10),
+    ];
+    const { satz, schwaeche } = ordneEin(alt, 12);
+
+    expect(`${satz} ${schwaeche}`).toMatch(/aktuelle Bewertungen/);
+  });
+
+  it('erzwingt bei exakt gleicher Lücke keinen Sieger', () => {
+    const { schwaeche } = ordneEin([F('rating', 5), F('recency', 0)], 5);
+    /* Beide Lücken sind 20. */
     expect(schwaeche).toMatch(/mehreren Bereichen/);
+  });
+
+  it('benennt den klar größten Rückstand', () => {
+    const { schwaeche } = ordneEin(
+      [F('responseRate', 0), F('photos', 8), F('completeness', 15)], 10);
+    expect(schwaeche).toMatch(/Antworten auf Bewertungen/);
   });
 
   it('erkennt den vollständig erreichten Zustand', () => {
@@ -56,7 +95,7 @@ describe('Einordnung', () => {
       F('responseRate', 30), F('rating', 25), F('recency', 20),
       F('completeness', 15), F('photos', 10),
     ];
-    const { satz, schwaeche } = ordneEin(voll);
+    const { satz, schwaeche } = ordneEin(voll, 20);
 
     expect(satz).toMatch(/in Ordnung/);
     expect(schwaeche).toBeNull();
@@ -69,7 +108,7 @@ describe('Einordnung', () => {
 });
 
 describe('Anzeige', () => {
-  const score = { score: 15, factors: FRISCH, locationTitle: 'S&I.' };
+  const score = { score: 15, factors: FRISCH, reviewsTotal: 0, locationTitle: 'S&I.' };
 
   it('zeigt den Wert mit Bezugsgröße', () => {
     render(<WerkrufScore score={score} />);

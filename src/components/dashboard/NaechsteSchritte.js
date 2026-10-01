@@ -13,6 +13,8 @@ import React from 'react';
 import styled from 'styled-components';
 import { ArrowRight, Check, X, AlertTriangle, RotateCw } from 'lucide-react';
 
+import { useSichtbarkeit } from '../../hooks/useSichtbarkeit';
+
 /* ─────────────────────────────────────────────
    DARSTELLUNG
 ───────────────────────────────────────────── */
@@ -155,8 +157,11 @@ export function anzeigeTitel(event) {
 export default function NaechsteSchritte({
   events, loading, fehler, onNeuLaden,
   standortAuswahlNoetig, standortAuswahlZiel = '/dashboard/google',
-  onGeoeffnet, onWeggeklickt, wegklickenLaeuft,
+  onGesehen, onGeoeffnet, onWeggeklickt, wegklickenLaeuft,
 }) {
+  /* Gesehen heisst: Die Karte war im Sichtbereich. Nicht: Sie wurde
+     geladen. */
+  const { beobachte } = useSichtbarkeit(onGesehen);
   /* ── Laden ──
      Platzhalter, nicht „Alles erledigt". Ein kurz aufblitzendes
      „nichts zu tun" wäre eine Falschaussage. */
@@ -242,7 +247,7 @@ export default function NaechsteSchritte({
         const aufwand = aufwandText(e.estimatedMinutes);
 
         return (
-          <Karte key={e.id} $farbe={stufe.farbe}>
+          <Karte key={e.id} $farbe={stufe.farbe} ref={beobachte(e.id)}>
             <KartenText>
               <h3>{anzeigeTitel(e)}</h3>
               {e.summary && <p>{e.summary}</p>}

@@ -152,18 +152,37 @@ export function useEvents() {
      sich später nicht unterscheiden, ob eine Empfehlung ignoriert
      oder nie angezeigt wurde — und das ist ein Unterschied zwischen
      einer schlechten Empfehlung und einem Anzeigefehler. */
-  const seenRef = useRef(new Set());
-  useEffect(() => {
-    if (events.length === 0) return;
-    const unseen = events.map((e) => e.id).filter((id) => !seenRef.current.has(id));
-    if (unseen.length === 0) return;
+  /*
+   * Gesehen melden — aber erst, wenn die Karte wirklich sichtbar war.
+   *
+   * Bis zum 01.10.2026 geschah das hier in einem useEffect auf
+   * `events`: Alle geladenen Empfehlungen galten sofort als gesehen,
+   * auch die dritte unterhalb des Falzes, die nie jemand zu Gesicht
+   * bekam.
+   *
+   * Die Kennzahl maß damit, wie oft das Dashboard geöffnet wurde —
+   * nicht, was jemand gelesen hat. Und bei der Frage, ob eine
+   * Empfehlung ignoriert wurde oder nie ankam, ist das der ganze
+   * Unterschied.
+   *
+   * Wann gemeldet wird, entscheidet jetzt die Anzeige über
+   * useSichtbarkeit. Hier steht nur noch das Versenden.
+   */
+  const gemeldet = useRef(new Set());
 
-    unseen.forEach((id) => seenRef.current.add(id));
-    // Best effort: eine fehlgeschlagene Statistik darf nichts blockieren.
+  const melde = useCallback((ids) => {
+    const liste = (Array.isArray(ids) ? ids : [ids])
+      .filter((id) => id && !gemeldet.current.has(id));
+    if (liste.length === 0) return;
+
+    liste.forEach((id) => gemeldet.current.add(id));
+
+    /* Best effort: Eine fehlgeschlagene Statistik darf die Anzeige
+       nicht stören. */
     callFunction('google-business/events/track', {
-      eventIds: unseen, action: 'seen', channel: 'dashboard',
+      eventIds: liste, action: 'seen', channel: 'dashboard',
     }).catch(() => {});
-  }, [events]);
+  }, []);
 
   /* Neu bewerten. Nach einer Handlung, die die Lage ändert. */
   const revaluate = useCallback(async () => {
@@ -223,6 +242,8 @@ export function useEvents() {
   return {
     events, ...derived, loading, busy, error,
     reload: load, revaluate, dismiss, open,
+    /* Von der Anzeige aufzurufen, wenn Karten sichtbar wurden. */
+    melde,
     /* Standortzustand aus dem Feed — damit das Dashboard keine eigene
        Standortlogik braucht. */
     ...feedZustand,

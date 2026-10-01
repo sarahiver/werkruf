@@ -89,9 +89,27 @@ const HOECHSTWERTE = {
 /**
  * Formuliert die Einordnung aus den Faktoren.
  *
+ * Die Faktoren sind das Datenmodell, nicht die Sprache des Kunden.
+ * Drei von fünf messen Bewertungen — Antwortquote, Durchschnitt und
+ * Aktualität. Hat ein Betrieb keine einzige Bewertung, sind alle drei
+ * bei null, und die naive Übersetzung ergibt:
+ *
+ *   „Es fehlen Antworten auf Bewertungen, Bewertungen und aktuelle
+ *    Bewertungen."
+ *
+ * Das ist aus den Faktoren korrekt abgeleitet und trotzdem falsch:
+ * Wer keine Bewertungen hat, kann keine beantworten. Drei Lücken, die
+ * in Wahrheit eine sind.
+ *
+ * Deshalb werden die Bewertungsfaktoren zusammengefasst, solange es
+ * keine Bewertungen gibt. Sobald welche da sind, darf differenziert
+ * werden — dann ist „Antwortquote" eine echte, eigene Lücke.
+ *
+ * @param factors      Score-Faktoren
+ * @param reviewsTotal Bewertungen dieses Betriebs
  * @returns {{ satz: string, schwaeche: string|null }}
  */
-export function ordneEin(factors) {
+export function ordneEin(factors, reviewsTotal = null) {
   if (!Array.isArray(factors) || factors.length === 0) {
     return { satz: '', schwaeche: null };
   }
@@ -101,52 +119,75 @@ export function ordneEin(factors) {
     return max ? (f.points ?? 0) / max : null;
   };
 
+  const ohneBewertungen = reviewsTotal === 0;
+  const istBewertungsfaktor = (f) => ['responseRate', 'rating', 'recency'].includes(f.id);
+
   const voll = factors.filter((f) => anteil(f) !== null && anteil(f) >= 0.95);
-  const leer = factors.filter((f) => anteil(f) !== null && anteil(f) === 0);
+  const leerRoh = factors.filter((f) => anteil(f) !== null && anteil(f) === 0);
 
   /* Alles erreicht. */
-  if (leer.length === 0 && voll.length === factors.length) {
+  if (leerRoh.length === 0 && voll.length === factors.length) {
     return {
       satz: 'Alle Bereiche, die WERKRUF messen kann, sind in Ordnung.',
       schwaeche: null,
     };
   }
 
-  const nenne = (liste) => liste
-    .map((f) => FAKTOR_NAMEN[f.id] ?? f.label ?? f.id)
-    .filter(Boolean);
+  /*
+   * Die Lücken benennen — Bewertungsfaktoren zusammengefasst, wenn es
+   * keine Bewertungen gibt.
+   */
+  const luecken = [];
+  if (ohneBewertungen && leerRoh.some(istBewertungsfaktor)) {
+    luecken.push('erste Bewertungen');
+  }
+  leerRoh
+    .filter((f) => !(ohneBewertungen && istBewertungsfaktor(f)))
+    .forEach((f) => luecken.push(FAKTOR_NAMEN[f.id] ?? f.label ?? f.id));
 
-  /* Der häufige Fall bei einem frisch verbundenen Betrieb: Profil
-     gepflegt, aber noch keine Bewertungen und keine Fotos. */
+  const vollNamen = voll.map((f) => FAKTOR_NAMEN[f.id] ?? f.label ?? f.id).filter(Boolean);
+
   let satz;
-  if (voll.length > 0 && leer.length > 0) {
-    satz = `${grossErstes(verbinde(nenne(voll)))} ${voll.length === 1 ? 'ist' : 'sind'} vollständig. `
-         + `Für einen höheren Score fehlen aktuell vor allem ${verbinde(nenne(leer))}.`;
-  } else if (leer.length > 0) {
-    satz = `Für einige Bereiche liegen noch keine Daten vor — darunter ${verbinde(nenne(leer))}.`;
+  if (vollNamen.length > 0 && luecken.length > 0) {
+    satz = `${grossErstes(verbinde(vollNamen))} ${voll.length === 1 ? 'sind' : 'sind'} vollständig. `
+         + `Für einen höheren Score fehlen aktuell vor allem ${verbinde(luecken)}.`;
+  } else if (luecken.length > 0) {
+    satz = `Für einige Bereiche liegen noch keine Daten vor — darunter ${verbinde(luecken)}.`;
   } else {
     satz = 'In mehreren Bereichen gibt es noch Luft nach oben.';
   }
 
-  /* „Am meisten Luft ist bei X" — nur wenn ein Faktor deutlich unter
-     den anderen liegt. Einen Sieger zu erzwingen, wo zwei gleich
-     schlecht sind, wäre eine erfundene Aussage. */
-  const bewertbar = factors
+  return { satz, schwaeche: benenneSchwaeche(factors, anteil, reviewsTotal) };
+}
+
+/**
+ * „Am meisten Luft ist bei X" — aber nur, wenn das stimmt.
+ *
+ * Ohne Bewertungen ist der Satz überflüssig: Die Lücke ist dann im
+ * Hauptsatz schon benannt, und „am meisten Luft bei ersten
+ * Bewertungen" wäre eine Wiederholung.
+ */
+function benenneSchwaeche(factors, anteil, reviewsTotal) {
+  if (reviewsTotal === 0) return null;
+
+  const offen = factors
     .filter((f) => anteil(f) !== null && anteil(f) < 0.95)
     .map((f) => ({ f, luecke: (HOECHSTWERTE[f.id] ?? 0) - (f.points ?? 0) }))
     .sort((a, b) => b.luecke - a.luecke);
 
-  let schwaeche = null;
-  if (bewertbar.length === 1) {
-    schwaeche = `Am meisten Luft ist momentan bei ${nenne([bewertbar[0].f])[0]}.`;
-  } else if (bewertbar.length > 1) {
-    const [erster, zweiter] = bewertbar;
-    schwaeche = erster.luecke > zweiter.luecke
-      ? `Am meisten Luft ist momentan bei ${nenne([erster.f])[0]}.`
-      : 'Bei mehreren Bereichen gibt es noch Luft nach oben.';
+  if (offen.length === 0) return null;
+
+  const name = (e) => FAKTOR_NAMEN[e.f.id] ?? e.f.label ?? e.f.id;
+
+  if (offen.length === 1) {
+    return `Am meisten Luft ist momentan bei ${name(offen[0])}.`;
   }
 
-  return { satz, schwaeche };
+  /* Bei exakt gleicher Lücke keinen Sieger erzwingen — das wäre eine
+     erfundene Aussage. */
+  return offen[0].luecke > offen[1].luecke
+    ? `Am meisten Luft ist momentan bei ${name(offen[0])}.`
+    : 'Bei mehreren Bereichen gibt es noch Luft nach oben.';
 }
 
 const verbinde = (teile) => (teile.length <= 1
@@ -184,7 +225,9 @@ export default function WerkrufScore({ score, loading, betrieb }) {
     );
   }
 
-  const { satz, schwaeche } = ordneEin(score.factors);
+  /* Die Bewertungszahl entscheidet, wie differenziert formuliert
+     werden darf. */
+  const { satz, schwaeche } = ordneEin(score.factors, score.reviewsTotal ?? null);
 
   return (
     <Block>
