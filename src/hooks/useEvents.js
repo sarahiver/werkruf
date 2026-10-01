@@ -144,7 +144,21 @@ export function useEvents() {
   useEffect(() => {
     if (visitRef.current) return;
     visitRef.current = true;
-    supabase.rpc('touch_dashboard_visit', {}).catch(() => {});
+    /*
+     * Kein .catch() direkt am rpc-Aufruf.
+     *
+     * supabase.rpc gibt einen PostgrestFilterBuilder zurueck, kein
+     * Promise. Er hat .then(), aber kein .catch() — der Aufruf wirft
+     * "pt.default.rpc(...).catch is not a function" und reisst das
+     * gesamte Rendern mit.
+     *
+     * Der Fehler lag hier schon laenger; er fiel nicht auf, weil
+     * useEvents auf der Startseite nicht eingebunden war. Seit D3
+     * laeuft er bei jedem Dashboard-Aufruf.
+     *
+     * Promise.resolve() macht aus dem Thenable ein echtes Promise.
+     */
+    Promise.resolve(supabase.rpc('touch_dashboard_visit', {})).catch(() => {});
   }, []);
 
   /* ── "Gesehen" vermerken ──

@@ -147,6 +147,18 @@ describe('Robustheit', () => {
 describe('Quelltext', () => {
   const quelle = require('fs').readFileSync('src/hooks/useEvents.js', 'utf8');
 
+  it('hängt kein .catch() direkt an einen rpc-Aufruf', () => {
+    /* supabase.rpc gibt einen PostgrestFilterBuilder zurück, kein
+       Promise. Er hat .then(), aber kein .catch() — der Aufruf wirft
+       und reisst das gesamte Rendern mit. Eine weisse Seite, und der
+       Grund steht nur in der Konsole. */
+    expect(quelle).not.toMatch(/supabase\.rpc\([^)]*\)\.catch/);
+  });
+
+  it('macht aus dem Thenable ein echtes Promise, wo nötig', () => {
+    expect(quelle).toMatch(/Promise\.resolve\(supabase\.rpc/);
+  });
+
   it('meldet nicht mehr beim Laden der Events', () => {
     /* Der alte useEffect auf `events` ist weg. */
     expect(quelle).not.toMatch(/useEffect\(\(\) => \{\s*if \(events\.length === 0\) return;/);
