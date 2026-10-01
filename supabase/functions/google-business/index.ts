@@ -3187,6 +3187,26 @@ const daysSince = (from: string | null, now: string) =>
 
 /** Übersetzt den Rohkontext aus Postgres in Fakten. */
 function buildFacts(ctx: EvaluationContext): Facts {
+  /*
+   * Der Kontext hat zwei Formen.
+   *
+   * build_location_evaluation_context liefert `location` — EINEN
+   * Betrieb. Die alte Fassung lieferte `locations` — eine Liste.
+   * Hier wird beides auf dieselbe Form gebracht, damit die Regeln
+   * unveraendert bleiben.
+   *
+   * Ohne das wuerde ctx.locations.flatMap beim ersten Lauf werfen und
+   * der gesamte Engine-Durchgang scheitern.
+   */
+  const einzeln = (ctx as unknown as { location?: unknown }).location;
+  if (einzeln && !Array.isArray((ctx as unknown as { locations?: unknown }).locations)) {
+    (ctx as unknown as { locations: unknown[] }).locations = [einzeln];
+  } else if (!Array.isArray((ctx as unknown as { locations?: unknown }).locations)) {
+    /* Kontoumfang: keine Betriebsfakten. Die Verbindungsregeln
+       brauchen keine. */
+    (ctx as unknown as { locations: unknown[] }).locations = [];
+  }
+
   const now = ctx.now;
   const reviews = ctx.reviews;
   const total = reviews?.total ?? 0;
@@ -4011,6 +4031,30 @@ function evaluate(facts: Facts, thresholds: Thresholds): EngineResult {
   return { facts, insights, recommendations, health: computeHealthScore(facts) };
 }
 
+/*
+ * Welche Regel gehoert zum Konto, welche zum Betrieb?
+ *
+ * Eine Verbindung besteht zum Google-KONTO — faellt sie aus, betrifft
+ * das jeden Betrieb, und eine Empfehlung je Betrieb waere dieselbe
+ * Aussage mehrfach.
+ *
+ * Alles andere — Bewertungen, Antworten, Profilangaben, Fotos, Sync,
+ * Score — gehoert zu genau einem Betrieb.
+ *
+ * Fehlt eine Regel hier, gilt sie als betriebsbezogen. Das ist die
+ * sicherere Vorgabe: Eine Empfehlung dem falschen Betrieb zuzuordnen
+ * faellt auf; sie faelschlich dem Konto zuzuordnen macht sie
+ * betriebsunabhaengig und damit unauffaellig falsch.
+ */
+const KONTO_REGELN = new Set<string>([
+  'connection.missing',
+  'connection.lost',
+]);
+
+function istKontoRegel(ruleId: string): boolean {
+  return KONTO_REGELN.has(ruleId);
+}
+
 /** Übersetzt in das Format, das sync_events erwartet. */
 function toEventRows(result: EngineResult) {
   return result.recommendations.map((r) => ({
@@ -4025,6 +4069,10 @@ function toEventRows(result: EngineResult) {
     recommendedAction: r.title,
     actionUrl: r.actionUrl,
     estimatedEffort: r.estimatedEffort,
+    /* Die Zahl, nicht nur den Text. Jede Regel liefert sie ohnehin —
+       estimatedEffort wird daraus erzeugt. Sie ging hier verloren, und
+       das Wochenbudget haette "5 Minuten" per Regex zerlegen muessen. */
+    estimatedMinutes: r.estimatedMinutes,
     impact: r.expectedBenefit,
     inDashboard: r.channels.dashboard,
     inWeeklyEmail: r.channels.weeklyEmail,
@@ -4044,36 +4092,51 @@ function toEventRows(result: EngineResult) {
 }
 
 /**
- * Bewertet einen Nutzer und schreibt das Ergebnis.
+ * Bewertet EINEN Umfang und schreibt das Ergebnis.
  *
- * Hier passiert "jedes Ereignis wird einmal bewertet". Alles danach
- * ist Darstellung.
+ * Umfang heisst: ein Betrieb, oder das Konto. Nicht "ein Nutzer" — ein
+ * Nutzer kann mehrere Betriebe haben, und deren Fakten gehoeren nicht
+ * zusammen.
+ *
+ * @param locationId  null wertet den Kontoumfang aus
  */
-async function evaluateUser(userId: string, log: Logger): Promise<{
-  events: number; created: number; updated: number; resolved: number; health: number;
-}> {
+async function evaluateScope(
+  userId: string,
+  locationId: string | null,
+  thresholds: Thresholds,
+  log: Logger,
+): Promise<{ events: number; created: number; updated: number; resolved: number; health: number | null }> {
   const db = adminClient();
 
-  const [contextResult, thresholdResult] = await Promise.all([
-    db.rpc('build_evaluation_context', { p_user_id: userId }),
-    db.rpc('get_engine_thresholds'),
-  ]);
+  const { data: kontext, error: kontextFehler } = await db.rpc(
+    'build_location_evaluation_context',
+    { p_user_id: userId, p_location_id: locationId },
+  );
 
-  if (contextResult.error) {
-    throw new GbpError('internal_error', 'Kontext nicht ladbar', { cause: contextResult.error });
-  }
-  if (thresholdResult.error) {
-    throw new GbpError('internal_error', 'Schwellwerte nicht ladbar', { cause: thresholdResult.error });
+  if (kontextFehler) {
+    throw new GbpError('internal_error', 'Kontext nicht ladbar', { cause: kontextFehler });
   }
 
-  const facts = buildFacts(contextResult.data as EvaluationContext);
-  const result = evaluate(facts, thresholdResult.data as Thresholds);
-  const rows = toEventRows(result);
+  const facts = buildFacts(kontext as EvaluationContext);
+  const result = evaluate(facts, thresholds);
+
+  /*
+   * Nur Regeln des passenden Umfangs.
+   *
+   * Eine Verbindungsempfehlung bei jedem Betrieb zu erzeugen hiesse,
+   * dieselbe Aussage mehrfach zu zeigen. Umgekehrt gehoert eine
+   * Fotoempfehlung nicht ans Konto.
+   */
+  const passend = result.recommendations.filter((r) =>
+    locationId === null ? istKontoRegel(r.ruleId) : !istKontoRegel(r.ruleId));
+
+  const rows = toEventRows({ ...result, recommendations: passend });
 
   const { data, error } = await db.rpc('sync_events', {
-    p_user_id: userId,
-    p_events: rows,
+    p_user_id:        userId,
+    p_events:         rows,
     p_engine_version: ENGINE_VERSION,
+    p_location_id:    locationId,
   });
   if (error) {
     throw new GbpError('internal_error', 'Ereignisse nicht speicherbar', { cause: error });
@@ -4081,17 +4144,90 @@ async function evaluateUser(userId: string, log: Logger): Promise<{
 
   const summary = data as { created: number; updated: number; resolved: number };
 
-  log.debug('evaluated', {
-    userId,
-    engineVersion: ENGINE_VERSION,
-    rules: RULES.length,
-    insights: result.insights.length,
-    recommendations: rows.length,
-    health: result.health.score,
-    ...summary,
+  log.debug('scope_evaluated', {
+    userId, locationId, scope: locationId ? 'location' : 'account',
+    recommendations: rows.length, ...summary,
   });
 
-  return { events: rows.length, ...summary, health: result.health.score };
+  return {
+    events: rows.length,
+    ...summary,
+    health: locationId ? result.health.score : null,
+  };
+}
+
+/**
+ * Bewertet einen Nutzer: jeden aktiven Betrieb einzeln, dazu das Konto.
+ *
+ * Hier passiert "jedes Ereignis wird einmal bewertet". Alles danach ist
+ * Darstellung.
+ *
+ * Vorher lief das einmal je Nutzer mit einem nutzerweiten Kontext — die
+ * Engine bekam Fakten, die zu keinem einzelnen Betrieb gehoerten, und
+ * ordnete die Empfehlungen trotzdem einem zu.
+ *
+ * Ein Betrieb, der scheitert, haelt die uebrigen nicht auf. Sonst
+ * verloere ein Nutzer mit drei Betrieben alle Empfehlungen, weil bei
+ * einem etwas klemmt.
+ */
+async function evaluateUser(userId: string, log: Logger): Promise<{
+  events: number; created: number; updated: number; resolved: number;
+  health: number; scopes: number; failed: number;
+}> {
+  const db = adminClient();
+
+  const [thresholdResult, locationResult] = await Promise.all([
+    db.rpc('get_engine_thresholds'),
+    db.from('google_locations')
+      .select('id, title')
+      .eq('user_id', userId)
+      .is('deleted_at', null),
+  ]);
+
+  if (thresholdResult.error) {
+    throw new GbpError('internal_error', 'Schwellwerte nicht ladbar', { cause: thresholdResult.error });
+  }
+
+  const thresholds = thresholdResult.data as Thresholds;
+  const locations = (locationResult.data ?? []) as { id: string; title: string }[];
+
+  /* Konto zuerst: Faellt die Verbindung aus, sind die Betriebsfakten
+     ohnehin veraltet — die Empfehlung dazu soll dann oben stehen. */
+  const umfaenge: (string | null)[] = [null, ...locations.map((l) => l.id)];
+
+  let events = 0, created = 0, updated = 0, resolved = 0, failed = 0;
+  let health = 0;
+
+  for (const locationId of umfaenge) {
+    try {
+      const r = await evaluateScope(userId, locationId, thresholds, log);
+      events += r.events; created += r.created; updated += r.updated; resolved += r.resolved;
+      /* Der Score des zuletzt bewerteten Betriebs ist nicht "der"
+         Score des Nutzers. Genommen wird der des ausgewaehlten —
+         ermittelt wie ueberall sonst. */
+      if (locationId && r.health !== null && locations.length === 1) health = r.health;
+    } catch (err) {
+      /* Ein Betrieb scheitert, die uebrigen laufen weiter. */
+      failed += 1;
+      log.warn('scope_failed', {
+        userId, locationId,
+        reason: (err as Error)?.message?.slice(0, 200) ?? 'unbekannt',
+      });
+    }
+  }
+
+  /* Bei mehreren Betrieben: der Score des ausgewaehlten. */
+  if (locations.length > 1) {
+    const { data } = await db.rpc('compute_health_score', { p_user_id: userId });
+    health = Number((data as Record<string, unknown>)?.score ?? 0);
+  }
+
+  log.debug('evaluated', {
+    userId, engineVersion: ENGINE_VERSION, rules: RULES.length,
+    scopes: umfaenge.length, failed, events, created, updated, resolved, health,
+  });
+
+  return { events, created, updated, resolved, health, scopes: umfaenge.length, failed };
 }
 
 
