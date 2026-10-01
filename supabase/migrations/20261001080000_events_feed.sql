@@ -94,9 +94,9 @@ create or replace function public.events_feed(
 )
 returns jsonb
 language plpgsql
-/* nicht stable: legt eine temporaere Tabelle an */
+stable
 security definer
-set search_path = 'pg_catalog, public, pg_temp'
+set search_path = ''
 as $$
 declare
   v_limit    integer := least(greatest(coalesce(p_limit, 10), 1), 50);
@@ -118,38 +118,56 @@ begin
     end if;
   end if;
 
-  /* Der Umfang als wiederverwendbare Bedingung.
-     Ein CTE lebt nur fuer EINE Anweisung — Zaehlung und Seite
-     brauchen die Bedingung aber beide. Deshalb eine temporaere
-     Tabelle, die am Transaktionsende verschwindet. */
-  create temporary table if not exists _feed_sichtbar
-    on commit drop as select * from public.events where false;
-  delete from _feed_sichtbar;
-
-  insert into _feed_sichtbar
-  select e.*
-  from public.events e
-  where e.user_id = p_user_id
-    and (
-      (p_location_id is not null
-        and (e.location_id = p_location_id
-             or (p_include_account and e.location_id is null)))
-      or
-      (p_location_id is null and e.location_id is null)
-    )
-    and (p_category is null or e.category = p_category)
-    and (
-      case
-        when p_lifecycle is not null then e.lifecycle = any(p_lifecycle)
-        else public.event_ist_offen(e.lifecycle, e.in_dashboard, e.cooldown_until, e.expires_at)
-      end
-    );
-
-  select count(*), count(*) filter (where public.event_ist_offen(f.lifecycle, f.in_dashboard, f.cooldown_until, f.expires_at))
-    into v_gesamt, v_offen
-    from _feed_sichtbar f;
-
-  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+  /*
+   * Alles in EINER Anweisung.
+   *
+   * Eine frühere Fassung legte eine temporäre Tabelle an, weil ein CTE
+   * nur für eine Anweisung lebt und Zählung wie Seite die Bedingung
+   * beide brauchen. Über PostgREST scheiterte das mit
+   * cardinality_violation (21000): Dort läuft jede Anfrage über eine
+   * gepoolte Verbindung, und temporäre Tabellen sind in dieser
+   * Umgebung unzuverlässig.
+   *
+   * Mit mehreren CTEs in einer Anweisung entfällt das Problem ganz —
+   * und es ist ohnehin die klarere Lösung.
+   */
+  with sichtbar as (
+    select e.*
+    from public.events e
+    where e.user_id = p_user_id
+      and (
+        (p_location_id is not null
+          and (e.location_id = p_location_id
+               or (p_include_account and e.location_id is null)))
+        or
+        (p_location_id is null and e.location_id is null)
+      )
+      and (p_category is null or e.category = p_category)
+      and (
+        case
+          when p_lifecycle is not null then e.lifecycle = any(p_lifecycle)
+          else public.event_ist_offen(e.lifecycle, e.in_dashboard, e.cooldown_until, e.expires_at)
+        end
+      )
+  ),
+  zahlen as (
+    select
+      count(*) as gesamt,
+      count(*) filter (
+        where public.event_ist_offen(lifecycle, in_dashboard, cooldown_until, expires_at)
+      ) as offen
+    from sichtbar
+  ),
+  seite as (
+    select * from sichtbar
+    /* Die dritte Spalte ist kein Schmuck: Ohne sie ist die Reihenfolge
+       bei gleicher Prioritaet und gleichem Zeitstempel nicht
+       festgelegt, und Pagination liefert Dubletten oder Luecken. */
+    order by priority desc, created_at asc, id asc
+    limit v_limit offset v_offset
+  ),
+  gebaut as (
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
       'id',                s.id,
       'type',              s.type,
       'category',          s.category,
@@ -175,16 +193,12 @@ begin
       'ruleId',            s.rule_id,
       /* data enthaelt Fachdaten der Regel, keine Interna. */
       'data',              s.data
-    ) order by s.priority desc, s.created_at asc, s.id asc), '[]'::jsonb)
-  into v_items
-  from (
-    select * from _feed_sichtbar
-    /* Die dritte Spalte ist kein Schmuck: Ohne sie ist die Reihenfolge
-       bei gleicher Prioritaet und gleichem Zeitstempel nicht
-       festgelegt, und Pagination liefert Dubletten oder Luecken. */
-    order by priority desc, created_at asc, id asc
-    limit v_limit offset v_offset
-  ) s;
+    ) order by s.priority desc, s.created_at asc, s.id asc), '[]'::jsonb) as items
+    from seite s
+  )
+  select gebaut.items, zahlen.gesamt, zahlen.offen
+    into v_items, v_gesamt, v_offen
+    from gebaut, zahlen;
 
   return pg_catalog.jsonb_build_object(
     'items',  v_items,
