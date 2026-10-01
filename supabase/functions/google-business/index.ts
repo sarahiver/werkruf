@@ -3198,14 +3198,35 @@ function buildFacts(ctx: EvaluationContext): Facts {
    * Ohne das wuerde ctx.locations.flatMap beim ersten Lauf werfen und
    * der gesamte Engine-Durchgang scheitern.
    */
-  const einzeln = (ctx as unknown as { location?: unknown }).location;
-  if (einzeln && !Array.isArray((ctx as unknown as { locations?: unknown }).locations)) {
-    (ctx as unknown as { locations: unknown[] }).locations = [einzeln];
-  } else if (!Array.isArray((ctx as unknown as { locations?: unknown }).locations)) {
+  const roh = ctx as unknown as Record<string, unknown>;
+
+  const einzeln = roh.location;
+  if (einzeln && !Array.isArray(roh.locations)) {
+    roh.locations = [einzeln];
+  } else if (!Array.isArray(roh.locations)) {
     /* Kontoumfang: keine Betriebsfakten. Die Verbindungsregeln
        brauchen keine. */
-    (ctx as unknown as { locations: unknown[] }).locations = [];
+    roh.locations = [];
   }
+
+  /*
+   * Felder, die der Kontoumfang gar nicht liefert.
+   *
+   * build_location_evaluation_context gibt bei p_location_id = null
+   * bewusst keine reviews, lowRatedOpen, replies oder health zurueck —
+   * Nullwerte saehen aus wie ein Betrieb ohne Kundschaft.
+   *
+   * buildFacts greift aber direkt zu: ctx.lowRatedOpen.map(...) wirft
+   * dann, und der gesamte Kontodurchgang scheitert. Genau das ist am
+   * 01.10. passiert: Die Betriebe wurden bewertet, der Kontoumfang
+   * nicht — und die alte standortlose Empfehlung blieb offen stehen.
+   *
+   * Leere Listen hier sind etwas anderes als erfundene Nullwerte im
+   * Kontext: Sie sagen nicht "dieser Betrieb hat null Bewertungen",
+   * sondern "in diesem Umfang gibt es nichts zu bewerten". Die
+   * Betriebsregeln laufen hier ohnehin nicht.
+   */
+  if (!Array.isArray(roh.lowRatedOpen)) roh.lowRatedOpen = [];
 
   const now = ctx.now;
   const reviews = ctx.reviews;
