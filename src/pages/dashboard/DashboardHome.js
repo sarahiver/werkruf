@@ -3,18 +3,18 @@ import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import {
   CheckCircle, AlertTriangle, Link2, Clock, ArrowRight,
-  RefreshCw, Activity, TrendingUp, Star, MessageSquare,
+  RefreshCw, Activity, Star, MessageSquare,
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useBetriebsname } from '../../hooks/useBetriebsname';
-import { useIndustry } from '../../context/IndustryContext';
 import { useDashboardBriefing } from '../../hooks/useDashboardBriefing';
+import WerkrufScore from '../../components/dashboard/WerkrufScore';
+import NaechsteSchritte from '../../components/dashboard/NaechsteSchritte';
 import { useHealthScore } from '../../hooks/useHealthScore';
 import {
   Page, PageTitle, PageSub, Card, SectionTitle,
-  StatusBanner, Recommendation, HealthCard, Insight,
-  SkeletonList, ErrorState, EmptyState,
-  PrimaryBtn, GhostBtn, Spinner, formatRelative,
+  StatusBanner, Recommendation, HealthCard, Insight, ErrorState,
+  PrimaryBtn, Spinner, formatRelative,
 } from '../../components/dashboard/gb/GbUi';
 
 /* ─────────────────────────────────────────────
@@ -64,9 +64,10 @@ const STATUS_ICONS = {
 
 export default function DashboardHome() {
   const { profile } = useAuthContext();
-  const { brand } = useIndustry();
   const {
     status, actions, nextAction,
+    healthScore, feedLaedt, feedFehler, feedNeuLaden,
+    standortAuswahlNoetig, datenstand,
     isConnected, lastSyncedAt, runningJob,
     locations, stats, replyCounts,
     loading, error, reload,
@@ -98,7 +99,17 @@ export default function DashboardHome() {
       <PageTitle>Übersicht</PageTitle>
       <PageSub>Dasselbe wie in deiner Wochenmail — hier mit Knöpfen daneben.</PageSub>
 
-      {/* ═══ 1. IST ALLES IN ORDNUNG? ═══
+      {/* ═══ 1. WIE STEHT DER BETRIEB DA? ═══
+          Der kanonische WERKRUF Score aus D1 — nicht visibility_score.
+          Er steht oben, weil er die Frage beantwortet, mit der jeder
+          aufs Dashboard kommt. */}
+      <WerkrufScore
+        score={healthScore}
+        loading={loading}
+        betrieb={healthScore?.locationTitle}
+      />
+
+      {/* ═══ 2. IST ALLES IN ORDNUNG? ═══
           Zustand und die eine nächste Handlung stehen zusammen. Wer
           den Satz liest, hat den Knopf schon im Blick. */}
       <StatusBanner
@@ -106,9 +117,9 @@ export default function DashboardHome() {
         headline={status.headline}
         detail={status.detail}
         icon={STATUS_ICONS[status.level]}
-        action={nextAction && (
-          <PrimaryBtn as={Link} to={nextAction.ctaTo} style={{ textDecoration: 'none' }}>
-            {nextAction.ctaLabel} <ArrowRight size={15} />
+        action={nextAction?.actionUrl && (
+          <PrimaryBtn as={Link} to={nextAction.actionUrl} style={{ textDecoration: 'none' }}>
+            Erledigen <ArrowRight size={15} />
           </PrimaryBtn>
         )}
       />
@@ -169,38 +180,25 @@ export default function DashboardHome() {
       )}
 
       {/* ═══ 3. WAS SOLL ICH TUN? ═══
-          Empfehlungen mit Nutzen und Aufwand. Ohne beides kann niemand
-          entscheiden, ob sich eine Sache jetzt lohnt. */}
-      {loading ? (
-        <SkeletonList count={2} height={96} />
-      ) : actions.length > 0 ? (
-        <>
-          <SectionTitle><AlertTriangle size={15} /> Was du tun solltest</SectionTitle>
-          <Card>
-            {actions.map((item) => (
-              <Recommendation
-                key={item.id}
-                severity={item.severity}
-                title={item.title}
-                detail={item.detail}
-                benefit={item.benefit}
-                effort={item.effort}
-                benefitIcon={<TrendingUp size={11} />}
-                effortIcon={<Clock size={11} />}
-              >
-                <GhostBtn as={Link} to={item.ctaTo} style={{ textDecoration: 'none' }}>
-                  {item.ctaLabel} <ArrowRight size={13} />
-                </GhostBtn>
-              </Recommendation>
-            ))}
-          </Card>
-        </>
-      ) : isConnected ? (
-        <EmptyState
-          title="Nichts zu tun"
-          text={`Alle Bewertungen sind beantwortet und dein Profil ist aktuell. ${brand.name} meldet sich, sobald sich etwas ändert — du musst hier nicht nachsehen.`}
-        />
-      ) : null}
+          Ausschliesslich aus der Decision Engine. Diese Seite
+          entscheidet nicht mehr, welche Aufgabe existiert — sie zeigt,
+          was die Engine entschieden hat. */}
+      <NaechsteSchritte
+        events={actions}
+        loading={feedLaedt}
+        fehler={feedFehler}
+        onNeuLaden={feedNeuLaden}
+        standortAuswahlNoetig={standortAuswahlNoetig}
+        standortAuswahlZiel="/dashboard/google"
+      />
+
+      {/* Technischer Hinweis zur Datenlage — keine Aufgabe. Der Kunde
+          kann nichts daran tun ausser abwarten. */}
+      {datenstand && (
+        <Caption>
+          <Clock size={12} /> {datenstand.text} {datenstand.hinweis}
+        </Caption>
+      )}
 
       {/* ═══ 4. WIE STEHT MEIN PROFIL DA? ═══
           Der Gesundheitswert kommt zuletzt: Er ist eine Einordnung,

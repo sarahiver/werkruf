@@ -3,6 +3,7 @@ import { useAuthContext } from '../context/AuthContext';
 import { useGoogleBusiness } from './useGoogleBusiness';
 import { useGoogleBusinessData } from './useGoogleBusinessData';
 import { useHealthScore } from './useHealthScore';
+import { useEvents } from './useEvents';
 
 /* ─────────────────────────────────────────────
    useDashboardBriefing
@@ -47,16 +48,15 @@ import { useHealthScore } from './useHealthScore';
 
 /* Ab wann Daten als veraltet gelten. Grosszügig: der Planer läuft
    alle zwei Stunden, ein Ausfall über Nacht ist kein Drama. */
-const STALE_HOURS = 48;
 
 export function useDashboardBriefing() {
   useAuthContext();   /* profile wird hier nicht mehr gebraucht — der Score kommt aus useHealthScore */
   const {
-    isConnected, needsReauth, brokenConnection,
+    isConnected, brokenConnection,
     loading: connectionLoading,
   } = useGoogleBusiness();
   const {
-    locations, stats, replyCounts, lastSyncedAt, runningJob, lastFailedJob,
+    locations, stats, replyCounts, lastSyncedAt, runningJob,
     loading: dataLoading, error, reload, triggerSync,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
@@ -76,153 +76,62 @@ export function useDashboardBriefing() {
      Reihenfolge ist Absicht. Was den Betrieb blockiert, steht oben;
      was ihn nur verbessert, unten. Bei gleicher Dringlichkeit gilt:
      zuerst, was ein Kunde sieht. */
-  const actions = useMemo(() => {
-    if (loading) return [];
-    const items = [];
+  /*
+   * Die Aufgaben kommen aus der Decision Engine, nicht von hier.
+   *
+   * Bis zum 01.10.2026 erzeugte dieser Hook neun eigene Aufgaben —
+   * connect, reauth, failed-replies, unanswered, drafts, no-locations,
+   * stale, sync-failed, incomplete. Sieben davon hatte die Engine
+   * ebenfalls, mit eigener Prioritaet, eigenem Wortlaut und eigenem
+   * Lebenszyklus.
+   *
+   * Zwei Quellen fuer dieselbe Frage laufen auseinander: Das Dashboard
+   * haette "3 Bewertungen warten" gezeigt, die Wochenmail "Antwortquote
+   * verbessern" — aus zwei verschiedenen Regeln, mit zwei verschiedenen
+   * Schwellen.
+   *
+   * Die beiden Faelle ohne Engine-Entsprechung sind bewusst keine
+   * Aufgaben geworden:
+   *
+   *   no-locations  ist ein Zustand der Oberflaeche, keine Handlung
+   *                 am Google-Profil. Steht jetzt in
+   *                 standortAuswahlNoetig.
+   *
+   *   stale         ist eine Aussage ueber die Datenlage, kein
+   *                 naechster Schritt fuer den Kunden. Steht jetzt in
+   *                 datenstand.
+   */
+  const { events: engineAufgaben, loading: feedLaedt, error: feedFehler,
+          locationResolved, reload: feedNeuLaden } = useEvents();
 
-    if (!isConnected && !needsReauth) {
-      items.push({
-        id: 'connect',
-        severity: 'critical',
-        title: 'Google-Profil noch nicht verbunden',
-        detail: 'Ohne Verbindung sieht WERKRUF dein Profil nicht — keine Bewertungen, keine Meldungen, keine Vorschläge.',
-        benefit: 'Danach läuft die Überwachung von selbst',
-        effort: '2 Minuten',
-        ctaLabel: 'Jetzt verbinden',
-        ctaTo: '/dashboard/google',
-      });
-    }
+  /*
+   * Braucht es eine Betriebsauswahl?
+   *
+   * Nur bei mehreren Betrieben ohne eindeutige Auswahl. Bei genau
+   * einem ist nichts zu waehlen.
+   */
+  const standortAuswahlNoetig = !loading && !locationResolved && locations.length > 1;
 
-    if (needsReauth) {
-      items.push({
-        id: 'reauth',
-        severity: 'critical',
-        title: 'Verbindung zu Google abgerissen',
-        detail: 'Seitdem kommen keine neuen Bewertungen an, und freigegebene Antworten werden nicht übertragen.',
-        benefit: 'Überwachung läuft wieder',
-        effort: '1 Minute',
-        ctaLabel: 'Neu verbinden',
-        ctaTo: '/dashboard/google',
-      });
-    }
+  /*
+   * Wie alt sind die angezeigten Daten?
+   *
+   * Ein technischer Hinweis, keine Aufgabe. Der Kunde kann nichts
+   * daran tun ausser abwarten — und eine Aufgabenkarte, die man nur
+   * wegklicken kann, ist keine.
+   */
+  const datenstand = useMemo(() => {
+    if (loading || hoursSinceSync === null) return null;
+    if (hoursSinceSync < 24) return null;
 
-    if (replyCounts.failed > 0) {
-      items.push({
-        id: 'failed-replies',
-        severity: 'critical',
-        title: `${replyCounts.failed} ${replyCounts.failed === 1 ? 'Antwort' : 'Antworten'} nicht veröffentlicht`,
-        detail: 'Die Übertragung an Google ist gescheitert. Der Text steht noch da, er ist nur nicht online.',
-        benefit: 'Antwort wird öffentlich sichtbar',
-        effort: '1 Minute',
-        ctaLabel: 'Ansehen',
-        ctaTo: '/dashboard/bewertungen',
-        count: replyCounts.failed,
-      });
-    }
-
-    /* Unbeantwortete Bewertungen: der Punkt, den ein Kunde sieht.
-       Deshalb vor allem Internen. */
-    if (stats?.unanswered > 0) {
-      items.push({
-        id: 'unanswered',
-        severity: stats.unanswered > 3 ? 'critical' : 'warning',
-        title: `${stats.unanswered} ${stats.unanswered === 1 ? 'Bewertung wartet' : 'Bewertungen warten'} auf Antwort`,
-        detail: 'Wer dein Profil öffnet, sieht unbeantwortete Bewertungen sofort — und liest sie anders als beantwortete.',
-        benefit: 'Vorschläge liegen bereit, du gibst nur frei',
-        effort: '2 Minuten',
-        ctaLabel: 'Antworten freigeben',
-        ctaTo: '/dashboard/bewertungen',
-        count: stats.unanswered,
-      });
-    }
-
-    if (replyCounts.draft > 0) {
-      items.push({
-        id: 'drafts',
-        severity: 'warning',
-        title: `${replyCounts.draft} ${replyCounts.draft === 1 ? 'Entwurf liegt' : 'Entwürfe liegen'} bereit`,
-        detail: 'WERKRUF hat sie geschrieben, veröffentlicht aber nichts ohne dein Ja.',
-        benefit: 'Lesen, anpassen, freigeben',
-        effort: '1 Minute je Antwort',
-        ctaLabel: 'Durchsehen',
-        ctaTo: '/dashboard/bewertungen',
-        count: replyCounts.draft,
-      });
-    }
-
-    if (isConnected && locations.length === 0 && !runningJob) {
-      items.push({
-        id: 'no-locations',
-        severity: 'warning',
-        title: 'Standorte noch nicht geladen',
-        detail: 'Der erste Abgleich holt Standorte und Bewertungen aus deinem Profil.',
-        benefit: 'Danach sind alle Daten da',
-        effort: 'Ein Klick, läuft im Hintergrund',
-        ctaLabel: 'Abgleich starten',
-        ctaTo: '/dashboard/google',
-      });
-    }
-
-    if (isConnected && hoursSinceSync !== null && hoursSinceSync > STALE_HOURS) {
-      items.push({
-        id: 'stale',
-        severity: 'warning',
-        title: 'Daten sind nicht mehr aktuell',
-        detail: `Der letzte Abgleich ist über ${Math.round(hoursSinceSync / 24)} Tage her. Neue Bewertungen könnten fehlen.`,
-        benefit: 'Zahlen stimmen wieder',
-        effort: 'Ein Klick',
-        ctaLabel: 'Jetzt abgleichen',
-        ctaTo: '/dashboard/google',
-      });
-    }
-
-    if (lastFailedJob && !needsReauth) {
-      items.push({
-        id: 'sync-failed',
-        severity: 'warning',
-        title: 'Letzter Abgleich fehlgeschlagen',
-        detail: 'WERKRUF versucht es automatisch erneut. Bleibt es dabei, stimmt etwas mit der Verbindung nicht.',
-        benefit: 'Ursache wird sichtbar',
-        effort: '1 Minute',
-        ctaLabel: 'Profil prüfen',
-        ctaTo: '/dashboard/google',
-      });
-    }
-
-    /*
-     * Profil unvollständig — wichtig, aber nie dringend. Steht deshalb
-     * immer unten, egal wie niedrig der Wert ist.
-     *
-     * Ausgewertet wird der WERKRUF Score des ausgewaehlten Betriebs,
-     * nicht profile.visibility_score.
-     *
-     * Der visibility_score stammt aus dem oeffentlichen SmartCheck —
-     * berechnet aus Places-Daten, ohne verbundenes Google-Konto, nach
-     * einer anderen Formel (siehe docs/score-calculations.md). Ihn im
-     * eingeloggten Dashboard eine Empfehlung steuern zu lassen hiess,
-     * zwei verschiedene Messungen als dieselbe zu behandeln — und bei
-     * mehreren Betrieben zusaetzlich betriebsunabhaengig.
-     */
-    const score = healthScore?.score;
-    if (isConnected && typeof score === 'number' && score < 70) {
-      items.push({
-        id: 'incomplete',
-        severity: 'info',
-        title: 'Profilangaben fehlen',
-        detail: 'Google spielt unvollständige Profile seltener aus, und wer sie öffnet, findet nicht, was er sucht.',
-        benefit: 'Jede ergänzte Angabe zählt dauerhaft',
-        effort: '5 Minuten',
-        ctaLabel: 'Lücken ansehen',
-        ctaTo: '/dashboard/google',
-      });
-    }
-
-    return items;
-  }, [
-    loading, isConnected, needsReauth, replyCounts, stats,
-    locations.length, runningJob, lastFailedJob, hoursSinceSync,
-    healthScore?.score,
-  ]);
+    const tage = Math.floor(hoursSinceSync / 24);
+    return {
+      stunden: Math.round(hoursSinceSync),
+      text: tage >= 1
+        ? `Letzter Abgleich vor ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}.`
+        : `Letzter Abgleich vor ${Math.round(hoursSinceSync)} Stunden.`,
+      hinweis: 'Die angezeigten Daten sind möglicherweise nicht mehr aktuell.',
+    };
+  }, [loading, hoursSinceSync]);
 
   /* ── Frage 1: Wie steht der Betrieb da? ──
      Ein Zustand, ein Satz. Kein Score als nackte Zahl: "68 von 100"
@@ -231,8 +140,12 @@ export function useDashboardBriefing() {
     if (loading) return { level: 'loading', headline: '', detail: '' };
     if (error)   return { level: 'error', headline: 'Daten nicht ladbar', detail: error };
 
-    const critical = actions.filter((a) => a.severity === 'critical').length;
-    const warning  = actions.filter((a) => a.severity === 'warning').length;
+    /* Die Dringlichkeit kommt aus der Prioritaet der Engine, nicht
+       aus einer eigenen Einstufung. */
+    const hoechste = engineAufgaben.reduce(
+      (max, e) => Math.max(max, Number(e.priority ?? 0)), 0);
+    const critical = hoechste >= 80 ? 1 : 0;
+    const warning  = hoechste >= 50 && hoechste < 80 ? 1 : 0;
 
     if (!isConnected) {
       return {
@@ -262,17 +175,28 @@ export function useDashboardBriefing() {
         ? `${stats.totalReviews} Bewertungen, alle beantwortet. WERKRUF meldet sich, wenn sich etwas ändert.`
         : 'WERKRUF meldet sich, wenn sich etwas ändert.',
     };
-  }, [loading, error, actions, isConnected, stats]);
+  }, [loading, error, engineAufgaben, isConnected, stats]);
 
   /* ── Frage 3: Was als Nächstes? ──
      Genau eine Handlung. Zwei gleichwertige Knöpfe sind keine
-     Empfehlung, sondern eine Rückfrage. */
-  const nextAction = actions[0] ?? null;
+     Empfehlung, sondern eine Rückfrage.
+
+     Welche das ist, entscheidet die Engine über die Reihenfolge im
+     Feed — hier wird nicht neu sortiert. */
 
   return {
     status,
-    actions,
-    nextAction,
+    /* Aufgaben ausschliesslich aus der Engine. */
+    actions: engineAufgaben,
+    nextAction: engineAufgaben[0] ?? null,
+    feedLaedt,
+    feedFehler,
+    feedNeuLaden,
+    standortAuswahlNoetig,
+    datenstand,
+    /* Der kanonische WERKRUF Score — fuer die Anzeige ganz oben.
+       Nicht visibility_score. */
+    healthScore,
     /* Rohdaten durchreichen — der Gesundheitswert rechnet damit,
        und eine zweite Abfrage derselben Tabellen wäre Verschwendung. */
     locations,

@@ -63,7 +63,18 @@ async function callFunction(path, body) {
   return payload;
 }
 
+/*
+ * Drei Aufgaben, nicht mehr.
+ *
+ * Mehr liest niemand, und eine Liste von zwoelf Empfehlungen ist keine
+ * Hilfe, sondern eine zweite Aufgabe.
+ */
+const MAX_AUFGABEN = 3;
+
 export function useEvents() {
+  const [feedZustand, setFeedZustand] = useState({
+    locationResolved: true, locationId: null, open: 0,
+  });
   const [events, setEvents]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy]       = useState(false);
@@ -75,21 +86,44 @@ export function useEvents() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      /* Die RLS-Policy filtert bereits auf eigene, offene Ereignisse.
-         Die Sortierung kommt aus der Engine — nicht hier neu
-         erfinden, sonst weicht das Dashboard von der Mail ab. */
-      const { data, error: queryError } = await supabase
-        .from('events')
-        .select('id, type, category, priority, title, summary, reason, ' +
-                'recommended_action, action_url, estimated_effort, impact, ' +
-                'is_dismissable, in_dashboard, data, created_at')
-        .eq('in_dashboard', true)
-        .order('priority', { ascending: false })
-        .order('created_at', { ascending: false });
+      /*
+       * Über den Feed, nicht direkt über die Tabelle.
+       *
+       * Die frühere Abfrage las alle Events des Nutzers — bei zwei
+       * Betrieben also die von S&I UND WERKRUF nebeneinander. Die
+       * RLS-Policy trennt nach Nutzer, nicht nach Betrieb.
+       *
+       * events_feed wählt den Standort serverseitig nach derselben
+       * Regel wie der WERKRUF Score, liefert Konto-Empfehlungen mit und
+       * sortiert wie die Engine. Die Reihenfolge hier erneut
+       * herzustellen hiesse, dass Dashboard und Wochenmail
+       * auseinanderlaufen können.
+       */
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setEvents([]); return; }
+
+      const { data: standort } = await supabase.rpc('werkruf_score_location', {
+        p_user_id: user.id,
+      });
+
+      const { data, error: queryError } = await supabase.rpc('events_feed', {
+        p_user_id: user.id,
+        p_location_id: standort ?? null,
+        p_limit: MAX_AUFGABEN,
+      });
 
       if (queryError) throw queryError;
       if (!mountedRef.current) return;
-      setEvents(data ?? []);
+
+      const feed = data ?? {};
+      setEvents(Array.isArray(feed.items) ? feed.items : []);
+      setFeedZustand({
+        /* Bei mehreren Betrieben ohne Auswahl ist das false — dann
+           zeigt das Dashboard die Auswahl, keine Aufgaben. */
+        locationResolved: Boolean(standort),
+        locationId: standort ?? null,
+        open: feed.open ?? 0,
+      });
     } catch (err) {
       console.error('[useEvents]', err);
       if (mountedRef.current) setError('Die Empfehlungen konnten nicht geladen werden.');
@@ -186,7 +220,13 @@ export function useEvents() {
     };
   }, [events]);
 
-  return { events, ...derived, loading, busy, error, reload: load, revaluate, dismiss, open };
+  return {
+    events, ...derived, loading, busy, error,
+    reload: load, revaluate, dismiss, open,
+    /* Standortzustand aus dem Feed — damit das Dashboard keine eigene
+       Standortlogik braucht. */
+    ...feedZustand,
+  };
 }
 
 export default useEvents;
