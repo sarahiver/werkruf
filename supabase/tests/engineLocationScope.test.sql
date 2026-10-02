@@ -204,18 +204,21 @@ end $$;
    ═══════════════════════════════════════════════════════ */
 do $$
 begin
-  /* Snapshot ohne Standort — nicht vergleichbar. */
-  insert into public.weekly_snapshots (user_id, payload)
-  values ((select id from t_ids where name='user'), '{"health":{"score":55}}'::jsonb);
+  /* Snapshot ohne Standort — nicht vergleichbar.
+     health_score, nicht payload: Die Spalte heisst seit jeher so. Ein
+     frueherer Test nutzte eine erfundene payload-Spalte und deckte
+     damit nicht auf, dass die Funktion sie las. */
+  insert into public.weekly_snapshots (user_id, week_start, health_score)
+  values ((select id from t_ids where name='user'), current_date - 14, 55);
 
   assert public.previous_location_health(
     (select id from t_ids where name='user'), (select id from t_ids where name='si')) is null,
     'Ein Snapshot ohne Standort darf nicht als Vorwochenwert dienen';
 
   /* Mit Standort und passender Fassung. */
-  insert into public.weekly_snapshots (user_id, location_id, score_version, payload)
+  insert into public.weekly_snapshots (user_id, location_id, score_version, week_start, health_score)
   values ((select id from t_ids where name='user'), (select id from t_ids where name='si'),
-          1, '{"health":{"score":57}}'::jsonb);
+          1, current_date - 7, 57);
 
   assert public.previous_location_health(
     (select id from t_ids where name='user'), (select id from t_ids where name='si')) = 57,
@@ -251,6 +254,80 @@ begin
            where location_id = (select id from t_ids where name='werkruf')
              and estimated_minutes is not null) = 2,
     'Und laesst sich summieren';
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   11 — Dubletten aus dem Altbestand
+   ═══════════════════════════════════════════════════════ */
+/* Der Index existiert an dieser Stelle bereits — die Migration ist ja
+   gelaufen. Um den Altbestand nachzustellen, muss er kurz weichen;
+   genau diese Reihenfolge hat die Migration selbst: erst bereinigen,
+   dann Index. Der rollback am Ende macht alles rueckgaengig. */
+drop index if exists public.events_identitaet_konto_ohne_subject_idx;
+
+do $$
+declare v_offen integer;
+begin
+  /* Der Bestand vom 30.09.: Ohne eindeutigen Index konnte das
+     "on conflict" in sync_events nie greifen — jeder Engine-Lauf legte
+     eine neue Zeile an. 21 identische "Verbindung pruefen" in zwei
+     Tagen. */
+  insert into public.events (user_id, type, category, priority, title, summary, created_at)
+  select (select id from t_ids where name='user'), 'legacy.dublette', 'connection', 40,
+         'Verbindung pruefen', 'Sync scheitert', now() - (g || ' hours')::interval
+  from generate_series(1, 21) g;
+
+  /* Der Index greift erst nach der Bereinigung — hier wird sie
+     nachgestellt, weil die Migration schon gelaufen ist. */
+  with rang as (
+    select id, row_number() over (
+             partition by user_id, location_id, type, subject_id order by created_at) as nr
+    from public.events where lifecycle in ('new','seen','opened'))
+  update public.events e set lifecycle = 'resolved', resolved_at = now()
+    from rang where e.id = rang.id and rang.nr > 1;
+
+  select count(*) into v_offen from public.events
+   where type = 'legacy.dublette' and lifecycle = 'new';
+
+  assert v_offen = 1, 'Von 21 Dubletten bleibt genau eine offen';
+
+  /* Die AELTESTE bleibt — sie traegt den Zeitpunkt, an dem das Problem
+     erstmals auftrat. Genau das haette ein funktionierendes Upsert
+     erhalten. */
+  assert (select created_at from public.events
+           where type = 'legacy.dublette' and lifecycle = 'new')
+       = (select min(created_at) from public.events where type = 'legacy.dublette'),
+    'Und zwar die aelteste';
+
+  /* Aufgeloeste Zeilen duerfen mehrfach bestehen — dasselbe Problem
+     kann im Maerz und im Juni auftreten. */
+  assert (select count(*) from public.events
+           where type = 'legacy.dublette' and lifecycle = 'resolved') = 20,
+    'Die uebrigen bleiben als Historie erhalten, nicht geloescht';
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   12 — Der Index verhindert neue Dubletten
+   ═══════════════════════════════════════════════════════ */
+
+/* Nach der Bereinigung laesst er sich anlegen — vorher nicht.
+   Genau daran ist die Migration beim ersten Versuch gescheitert. */
+create unique index events_identitaet_konto_ohne_subject_idx
+  on public.events (user_id, type)
+  where lifecycle in ('new','seen','opened') and location_id is null and subject_id is null;
+
+do $$
+declare v_abgewiesen boolean := false;
+begin
+  begin
+    insert into public.events (user_id, type, category, priority, title, summary)
+    values ((select id from t_ids where name='user'), 'legacy.dublette', 'connection', 40,
+            'Nochmal', 'Nochmal');
+  exception when unique_violation then v_abgewiesen := true;
+  end;
+
+  assert v_abgewiesen,
+    'Eine zweite OFFENE Zeile desselben Typs wird jetzt abgewiesen — genau das fehlte';
 end $$;
 
 select 'Alle SQL-Zusicherungen erfuellt' as ergebnis;

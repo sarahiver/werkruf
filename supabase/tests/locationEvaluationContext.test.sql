@@ -262,9 +262,9 @@ begin
   assert v -> 'previousHealth' = 'null'::jsonb,
     'Ohne passenden Snapshot kein Vergleichswert — health.declined feuert nicht';
 
-  insert into public.weekly_snapshots (user_id, location_id, score_version, payload)
+  insert into public.weekly_snapshots (user_id, location_id, score_version, week_start, health_score)
   values ((select id from t where name='user'), (select id from t where name='si'),
-          1, '{"health":{"score":57}}'::jsonb);
+          1, current_date - 7, 57);
 
   v := public.build_location_evaluation_context(
     (select id from t where name='user'), (select id from t where name='si'));
