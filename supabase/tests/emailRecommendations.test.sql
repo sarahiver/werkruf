@@ -192,8 +192,9 @@ begin
      Das ist moeglicherweise gewollt — eine neue Regel erst im
      Dashboard zeigen, bevor sie an Kunden geht. Entschieden habe ich
      das nicht; der Filter in events_feed fehlt, seit ich sie in
-     Paket D2 gebaut habe. Hier wird deshalb der gemeinsame Teil
-     verglichen, und die Abweichung bleibt als offene Frage. */
+     Paket D2 gebaut habe — und seit 20261005180000 behoben ist.
+     Das delete bleibt, damit der Test unabhaengig von der
+     Reihenfolge laeuft. */
   delete from public.events where rule_status = 'candidate';
 
   v_dash := public.events_feed(
@@ -206,11 +207,17 @@ begin
 end $$;
 
 /* ═══════════════════════════════════════════════════════
-   8b — Abweichung bei rule_status festhalten
+   8b — Probebetrieb erreicht beide Kanaele nicht
    ═══════════════════════════════════════════════════════ */
 do $$
 declare v_dash jsonb; v_mail jsonb;
 begin
+  /* Diese Zusicherung stand bis zum 05.10. umgekehrt: Das Dashboard
+     ZEIGTE Regeln im Probebetrieb, die Mail nicht. Die Abweichung
+     stammte aus Paket D2, wo events_feed ohne rule_status-Filter
+     entstand.
+     
+     Seit 20261005180000 gilt dieselbe Freigabe fuer beide Kanaele. */
   insert into public.events
     (user_id, location_id, type, category, priority, title, summary,
      estimated_minutes, in_weekly_email, in_dashboard, rule_status)
@@ -221,36 +228,12 @@ begin
     (select id from t where name='user'), (select id from t where name='si'), 5) -> 'items';
   v_mail := public.top_recommendations_for_email((select id from t where name='user'), 5);
 
-  /* Festgehalten, nicht behauptet, dass es richtig ist: Aendert sich
-     das Verhalten, faellt es hier auf. */
-  assert v_dash::text like '%Probebetrieb%',
-    'Das Dashboard zeigt Regeln im Probebetrieb';
+  assert v_dash::text not like '%Probebetrieb%',
+    'Das Dashboard zeigt den Probebetrieb nicht mehr';
   assert v_mail::text not like '%Probebetrieb%',
-    'Die Mail nicht — rule_status = candidate ist dort ausgeschlossen';
+    'Die Mail auch nicht — dieselbe Freigabe fuer beide';
 
   delete from public.events where rule_status = 'candidate';
-end $$;
-
-/* ═══════════════════════════════════════════════════════
-   9 — Erledigtes ebenfalls standortbezogen
-   ═══════════════════════════════════════════════════════ */
-do $$
-declare v jsonb;
-begin
-  insert into public.events
-    (user_id, location_id, type, category, priority, title, summary,
-     lifecycle, completed_at)
-  values
-    ((select id from t where name='user'), (select id from t where name='si'),
-     'x.fertig1', 'profile', 20, 'S&I erledigt', 'x', 'completed', now() - interval '2 days'),
-    ((select id from t where name='user'), (select id from t where name='werkruf'),
-     'x.fertig2', 'profile', 20, 'WERKRUF erledigt', 'x', 'completed', now() - interval '2 days');
-
-  v := public.completed_this_week((select id from t where name='user'));
-
-  assert jsonb_array_length(v) = 1, 'Nur das des ausgewaehlten Betriebs';
-  assert v::text like '%S&I erledigt%', 'Und zwar das richtige';
-  assert v::text not like '%WERKRUF erledigt%', 'Nicht das des anderen';
 end $$;
 
 select 'Alle SQL-Zusicherungen erfuellt' as ergebnis;

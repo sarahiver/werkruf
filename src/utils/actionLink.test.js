@@ -123,6 +123,38 @@ describe('Ratenbegrenzung', () => {
   });
 });
 
+describe('Token-Erzeugung hängt am produktiven Pfad', () => {
+  it('liest das Feld, das schedule_communications schreibt', () => {
+    /* Der produktive Weg ist comm-weekly → send-email/plan →
+       schedule_communications. Der legt die Aufgaben unter `actions`
+       ab. Bis zum 05.10. las ergaenzeMailLinks `engineEvents` — ein
+       Feld aus weekly_payload_for, das im produktiven Pfad nicht
+       vorkommt. Die Mail enthielt deshalb keine Token-Links, ohne
+       dass ein Fehler entstand. */
+    expect(ERZEUGEN).toMatch(/payload\.actions/);
+  });
+
+  it('liest beide Feldnamen', () => {
+    /* Damit ein späterer Umbau des Payloads nicht wieder
+       stillschweigend bricht. */
+    expect(ERZEUGEN).toMatch(/payload\.engineEvents/);
+  });
+
+  it('gibt unter demselben Namen zurück', () => {
+    expect(ERZEUGEN).toMatch(/\[feldname\]: mitLinks/);
+  });
+
+  it('setzt den Link in action_url, das die Vorlage rendert', () => {
+    /* Nur mailLink zu setzen hiesse: Der Token-Link steht im Payload
+       und niemand nutzt ihn. */
+    expect(ERZEUGEN).toMatch(/action_url: link/);
+  });
+
+  it('liest den Zielpfad aus beiden Schreibweisen', () => {
+    expect(ERZEUGEN).toMatch(/e\.action_url \?\? e\.actionUrl/);
+  });
+});
+
 describe('Token-Erzeugung in der Mail', () => {
   it('speichert nur den Hash', () => {
     expect(ERZEUGEN).toMatch(/p_token_hash:\s+hash/);
@@ -145,7 +177,8 @@ describe('Token-Erzeugung in der Mail', () => {
   });
 
   it('prüft das Ziel vor dem Erzeugen', () => {
-    expect(ERZEUGEN).toMatch(/zielErlaubt\(e\.actionUrl\)/);
+    /* Beide Schreibweisen — das echte Payload nutzt action_url. */
+    expect(ERZEUGEN).toMatch(/zielErlaubt\(roh\)/);
   });
 
   it('fällt bei einem Fehler auf den regulären Pfad zurück', () => {

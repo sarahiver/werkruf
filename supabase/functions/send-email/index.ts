@@ -480,8 +480,29 @@ async function ergaenzeMailLinks(
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const userId = payload.userId as string | undefined;
-  const events = Array.isArray(payload.engineEvents)
-    ? payload.engineEvents as Array<Record<string, unknown>> : [];
+
+  /*
+   * Das Feld heisst `actions`, nicht `engineEvents`.
+   *
+   * schedule_communications baut das Payload und legt die Aufgaben
+   * unter `actions` ab — top_recommendations_for_email liefert sie.
+   * `engineEvents` stammt aus weekly_payload_for, das im produktiven
+   * Pfad nicht aufgerufen wird.
+   *
+   * Bis zum 05.10.2026 las diese Funktion `engineEvents` und fand
+   * nichts: Die Mail enthielt keine Token-Links, und niemand merkte
+   * es, weil kein Fehler entstand — nur eine leere Liste.
+   *
+   * Beide Namen werden gelesen, damit ein spaeterer Umbau des
+   * Payloads nicht wieder stillschweigend bricht.
+   */
+  const events = Array.isArray(payload.actions)
+    ? payload.actions as Array<Record<string, unknown>>
+    : Array.isArray(payload.engineEvents)
+      ? payload.engineEvents as Array<Record<string, unknown>>
+      : [];
+
+  const feldname = Array.isArray(payload.actions) ? 'actions' : 'engineEvents';
 
   if (!userId || events.length === 0) return payload;
 
@@ -489,8 +510,10 @@ async function ergaenzeMailLinks(
   const db = adminClient();
 
   const mitLinks = await Promise.all(events.map(async (e) => {
-    const zielPfad = typeof e.actionUrl === 'string' && zielErlaubt(e.actionUrl)
-      ? e.actionUrl : '/dashboard';
+    /* schedule_communications schreibt `action_url`,
+       weekly_payload_for `actionUrl`. Beide lesen. */
+    const roh = (e.action_url ?? e.actionUrl) as string | undefined;
+    const zielPfad = typeof roh === 'string' && zielErlaubt(roh) ? roh : '/dashboard';
 
     try {
       const { klartext, hash } = await erzeugeToken();
@@ -513,10 +536,12 @@ async function ergaenzeMailLinks(
         return e;
       }
 
-      return {
-        ...e,
-        mailLink: `${basis}/functions/v1/google-business/a/${klartext}`,
-      };
+      const link = `${basis}/functions/v1/google-business/a/${klartext}`;
+
+      /* mailLink fuer neue Vorlagen, action_url fuer die bestehende:
+         Die Wochenmail rendert ihre Knoepfe aus action_url. Ohne das
+         stuende der Token-Link im Payload und niemand nutzte ihn. */
+      return { ...e, mailLink: link, action_url: link };
     } catch (err) {
       console.warn(JSON.stringify({
         scope: 'weeklyMail', event: 'token_error',
@@ -526,7 +551,8 @@ async function ergaenzeMailLinks(
     }
   }));
 
-  return { ...payload, engineEvents: mitLinks };
+  /* Unter demselben Namen zurueckgeben, unter dem es gekommen ist. */
+  return { ...payload, [feldname]: mitLinks };
 }
 
 function render(template: EmailTemplate, payload: Record<string, unknown>, toName: string | null): RenderedEmail {
