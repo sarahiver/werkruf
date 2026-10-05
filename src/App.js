@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import LinkAbgelaufen from './pages/LinkAbgelaufen';
 
 /* Providers */
 import { IndustryProvider } from './context/IndustryContext';
@@ -89,6 +90,10 @@ function App() {
             } />
 
             {/* ── PROTECTED DASHBOARD ── */}
+            {/* Mail-Link nicht mehr gueltig. Oeffentlich — der
+                Besucher ist per Definition nicht angemeldet. */}
+            <Route path="/link-abgelaufen" element={<LinkAbgelaufen />} />
+
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <DashboardLayout />

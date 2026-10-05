@@ -18,6 +18,10 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 
+import {
+  erzeugeToken, zielErlaubt, ZWECKE, laufzeitIntervall,
+} from '../../../src/utils/actionToken.js';
+
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
 ═══════════════════════════════════════════════════════════════ */
@@ -458,6 +462,73 @@ function assessWeek(data: WeeklyPayload): WeeklyAssessment {
   return { headline, insight, insightTone, healthReason };
 }
 
+/**
+ * Erzeugt die Token-Links der Wochenmail.
+ *
+ * Getrennt von render(), weil render() synchron ist und das Erzeugen
+ * eines Tokens einen Datenbankzugriff braucht. Eine async-Umstellung
+ * von render() haette jeden Aufrufer mitgezogen.
+ *
+ * Je Aufgabe ein eigener Token, gebunden an Nutzer, Standort und
+ * Empfehlung. Der Klartext geht direkt in die Mail und wird nirgends
+ * festgehalten — in der Datenbank steht nur der Hash.
+ *
+ * Scheitert das Erzeugen, bleibt der regulaere Pfad: Der Link fuehrt
+ * dann auf das Dashboard mit Anmeldung. Schlechter, aber nicht kaputt.
+ */
+async function ergaenzeMailLinks(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const userId = payload.userId as string | undefined;
+  const events = Array.isArray(payload.engineEvents)
+    ? payload.engineEvents as Array<Record<string, unknown>> : [];
+
+  if (!userId || events.length === 0) return payload;
+
+  const basis = Deno.env.get('SUPABASE_URL') ?? '';
+  const db = adminClient();
+
+  const mitLinks = await Promise.all(events.map(async (e) => {
+    const zielPfad = typeof e.actionUrl === 'string' && zielErlaubt(e.actionUrl)
+      ? e.actionUrl : '/dashboard';
+
+    try {
+      const { klartext, hash } = await erzeugeToken();
+
+      const { error } = await db.rpc('create_action_token', {
+        p_token_hash:  hash,
+        p_user_id:     userId,
+        p_purpose:     e.id ? ZWECKE.EVENT_OEFFNEN : ZWECKE.DASHBOARD,
+        p_target_path: zielPfad,
+        p_location_id: (payload.locationId as string) ?? null,
+        p_event_id:    (e.id as string) ?? null,
+        p_ttl:         laufzeitIntervall(),
+      });
+
+      if (error) {
+        /* Nur der Code, nie der Klartext. */
+        console.warn(JSON.stringify({
+          scope: 'weeklyMail', event: 'token_failed', code: error.code,
+        }));
+        return e;
+      }
+
+      return {
+        ...e,
+        mailLink: `${basis}/functions/v1/google-business/a/${klartext}`,
+      };
+    } catch (err) {
+      console.warn(JSON.stringify({
+        scope: 'weeklyMail', event: 'token_error',
+        message: String(err).slice(0, 200),
+      }));
+      return e;
+    }
+  }));
+
+  return { ...payload, engineEvents: mitLinks };
+}
+
 function render(template: EmailTemplate, payload: Record<string, unknown>, toName: string | null): RenderedEmail {
   const brand = brandFor(payload.industryKey);
   const company = escapeHtml(payload.companyName ?? toName ?? 'dein Betrieb');
@@ -616,9 +687,14 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
        */
       const engineAufgaben = (Array.isArray(data.engineEvents)
         ? data.engineEvents : []) as Array<{
+          id?: string | null;
           title: string; summary?: string; reason?: string;
           estimatedMinutes?: number | null; estimatedEffort?: string | null;
           actionUrl?: string | null;
+          /* Vom Aufrufer vor dem Rendern eingesetzt — siehe
+             ergaenzeMailLinks(). render() ist synchron und kann keine
+             Tokens erzeugen. */
+          mailLink?: string | null;
         }>;
 
       const rating = data.averageRating;
@@ -668,7 +744,10 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
           effort: typeof e.estimatedMinutes === 'number'
             ? (e.estimatedMinutes === 1 ? '1 Minute' : `${e.estimatedMinutes} Minuten`)
             : (e.estimatedEffort ?? ''),
-          to: e.actionUrl ?? undefined,
+          /* Der Token-Link, falls vorher erzeugt. Sonst der regulaere
+             Pfad — eine Mail ohne Links waere schlimmer als eine mit
+             Anmeldung. */
+          to: e.mailLink ?? e.actionUrl ?? undefined,
         }))) +
         healthBox(data.healthScore ?? 0, delta, week.healthReason);
 
@@ -827,7 +906,13 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
 
     try {
       const brand = brandFor(row.payload.industryKey);
-      const rendered = render(row.template, row.payload, row.to_name);
+      /* Token-Links erzeugen, bevor gerendert wird. Nur fuer die
+         Wochenmail — andere Vorlagen haben keine Aufgabenliste. */
+      const nutzlast = row.template === 'weekly_summary'
+        ? await ergaenzeMailLinks(row.payload as Record<string, unknown>)
+        : row.payload;
+
+      const rendered = render(row.template, nutzlast, row.to_name);
       const result = await sendViaBrevo(row, rendered, brand);
 
       if (result.ok) {

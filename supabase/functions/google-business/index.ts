@@ -31,6 +31,7 @@ import {
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
+import { hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -5824,6 +5825,142 @@ function resolveRoute(url: URL): { name: string; sub: string | null } {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   MAIL-LINKS EINLOESEN (Paket D6)
+
+   GET /a/<token>
+
+   Oeffentlich — der Empfaenger ist nicht eingeloggt, genau das ist
+   der Punkt. Die Berechtigung kommt aus dem Token, nicht aus einer
+   Sitzung.
+
+   DIESE ROUTE VERAENDERT NICHTS.
+
+   Mailprovider, Virenscanner und Vorschaudienste oeffnen den Link
+   automatisch, oft mehrfach, bevor der Empfaenger ihn sieht. Ein GET,
+   das etwas verbraucht, macht den Link tot, bevor jemand klickt.
+   ═══════════════════════════════════════════════════════════════ */
+
+/** Wohin der Besucher geschickt wird, wenn der Link nicht gilt. */
+function abweisungsZiel(grund: string): string {
+  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
+  /* Ein eigener Pfad, keine Fehlermeldung in der URL: Der Grund
+     gehoert ins Protokoll, nicht in die Adresszeile des Besuchers. */
+  return `${basis}/link-abgelaufen?r=${encodeURIComponent(grund)}`;
+}
+
+async function handleActionLink(request: Request, token: string): Promise<Response> {
+  const log = createLogger('action-link');
+  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
+
+  /* ── Vorpruefung ohne Datenbankzugriff ──
+     Spart bei offensichtlichem Unsinn eine Abfrage. Keine
+     Sicherheitsmassnahme — die Pruefung macht resolve_action_token. */
+  if (!sichtPlausibelAus(token)) {
+    log.warn('action_link_malformed', {});
+    return Response.redirect(abweisungsZiel('malformed'), 302);
+  }
+
+  /* ── Ratenbegrenzung ──
+     Nach Token, nicht nach Adresse: Dieselbe Mail wird von mehreren
+     Scannern desselben Providers geoeffnet, oft aus derselben IP.
+     Eine Begrenzung pro IP traefe dann den Empfaenger mit. */
+  const hash = await hashe(token);
+  const db = adminClient();
+
+  const { data: limit } = await db.rpc('check_rate_limit', {
+    p_key: `action_link:${hash.slice(0, 32)}`,
+    p_limit: 60,
+    p_window: '01:00:00',
+  });
+
+  if (limit && (limit as { allowed?: boolean }).allowed === false) {
+    log.warn('action_link_rate_limited', {});
+    return Response.redirect(abweisungsZiel('rate_limited'), 302);
+  }
+
+  /* ── Aufloesen. Veraendert nichts. ── */
+  const { data, error } = await db.rpc('resolve_action_token', { p_token_hash: hash });
+
+  if (error) {
+    log.error('action_link_resolve_failed', { code: error.code });
+    return Response.redirect(abweisungsZiel('error'), 302);
+  }
+
+  const ergebnis = (data ?? {}) as Record<string, unknown>;
+
+  if (!ergebnis.valid) {
+    /* Der Grund steht im Protokoll, nicht in der Antwort an den
+       Besucher. "Abgelaufen" verriete, dass es den Token gab. */
+    log.warn('action_link_invalid', { reason: String(ergebnis.reason ?? 'unknown') });
+    return Response.redirect(abweisungsZiel('invalid'), 302);
+  }
+
+  const zielPfad = String(ergebnis.targetPath ?? '/dashboard');
+
+  /* Dritte Pruefung des Ziels — nach SQL und dem gemeinsamen Modul.
+     Ein offener Redirect unter der Domain von WERKRUF sieht fuer den
+     Empfaenger besonders vertrauenswuerdig aus. */
+  if (!zielErlaubt(zielPfad)) {
+    log.error('action_link_bad_target', { tokenId: String(ergebnis.tokenId ?? '') });
+    return Response.redirect(abweisungsZiel('invalid_target'), 302);
+  }
+
+  /*
+   * ── Anmeldung ohne Passwort ──
+   *
+   * Supabase erzeugt den Link, nicht WERKRUF. Ein selbst signiertes
+   * JWT muesste Laufzeit, Rotation und Widerruf selbst verwalten —
+   * und ein Fehler darin waere ein Generalschluessel.
+   *
+   * Scheitert das, geht es trotzdem weiter: Der Besucher landet auf
+   * der Zielseite und meldet sich regulaer an. Schlechter, aber nicht
+   * kaputt.
+   */
+  let ziel = `${basis}${zielPfad}`;
+
+  try {
+    const email = await emailFuerNutzer(String(ergebnis.userId));
+    if (email) {
+      const { data: link, error: linkFehler } = await db.auth.admin.generateLink({
+        type: 'magiclink',
+        email,
+        options: { redirectTo: ziel },
+      });
+
+      if (!linkFehler && link?.properties?.action_link) {
+        ziel = link.properties.action_link;
+      } else if (linkFehler) {
+        log.warn('action_link_magiclink_failed', { code: linkFehler.status ?? 0 });
+      }
+    }
+  } catch (err) {
+    log.warn('action_link_magiclink_error', {
+      message: String(err).slice(0, 200),
+    });
+  }
+
+  log.debug('action_link_resolved', {
+    purpose: String(ergebnis.purpose ?? ''),
+    hasSession: ziel !== `${basis}${zielPfad}`,
+  });
+
+  /* 302, nicht 301: Ein dauerhafter Redirect waere im Browsercache
+     und im Verlauf — und der Token steht in der Adresse. */
+  return Response.redirect(ziel, 302);
+}
+
+/** E-Mail des Nutzers, fuer den Magic Link. */
+async function emailFuerNutzer(userId: string): Promise<string | null> {
+  try {
+    const { data, error } = await adminClient().auth.admin.getUserById(userId);
+    if (error || !data?.user?.email) return null;
+    return data.user.email;
+  } catch {
+    return null;
+  }
+}
+
 const ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   connect:    { method: 'POST', handler: handleConnect },
   callback:   { method: 'GET',  handler: handleCallback },
@@ -6340,6 +6477,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   const url = new URL(request.url);
   const { name: routeName, sub } = resolveRoute(url);
+
+  /* Mail-Links zuerst: /a/<token>. Oeffentlich und ohne Bearer-Token —
+     der Empfaenger ist nicht eingeloggt. */
+  if (routeName === 'a' && sub) {
+    return handleActionLink(request, sub);
+  }
 
   const route =
     routeName === 'connect' && sub ? CONNECT_ROUTES[sub] :
