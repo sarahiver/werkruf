@@ -31,7 +31,7 @@ import {
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
-import { hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
+import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -6178,6 +6178,42 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
   let ziel = `${basis}${zielPfad}`;
 
   /*
+   * Der Uebergabezustand.
+   *
+   * Nach der Anmeldung kommt der Besucher ueber Supabase zurueck —
+   * ohne Wissen darueber, worum es ging. Den rohen Action-Token
+   * mitzuschicken waere der falsche Weg: Er stuende in der
+   * Adresszeile, im Verlauf und im Referer, und er gilt eine Woche.
+   *
+   * Stattdessen ein eigener Zustand: zehn Minuten, einmalig, und er
+   * verweist nur auf den Token.
+   *
+   * Scheitert das Anlegen, geht es ohne weiter — der Besucher landet
+   * dann angemeldet auf dem Ziel, nur ohne die erneute Pruefung nach
+   * der Anmeldung. Schlechter, aber nicht kaputt.
+   */
+  try {
+    const { klartext, hash } = await erzeugeToken();
+
+    const { error: stateFehler } = await db.rpc('create_action_auth_state', {
+      p_state_hash: hash,
+      p_token_id:   ctx.tokenId,
+      p_user_id:    ctx.userId,
+    });
+
+    if (!stateFehler) {
+      /* Die Uebergabeseite im Frontend. Sie wartet auf die Sitzung,
+         laesst den Zustand serverseitig pruefen und navigiert dann
+         zum Ziel — ohne Geheimnis in der Adresse. */
+      ziel = `${basis}/einstieg?s=${encodeURIComponent(klartext)}`;
+    } else {
+      log.warn('action_state_failed', { code: stateFehler.code });
+    }
+  } catch (err) {
+    log.warn('action_state_error', { message: String(err).slice(0, 200) });
+  }
+
+  /*
    * Die Anmeldung — erst jetzt.
    *
    * Supabase erzeugt den Link. Ein selbst signiertes JWT muesste
@@ -6221,6 +6257,139 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
       'Referrer-Policy': 'no-referrer',
     },
+  });
+}
+
+/**
+ * POST /einstieg
+ *
+ * Loest den Uebergabezustand ein, NACHDEM sich der Besucher angemeldet
+ * hat.
+ *
+ * Hier entscheidet sich der Fall, um den es in diesem Paket geht:
+ *
+ *   Der Mail-Link gehoert Nutzer A.
+ *   Im Browser ist Nutzer B angemeldet.
+ *
+ * requireUser liest den Nutzer aus der Sitzung — nicht aus der
+ * Adresse, nicht aus dem Rumpf. Stimmt er nicht mit dem Nutzer des
+ * Zustands ueberein, gibt es eine Absage, die nichts ueber A verraet.
+ */
+async function handleEinstieg(request: Request): Promise<Response> {
+  const log = createLogger('einstieg');
+
+  /* Die Identitaet kommt aus der Sitzung. Service Role prueft,
+     ersetzt aber keine Anmeldung. */
+  const user = await requireUser(request);
+  const body = await readJsonBody<{ state?: string }>(request);
+
+  const state = typeof body.state === 'string' ? body.state : '';
+  if (!sichtPlausibelAus(state)) {
+    return jsonResponse(request, { ok: false, reason: 'invalid' });
+  }
+
+  const db = adminClient();
+  const hash = await hashe(state);
+
+  const { data, error } = await db.rpc('consume_action_auth_state', {
+    p_state_hash: hash,
+    p_session_user_id: user.id,
+  });
+
+  if (error) {
+    log.error('einstieg_failed', { code: error.code });
+    return jsonResponse(request, { ok: false, reason: 'invalid' });
+  }
+
+  const ergebnis = (data ?? {}) as Record<string, unknown>;
+
+  if (!ergebnis.valid) {
+    const grund = String(ergebnis.reason ?? 'invalid');
+    log.warn('einstieg_abgewiesen', { reason: grund });
+
+    /* user_mismatch wird eigens gemeldet, damit die Oberflaeche sagen
+       kann "dieser Link gehoert zu einem anderen Konto" — ohne zu
+       verraten, zu welchem. Alle anderen Gruende bleiben
+       ununterscheidbar. */
+    return jsonResponse(request, {
+      ok: false,
+      reason: grund === 'user_mismatch' ? 'user_mismatch' : 'invalid',
+    });
+  }
+
+  /* ── Die Empfehlung erneut pruefen ──
+     Zwischen Continue und Anmeldung koennen Minuten liegen. */
+  let erledigt = false;
+
+  if (ergebnis.eventId) {
+    const { data: ev } = await db.from('events')
+      .select('lifecycle, rule_status, user_id, location_id')
+      .eq('id', ergebnis.eventId as string)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const e = ev as {
+      lifecycle?: string; rule_status?: string;
+      location_id?: string | null;
+    } | null;
+
+    if (!e) {
+      /* Die Empfehlung gehoert nicht (mehr) diesem Nutzer. */
+      log.warn('einstieg_event_fremd', {});
+      return jsonResponse(request, { ok: false, reason: 'invalid' });
+    }
+
+    /* Erledigtes wird nicht wiederbelebt. Und eine Regel, die
+       inzwischen im Probebetrieb ist, erscheint so wenig wie im
+       Dashboard. */
+    erledigt = ['completed', 'dismissed', 'resolved', 'expired'].includes(e.lifecycle ?? '')
+            || (e.rule_status ?? 'active') === 'candidate';
+  }
+
+  /* ── Den Betrieb aktivieren ──
+     Eigentum erneut pruefen: Der Standort kann inzwischen geloescht
+     worden sein oder den Besitzer gewechselt haben. */
+  if (ergebnis.locationId && !erledigt) {
+    const { data: loc } = await db.from('google_locations')
+      .select('id')
+      .eq('id', ergebnis.locationId as string)
+      .eq('user_id', user.id)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (loc) {
+      await db.from('google_locations')
+        .update({ selected_at: new Date().toISOString() })
+        .eq('id', ergebnis.locationId as string)
+        .eq('user_id', user.id)
+        .then(() => {}, () => {});
+    } else {
+      /* Kein kuenstlicher Standortwechsel. Das Dashboard zeigt dann,
+         was es ohnehin zeigen wuerde. */
+      log.warn('einstieg_standort_weg', {});
+    }
+  }
+
+  const ziel = String(ergebnis.targetPath ?? '/dashboard');
+
+  /* Letzte Pruefung des Ziels — nach Token-Erzeugung, nach Resolve,
+     jetzt noch einmal. Die Liste erlaubter Pfade kann sich geaendert
+     haben. */
+  const zielOk = zielErlaubt(ziel);
+
+  log.debug('einstieg_ok', {
+    tokenId: String(ergebnis.tokenId ?? ''),
+    erledigt,
+    zielOk,
+  });
+
+  return jsonResponse(request, {
+    ok: true,
+    /* Das Ziel kommt aus dem serverseitig geprueften Token — nie aus
+       einem Parameter der Adresse. */
+    targetPath: erledigt || !zielOk ? '/dashboard' : ziel,
+    done: erledigt,
+    locationId: ergebnis.locationId ?? null,
   });
 }
 
@@ -6762,6 +6931,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
       status: 405,
       headers: { 'Allow': weiter ? 'POST' : 'GET', 'Cache-Control': 'no-store' },
     });
+  }
+
+  /* Uebergabe nach der Anmeldung. Braucht eine Sitzung — anders als
+     /a/<token>, das oeffentlich ist. */
+  if (routeName === 'einstieg' && request.method === 'POST') {
+    return handleEinstieg(request);
   }
 
   const route =

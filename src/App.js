@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import LinkAbgelaufen from './pages/LinkAbgelaufen';
+import Einstieg from './pages/Einstieg';
 
 /* Providers */
 import { IndustryProvider } from './context/IndustryContext';
@@ -93,6 +94,10 @@ function App() {
             {/* Mail-Link nicht mehr gueltig. Oeffentlich — der
                 Besucher ist per Definition nicht angemeldet. */}
             <Route path="/link-abgelaufen" element={<LinkAbgelaufen />} />
+
+            {/* Uebergabe nach der Anmeldung ueber einen Mail-Link.
+                Prueft serverseitig, ob die Sitzung zum Link passt. */}
+            <Route path="/einstieg" element={<Einstieg />} />
 
             <Route path="/dashboard" element={
               <ProtectedRoute>
