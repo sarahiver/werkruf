@@ -5725,14 +5725,47 @@ async function handleEvaluateAll(request: Request): Promise<Response> {
 
   const rows = (data ?? []) as Array<{ user_id: string }>;
   const userIds = [...new Set(rows.map((row) => row.user_id))];
+
+  const begonnen = Date.now();
   let evaluated = 0, failed = 0;
+  let scopes = 0, scopesFailed = 0;
+  let created = 0, updated = 0, resolved = 0;
 
   for (const userId of userIds) {
-    try { await evaluateUser(userId, log); evaluated++; }
-    catch (err) { failed++; log.error('evaluate_failed', { userId, message: String(err) }); }
+    try {
+      const r = await evaluateUser(userId, log);
+      evaluated++;
+      /* Die Zahlen je Nutzer aufsummieren. Ohne sie laesst sich ein
+         Cron-Lauf nicht beurteilen: "evaluated: 42" sagt nicht, ob
+         dabei etwas entstanden ist. */
+      scopes       += r.scopes ?? 0;
+      scopesFailed += r.failed ?? 0;
+      created      += r.created ?? 0;
+      updated      += r.updated ?? 0;
+      resolved     += r.resolved ?? 0;
+    } catch (err) {
+      /* Ein Nutzer, der scheitert, haelt die uebrigen nicht auf. */
+      failed++;
+      log.error('evaluate_failed', { userId, message: String(err).slice(0, 300) });
+    }
   }
 
-  return jsonResponse(request, { users: userIds.length, evaluated, failed });
+  const dauerMs = Date.now() - begonnen;
+
+  log.debug('evaluate_all_done', {
+    users: userIds.length, evaluated, failed,
+    scopes, scopesFailed, created, updated, resolved, dauerMs,
+  });
+
+  return jsonResponse(request, {
+    users: userIds.length,
+    evaluated, failed,
+    /* Umfaenge: je Nutzer einmal das Konto plus jeder aktive Betrieb. */
+    scopesEvaluated: scopes,
+    scopesFailed,
+    created, updated, resolved,
+    durationMs: dauerMs,
+  });
 }
 
 /**
