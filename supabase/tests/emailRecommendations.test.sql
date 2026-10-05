@@ -216,7 +216,7 @@ begin
      ZEIGTE Regeln im Probebetrieb, die Mail nicht. Die Abweichung
      stammte aus Paket D2, wo events_feed ohne rule_status-Filter
      entstand.
-     
+
      Seit 20261005180000 gilt dieselbe Freigabe fuer beide Kanaele. */
   insert into public.events
     (user_id, location_id, type, category, priority, title, summary,
