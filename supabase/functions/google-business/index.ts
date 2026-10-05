@@ -5841,124 +5841,387 @@ function resolveRoute(url: URL): { name: string; sub: string | null } {
    das etwas verbraucht, macht den Link tot, bevor jemand klickt.
    ═══════════════════════════════════════════════════════════════ */
 
-/** Wohin der Besucher geschickt wird, wenn der Link nicht gilt. */
-function abweisungsZiel(grund: string): string {
-  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
-  /* Ein eigener Pfad, keine Fehlermeldung in der URL: Der Grund
-     gehoert ins Protokoll, nicht in die Adresszeile des Besuchers. */
-  return `${basis}/link-abgelaufen?r=${encodeURIComponent(grund)}`;
+/*
+ * Kopfzeilen fuer jede Antwort unter /a/.
+ *
+ * Der rohe Token steht in der Adresszeile. Daraus folgt alles:
+ *
+ *   no-store         Kein Browser- oder CDN-Zwischenspeicher. Eine
+ *                    zwischengespeicherte Seite mit Token im Pfad
+ *                    ueberlebt den Besuch.
+ *   no-referrer      Ohne das schickt der Browser die volle Adresse
+ *                    — Token inklusive — an jedes Ziel, das von
+ *                    dieser Seite aus geladen oder angeklickt wird.
+ *   CSP              default-src 'none': Die Seite laedt nichts von
+ *                    aussen. Keine Schriftart, kein Bild, kein
+ *                    Skript. Jede externe Ressource bekaeme den
+ *                    Referer und damit den Token.
+ *   frame-ancestors  Niemand bettet diese Seite ein und legt einen
+ *                    eigenen Knopf darueber.
+ *   form-action      Das Formular darf nur hierher senden.
+ */
+const ACTION_HEADERS: Record<string, string> = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+  'Pragma': 'no-cache',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': [
+    "default-src 'none'",
+    "style-src 'unsafe-inline'",
+    "form-action 'self'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+  ].join('; '),
+};
+
+/** Escaping fuer die Zwischenansicht. */
+function hEsc(wert: unknown): string {
+  return String(wert ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-async function handleActionLink(request: Request, token: string): Promise<Response> {
-  const log = createLogger('action-link');
-  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
+/**
+ * Die Zwischenansicht.
+ *
+ * Bewusst karg: nur Text, nur eingebettete Formate, ein Formular.
+ * Jede externe Ressource — Schriftart, Bild, Zaehlpixel — bekaeme den
+ * Referer und damit den Token in der Adresse.
+ */
+function actionSeite(opts: {
+  titel: string;
+  betrieb?: string | null;
+  aufgabe?: string | null;
+  aufwand?: string | null;
+  hinweis?: string | null;
+  formAktion?: string | null;
+  knopf?: string | null;
+  dashboardUrl: string;
+}): string {
+  const knopfBlock = opts.formAktion
+    ? `<form method="POST" action="${hEsc(opts.formAktion)}">
+         <button type="submit" class="b">${hEsc(opts.knopf ?? 'Weiter')}</button>
+       </form>`
+    : `<p><a class="b" href="${hEsc(opts.dashboardUrl)}">Zum Dashboard</a></p>`;
 
-  /* ── Vorpruefung ohne Datenbankzugriff ──
-     Spart bei offensichtlichem Unsinn eine Abfrage. Keine
-     Sicherheitsmassnahme — die Pruefung macht resolve_action_token. */
-  if (!sichtPlausibelAus(token)) {
-    log.warn('action_link_malformed', {});
-    return Response.redirect(abweisungsZiel('malformed'), 302);
-  }
+  return `<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>WERKRUF</title>
+<style>
+  body{margin:0;padding:40px 20px;background:#F4F5F7;
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+       color:#1A2433}
+  .k{max-width:440px;margin:0 auto;background:#fff;border:1px solid #E3E7EB;
+     border-radius:12px;padding:32px 28px}
+  .m{font-size:.72rem;font-weight:700;letter-spacing:.08em;
+     text-transform:uppercase;color:#5F6875;margin:0 0 18px}
+  .o{font-size:.84rem;color:#5F6875;margin:0 0 6px}
+  h1{font-size:1.18rem;margin:0 0 8px;line-height:1.35}
+  .a{font-size:.86rem;color:#5F6875;margin:0 0 22px}
+  .b{display:inline-block;background:#002C51;color:#fff;border:0;
+     border-radius:7px;padding:13px 24px;font-size:.95rem;font-weight:600;
+     cursor:pointer;text-decoration:none;font-family:inherit}
+  .b:hover{opacity:.9}
+  .f{font-size:.76rem;color:#8A929C;margin:22px 0 0;line-height:1.5}
+</style>
+</head><body>
+<div class="k">
+  <p class="m">WERKRUF</p>
+  ${opts.betrieb ? `<p class="o">${hEsc(opts.betrieb)}</p>` : ''}
+  <h1>${hEsc(opts.titel)}</h1>
+  ${opts.aufwand ? `<p class="a">${hEsc(opts.aufwand)}</p>` : ''}
+  ${opts.hinweis ? `<p class="a">${hEsc(opts.hinweis)}</p>` : ''}
+  ${knopfBlock}
+  <p class="f">Dieser Link wurde dir per E-Mail zugeschickt und gilt eine Woche.</p>
+</div>
+</body></html>`;
+}
 
-  /* ── Ratenbegrenzung ──
-     Nach Token, nicht nach Adresse: Dieselbe Mail wird von mehreren
-     Scannern desselben Providers geoeffnet, oft aus derselben IP.
-     Eine Begrenzung pro IP traefe dann den Empfaenger mit. */
+/** Dieselbe Antwort fuer jeden Fehlerfall. */
+function actionAbweisung(dashboardUrl: string): Response {
+  return new Response(actionSeite({
+    titel: 'Dieser Link ist nicht mehr gültig.',
+    hinweis: 'Melde dich im Dashboard an — deine Aufgaben liegen dort bereit.',
+    dashboardUrl,
+  }), { status: 200, headers: ACTION_HEADERS });
+}
+
+/**
+ * Prueft Ratenbegrenzung und Token. Veraendert nichts.
+ *
+ * Gemeinsam fuer GET und POST: Der POST darf sich nicht darauf
+ * verlassen, dass ein GET vorher erfolgreich war. Zwischen beiden
+ * koennen Minuten liegen, in denen der Token ablaeuft, die Empfehlung
+ * erledigt wird oder der Betrieb verschwindet.
+ */
+async function pruefeActionToken(
+  token: string, request: Request, log: Logger,
+): Promise<{ ok: false; grund: string } | { ok: true; ctx: Record<string, unknown> }> {
+  if (!sichtPlausibelAus(token)) return { ok: false, grund: 'malformed' };
+
   const hash = await hashe(token);
   const db = adminClient();
 
-  const { data: limit } = await db.rpc('check_rate_limit', {
-    p_key: `action_link:${hash.slice(0, 32)}`,
-    p_limit: 60,
-    p_window: '01:00:00',
-  });
+  /* Zwei Grenzen.
 
-  if (limit && (limit as { allowed?: boolean }).allowed === false) {
-    log.warn('action_link_rate_limited', {});
-    return Response.redirect(abweisungsZiel('rate_limited'), 302);
+     Nach Token: Ein einzelner Link soll nicht beliebig oft abgefragt
+     werden. 60 pro Stunde lassen Raum fuer die Scanner eines
+     Providers, die dieselbe Mail mehrfach oeffnen.
+
+     Nach Adresse: Verhindert, dass jemand mit erfundenen Tokens den
+     Endpunkt belastet. Deutlich grosszuegiger, weil sich hinter einer
+     Adresse ein ganzes Unternehmen oder ein Mailprovider verbergen
+     kann. */
+  const [limitToken, limitIp] = await Promise.all([
+    db.rpc('check_rate_limit', {
+      p_key: `action_link:${hash.slice(0, 32)}`, p_limit: 60, p_window: '01:00:00',
+    }),
+    db.rpc('check_rate_limit', {
+      p_key: `action_ip:${(request.headers.get('x-forwarded-for') ?? 'unbekannt').split(',')[0].trim()}`,
+      p_limit: 600, p_window: '01:00:00',
+    }),
+  ]);
+
+  for (const l of [limitToken, limitIp]) {
+    if (l.data && (l.data as { allowed?: boolean }).allowed === false) {
+      return { ok: false, grund: 'rate_limited' };
+    }
   }
 
-  /* ── Aufloesen. Veraendert nichts. ── */
   const { data, error } = await db.rpc('resolve_action_token', { p_token_hash: hash });
-
   if (error) {
     log.error('action_link_resolve_failed', { code: error.code });
-    return Response.redirect(abweisungsZiel('error'), 302);
+    return { ok: false, grund: 'error' };
   }
 
-  const ergebnis = (data ?? {}) as Record<string, unknown>;
+  const ctx = (data ?? {}) as Record<string, unknown>;
+  if (!ctx.valid) return { ok: false, grund: String(ctx.reason ?? 'invalid') };
 
-  if (!ergebnis.valid) {
-    /* Der Grund steht im Protokoll, nicht in der Antwort an den
-       Besucher. "Abgelaufen" verriete, dass es den Token gab. */
-    log.warn('action_link_invalid', { reason: String(ergebnis.reason ?? 'unknown') });
-    return Response.redirect(abweisungsZiel('invalid'), 302);
+  if (!zielErlaubt(String(ctx.targetPath ?? ''))) {
+    log.error('action_link_bad_target', { tokenId: String(ctx.tokenId ?? '') });
+    return { ok: false, grund: 'invalid_target' };
   }
 
-  const zielPfad = String(ergebnis.targetPath ?? '/dashboard');
+  return { ok: true, ctx };
+}
 
-  /* Dritte Pruefung des Ziels — nach SQL und dem gemeinsamen Modul.
-     Ein offener Redirect unter der Domain von WERKRUF sieht fuer den
-     Empfaenger besonders vertrauenswuerdig aus. */
-  if (!zielErlaubt(zielPfad)) {
-    log.error('action_link_bad_target', { tokenId: String(ergebnis.tokenId ?? '') });
-    return Response.redirect(abweisungsZiel('invalid_target'), 302);
+/**
+ * GET /a/<token>
+ *
+ * ZEIGT NUR AN. RUFT KEIN generateLink AUF.
+ *
+ * Bis zum 05.10.2026 erzeugte dieser Pfad sofort einen
+ * Supabase-Anmeldelink und leitete darauf weiter. Ein Mailscanner, der
+ * dem Redirect folgt — und das tun sie —, haette den Anmeldelink
+ * aufgerufen, bevor der Empfaenger die Mail oeffnet. Der Link waere
+ * verbraucht gewesen; der Kunde haette eine tote Adresse angeklickt.
+ *
+ * Deshalb: ansehen ist kostenlos, fortfahren kostet einen Klick.
+ */
+async function handleActionLinkGet(request: Request, token: string): Promise<Response> {
+  const log = createLogger('action-link');
+  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
+  const dashboard = `${basis}/dashboard`;
+
+  const pruefung = await pruefeActionToken(token, request, log);
+
+  if (!pruefung.ok) {
+    /* Der Grund steht im Protokoll, nicht in der Antwort. */
+    log.warn('action_link_invalid', { reason: pruefung.grund });
+    return actionAbweisung(dashboard);
   }
 
-  /*
-   * ── Anmeldung ohne Passwort ──
-   *
-   * Supabase erzeugt den Link, nicht WERKRUF. Ein selbst signiertes
-   * JWT muesste Laufzeit, Rotation und Widerruf selbst verwalten —
-   * und ein Fehler darin waere ein Generalschluessel.
-   *
-   * Scheitert das, geht es trotzdem weiter: Der Besucher landet auf
-   * der Zielseite und meldet sich regulaer an. Schlechter, aber nicht
-   * kaputt.
-   */
+  const ctx = pruefung.ctx;
+
+  /* Der Name des Betriebs — damit der Besucher sieht, worum es geht.
+     Mehr nicht: Wer einen fremden Link in die Hand bekommt, soll
+     daraus nichts ueber das Konto lernen. */
+  let betrieb: string | null = null;
+  let aufgabe: string | null = null;
+  let aufwand: string | null = null;
+  let erledigt = false;
+
+  const db = adminClient();
+
+  if (ctx.locationId) {
+    const { data } = await db.from('google_locations')
+      .select('title').eq('id', ctx.locationId as string).maybeSingle();
+    betrieb = (data as { title?: string } | null)?.title ?? null;
+  }
+
+  if (ctx.eventId) {
+    const { data } = await db.from('events')
+      .select('title, estimated_minutes, lifecycle')
+      .eq('id', ctx.eventId as string).maybeSingle();
+    const e = data as { title?: string; estimated_minutes?: number; lifecycle?: string } | null;
+
+    if (e) {
+      aufgabe = e.title ?? null;
+      if (typeof e.estimated_minutes === 'number') {
+        aufwand = e.estimated_minutes === 1 ? 'etwa 1 Minute' : `etwa ${e.estimated_minutes} Minuten`;
+      }
+      /* Die Mail kann alt sein. Eine erledigte Aufgabe wird nicht
+         wiederbelebt. */
+      erledigt = ['completed', 'dismissed', 'resolved', 'expired'].includes(e.lifecycle ?? '');
+    }
+  }
+
+  log.debug('action_link_shown', {
+    tokenId: String(ctx.tokenId ?? ''),
+    purpose: String(ctx.purpose ?? ''),
+    erledigt,
+  });
+
+  if (erledigt) {
+    return new Response(actionSeite({
+      titel: 'Diese Aufgabe ist inzwischen erledigt.',
+      betrieb,
+      hinweis: 'Im Dashboard siehst du, was als Nächstes ansteht.',
+      dashboardUrl: dashboard,
+    }), { status: 200, headers: ACTION_HEADERS });
+  }
+
+  /* Das Formular sendet per POST auf dieselbe Adresse mit /continue.
+     Ein Scanner folgt Links; ein Formular abzuschicken tut er nicht. */
+  const ziel = new URL(request.url);
+  ziel.pathname = `${ziel.pathname.replace(/\/+$/, '')}/continue`;
+
+  return new Response(actionSeite({
+    titel: aufgabe ?? 'Weiter zu deinem Dashboard',
+    betrieb,
+    aufwand,
+    formAktion: ziel.pathname + ziel.search,
+    knopf: 'Weiter zu WERKRUF',
+    dashboardUrl: dashboard,
+  }), { status: 200, headers: ACTION_HEADERS });
+}
+
+/**
+ * POST /a/<token>/continue
+ *
+ * ERST HIER beginnt die Anmeldung.
+ *
+ * Ein Formular abzuschicken ist eine Handlung, die ein Mensch
+ * ausloest. Scanner folgen Links, sie druecken keine Knoepfe.
+ */
+async function handleActionLinkPost(request: Request, token: string): Promise<Response> {
+  const log = createLogger('action-link');
+  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
+  const dashboard = `${basis}/dashboard`;
+
+  /* Kommt die Anfrage von unserer eigenen Seite?
+     Ein fremder Origin heisst: Jemand hat ein Formular auf seiner
+     Seite gebaut, das hierher sendet. Fehlt der Kopf ganz, ist das
+     kein Ausschlussgrund — manche Browser senden ihn bei
+     Formularen nicht. */
+  const origin = request.headers.get('origin');
+  if (origin) {
+    const erlaubt = [basis, Deno.env.get('SUPABASE_URL') ?? ''].filter(Boolean);
+    if (!erlaubt.some((e) => origin === e)) {
+      log.warn('action_link_fremder_origin', {});
+      return actionAbweisung(dashboard);
+    }
+  }
+
+  /* Vollstaendig neu pruefen. Der GET kann Minuten her sein. */
+  const pruefung = await pruefeActionToken(token, request, log);
+
+  if (!pruefung.ok) {
+    log.warn('action_link_post_invalid', { reason: pruefung.grund });
+    return actionAbweisung(dashboard);
+  }
+
+  const ctx = pruefung.ctx;
+  const db = adminClient();
+
+  /* Ist die Empfehlung inzwischen erledigt? */
+  if (ctx.eventId) {
+    const { data } = await db.from('events')
+      .select('lifecycle').eq('id', ctx.eventId as string).maybeSingle();
+    const zustand = (data as { lifecycle?: string } | null)?.lifecycle ?? '';
+
+    if (['completed', 'dismissed', 'resolved', 'expired'].includes(zustand)) {
+      log.debug('action_link_event_erledigt', { tokenId: String(ctx.tokenId ?? '') });
+      return new Response(actionSeite({
+        titel: 'Diese Aufgabe ist inzwischen erledigt.',
+        hinweis: 'Im Dashboard siehst du, was als Nächstes ansteht.',
+        dashboardUrl: dashboard,
+      }), { status: 200, headers: ACTION_HEADERS });
+    }
+
+    /* Jetzt ist "geoeffnet" wahr: Ein Mensch hat auf Weiter gedrueckt.
+       Beim GET waere es der Scanner gewesen. */
+    await db.rpc('record_recommendation_action', {
+      p_event_id: ctx.eventId, p_action: 'opened',
+      p_channel: 'email', p_user_id: ctx.userId,
+    }).then(() => {}, () => {});
+  }
+
+  /* Den ausgewaehlten Betrieb umstellen, falls der Link zu einem
+     anderen gehoert als der zuletzt gewaehlte. Sonst zeigte das
+     Dashboard nach dem Einstieg den falschen. */
+  if (ctx.locationId) {
+    await db.from('google_locations')
+      .update({ selected_at: new Date().toISOString() })
+      .eq('id', ctx.locationId as string)
+      .eq('user_id', ctx.userId as string)
+      .then(() => {}, () => {});
+  }
+
+  const zielPfad = String(ctx.targetPath ?? '/dashboard');
   let ziel = `${basis}${zielPfad}`;
 
+  /*
+   * Die Anmeldung — erst jetzt.
+   *
+   * Supabase erzeugt den Link. Ein selbst signiertes JWT muesste
+   * Laufzeit, Rotation und Widerruf selbst verwalten, und ein Fehler
+   * darin waere ein Generalschluessel.
+   *
+   * Nur generateLink, kein zusaetzliches signInWithOtp: Das verschickte
+   * eine zweite Mail, die niemand bestellt hat.
+   */
   try {
-    const email = await emailFuerNutzer(String(ergebnis.userId));
+    const { data: nutzer } = await db.auth.admin.getUserById(String(ctx.userId));
+    const email = nutzer?.user?.email;
+
     if (email) {
-      const { data: link, error: linkFehler } = await db.auth.admin.generateLink({
-        type: 'magiclink',
-        email,
-        options: { redirectTo: ziel },
+      const { data: link, error: fehler } = await db.auth.admin.generateLink({
+        type: 'magiclink', email, options: { redirectTo: ziel },
       });
 
-      if (!linkFehler && link?.properties?.action_link) {
+      if (!fehler && link?.properties?.action_link) {
         ziel = link.properties.action_link;
-      } else if (linkFehler) {
-        log.warn('action_link_magiclink_failed', { code: linkFehler.status ?? 0 });
+      } else if (fehler) {
+        /* Nur der Status, nie der Link. */
+        log.warn('action_link_magiclink_failed', { status: fehler.status ?? 0 });
       }
     }
   } catch (err) {
-    log.warn('action_link_magiclink_error', {
-      message: String(err).slice(0, 200),
-    });
+    log.warn('action_link_magiclink_error', { message: String(err).slice(0, 200) });
   }
 
-  log.debug('action_link_resolved', {
-    purpose: String(ergebnis.purpose ?? ''),
-    hasSession: ziel !== `${basis}${zielPfad}`,
+  log.debug('action_link_fortgesetzt', {
+    tokenId: String(ctx.tokenId ?? ''),
+    mitSitzung: ziel !== `${basis}${zielPfad}`,
   });
 
-  /* 302, nicht 301: Ein dauerhafter Redirect waere im Browsercache
-     und im Verlauf — und der Token steht in der Adresse. */
-  return Response.redirect(ziel, 302);
-}
-
-/** E-Mail des Nutzers, fuer den Magic Link. */
-async function emailFuerNutzer(userId: string): Promise<string | null> {
-  try {
-    const { data, error } = await adminClient().auth.admin.getUserById(userId);
-    if (error || !data?.user?.email) return null;
-    return data.user.email;
-  } catch {
-    return null;
-  }
+  /* 302, nicht 301: Ein dauerhafter Redirect landete im Verlauf und
+     im Zwischenspeicher — mitsamt Token in der Adresse. */
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': ziel,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Referrer-Policy': 'no-referrer',
+    },
+  });
 }
 
 const ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
@@ -6481,7 +6744,24 @@ Deno.serve(async (request: Request): Promise<Response> => {
   /* Mail-Links zuerst: /a/<token>. Oeffentlich und ohne Bearer-Token —
      der Empfaenger ist nicht eingeloggt. */
   if (routeName === 'a' && sub) {
-    return handleActionLink(request, sub);
+    /* GET zeigt nur an, POST .../continue startet die Anmeldung.
+       Ein Scanner folgt Links; ein Formular schickt er nicht ab. */
+    /* .../a/<token>/continue — der dritte Abschnitt nach der
+       Funktion. resolveRoute liefert nur Name und erstes Unterglied. */
+    const weiter = url.pathname.replace(/\/+$/, '').endsWith('/continue');
+
+    if (request.method === 'POST' && weiter) {
+      return handleActionLinkPost(request, sub);
+    }
+    if (request.method === 'GET' && !weiter) {
+      return handleActionLinkGet(request, sub);
+    }
+
+    /* GET auf /continue waere der Weg, den Schutz zu umgehen. */
+    return new Response(null, {
+      status: 405,
+      headers: { 'Allow': weiter ? 'POST' : 'GET', 'Cache-Control': 'no-store' },
+    });
   }
 
   const route =
