@@ -348,7 +348,11 @@ interface WeeklyPayload {
   newestReviewAt?: string | null;
   /* Standort, auf den sich diese Mail bezieht. */
   locationTitle?: string | null;
-  /* Die Aufgaben aus der Decision Engine — hoechstens drei. */
+  locationId?: string | null;
+  userId?: string | null;
+  /* Die Aufgaben aus dem produktiven Pfad (schedule_communications). */
+  actions?: unknown[];
+  /* Aus weekly_payload_for — nicht produktiv, aber gelesen. */
   engineEvents?: unknown[];
 }
 
@@ -711,17 +715,50 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
        * Engine sortiert. Hier wird nicht neu entschieden und nicht neu
        * sortiert.
        */
-      const engineAufgaben = (Array.isArray(data.engineEvents)
-        ? data.engineEvents : []) as Array<{
-          id?: string | null;
-          title: string; summary?: string; reason?: string;
-          estimatedMinutes?: number | null; estimatedEffort?: string | null;
-          actionUrl?: string | null;
-          /* Vom Aufrufer vor dem Rendern eingesetzt — siehe
-             ergaenzeMailLinks(). render() ist synchron und kann keine
-             Tokens erzeugen. */
-          mailLink?: string | null;
-        }>;
+      /*
+       * Die Aufgaben aus dem produktiven Payload.
+       *
+       * schedule_communications legt sie unter `actions` ab, mit den
+       * Feldnamen von top_recommendations_for_email:
+       *
+       *   title, summary, reason, benefit, effort, minutes,
+       *   action_url, location_id, scope
+       *
+       * `engineEvents` mit camelCase stammt aus weekly_payload_for —
+       * der Funktion aus Paket D4, die im produktiven Pfad nicht
+       * aufgerufen wird. Dieser Block las bis zum 05.10.2026 nur diese
+       * und renderte deshalb eine leere Liste: kein Fehler, nur keine
+       * Aufgaben.
+       *
+       * Beide Formen werden gelesen und auf eine gebracht.
+       */
+      type Mailaufgabe = {
+        id?: string | null;
+        title: string;
+        why: string;
+        minutes: number | null;
+        effortText: string | null;
+        link: string | null;
+      };
+
+      const roheAufgaben = (Array.isArray(data.actions) ? data.actions
+        : Array.isArray(data.engineEvents) ? data.engineEvents
+        : []) as Array<Record<string, unknown>>;
+
+      const engineAufgaben: Mailaufgabe[] = roheAufgaben.map((e) => ({
+        id: (e.id as string) ?? null,
+        title: String(e.title ?? ''),
+        why: String(e.summary ?? e.reason ?? ''),
+        /* minutes aus dem produktiven Payload, estimatedMinutes aus
+           dem anderen. */
+        minutes: typeof e.minutes === 'number' ? e.minutes
+               : typeof e.estimatedMinutes === 'number' ? e.estimatedMinutes
+               : null,
+        effortText: (e.effort ?? e.estimatedEffort) as string ?? null,
+        /* Der Token-Link, den ergaenzeMailLinks eingesetzt hat.
+           Sonst der regulaere Pfad. */
+        link: (e.mailLink ?? e.action_url ?? e.actionUrl) as string ?? null,
+      }));
 
       const rating = data.averageRating;
       const ratingDelta = data.ratingDelta ?? null;
@@ -765,15 +802,12 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
            den Mailkanal und auf drei begrenzt. */
         actionList(engineAufgaben.map((e) => ({
           title: e.title,
-          why: e.summary ?? e.reason ?? '',
+          why: e.why,
           /* Die strukturierte Zahl, nicht der Text. */
-          effort: typeof e.estimatedMinutes === 'number'
-            ? (e.estimatedMinutes === 1 ? '1 Minute' : `${e.estimatedMinutes} Minuten`)
-            : (e.estimatedEffort ?? ''),
-          /* Der Token-Link, falls vorher erzeugt. Sonst der regulaere
-             Pfad — eine Mail ohne Links waere schlimmer als eine mit
-             Anmeldung. */
-          to: e.mailLink ?? e.actionUrl ?? undefined,
+          effort: typeof e.minutes === 'number'
+            ? (e.minutes === 1 ? '1 Minute' : `${e.minutes} Minuten`)
+            : (e.effortText ?? ''),
+          to: e.link ?? undefined,
         }))) +
         healthBox(data.healthScore ?? 0, delta, week.healthReason);
 

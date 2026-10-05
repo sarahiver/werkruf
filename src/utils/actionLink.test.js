@@ -155,6 +155,58 @@ describe('Token-Erzeugung hängt am produktiven Pfad', () => {
   });
 });
 
+describe('Die Vorlage rendert das produktive Feld', () => {
+  const WOCHE = (() => {
+    const start = MAIL.indexOf("case 'weekly_summary': {");
+    return start === -1 ? '' : MAIL.slice(start, MAIL.indexOf("case 'weekly_report'", start));
+  })();
+
+  it('liest actions, nicht nur engineEvents', () => {
+    /* schedule_communications legt die Aufgaben unter `actions` ab.
+       Bis zum 05.10. las dieser Block nur `engineEvents` — ein Feld
+       aus weekly_payload_for, das im produktiven Pfad nicht vorkommt.
+       Die Mail enthielt deshalb keine Aufgaben: kein Fehler, nur eine
+       leere Liste. */
+    expect(WOCHE).toMatch(/data\.actions/);
+  });
+
+  it('liest beide Feldnamen für den Aufwand', () => {
+    /* Das produktive Payload nennt es `minutes`, das andere
+       `estimatedMinutes`. */
+    expect(WOCHE).toMatch(/e\.minutes/);
+    expect(WOCHE).toMatch(/e\.estimatedMinutes/);
+  });
+
+  it('liest beide Schreibweisen des Ziels', () => {
+    expect(WOCHE).toMatch(/e\.action_url/);
+    expect(WOCHE).toMatch(/e\.actionUrl/);
+  });
+
+  it('bevorzugt den Token-Link vor dem regulären Pfad', () => {
+    /* mailLink zuerst — sonst stünde der Token-Link im Payload und
+       die Mail nutzte trotzdem den Login-Pfad. */
+    expect(WOCHE).toMatch(/e\.mailLink \?\? e\.action_url/);
+  });
+});
+
+describe('Wiederholter Versand', () => {
+  it('erzeugt den Token im Worker, nicht beim Einreihen', () => {
+    /* Dokumentiert, wo der Link entsteht: Die Queue-Zeile trägt den
+       internen Pfad, der Token-Link kommt erst beim Rendern dazu. */
+    expect(MAIL).toMatch(/row\.template === 'weekly_summary'\s*\?\s*await ergaenzeMailLinks/);
+  });
+
+  it('verlässt sich auf das Widerrufen beim Anlegen', () => {
+    /* Ein gescheiterter Versand wird wiederholt, und jeder Versuch
+       erzeugt neue Tokens. create_action_token widerruft dabei die
+       vorherigen desselben Zwecks — es bleibt immer genau einer
+       gültig. Zeilen sammeln sich an, aktive Tokens nicht. */
+    expect(ERZEUGEN).toMatch(/rpc\('create_action_token'/);
+    expect(ERZEUGEN).toMatch(/p_event_id:/);
+    expect(ERZEUGEN).toMatch(/p_purpose:/);
+  });
+});
+
 describe('Token-Erzeugung in der Mail', () => {
   it('speichert nur den Hash', () => {
     expect(ERZEUGEN).toMatch(/p_token_hash:\s+hash/);

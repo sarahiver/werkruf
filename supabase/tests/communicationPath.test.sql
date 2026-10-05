@@ -264,6 +264,78 @@ begin
     'M: derselbe Aufwand';
 end $$;
 
+/* ═══════════════════════════════════════════════════════
+   N — Gleiche Prioritaet: dieselbe Reihenfolge
+   ═══════════════════════════════════════════════════════ */
+do $$
+declare v_dash text; v_mail text;
+begin
+  delete from public.events where user_id = (select id from t where name='user');
+
+  /* Der Fall, in dem die Kanaele auseinanderliefen: gleiche
+     Prioritaet, unterschiedlicher Aufwand.
+
+     Bis zum 05.10. sortierte die Mail nach minutes vor created_at und
+     zeigte B zuerst — "schnell zuerst" als zweite Rangfolge, die
+     niemand beschlossen hat. */
+  insert into public.events
+    (user_id, location_id, type, category, priority, title, summary,
+     estimated_minutes, in_weekly_email, in_dashboard, created_at)
+  values
+    ((select id from t where name='user'), (select id from t where name='si'),
+     'n.a', 'profile', 50, 'A wartet laenger', 'x', 30, true, true,
+     now() - interval '3 days'),
+    ((select id from t where name='user'), (select id from t where name='si'),
+     'n.b', 'profile', 50, 'B ist schneller', 'x', 5, true, true, now());
+
+  select string_agg(x ->> 'title', ' | ' order by ord) into v_dash
+    from jsonb_array_elements(
+      public.events_feed((select id from t where name='user'),
+                         (select id from t where name='si'), 3) -> 'items'
+    ) with ordinality q(x, ord);
+
+  select string_agg(x ->> 'title', ' | ' order by ord) into v_mail
+    from jsonb_array_elements(
+      public.top_recommendations_for_email((select id from t where name='user'), 3)
+    ) with ordinality q(x, ord);
+
+  assert v_dash = v_mail,
+    format('N: gleiche Reihenfolge. Dashboard: %s / Mail: %s', v_dash, v_mail);
+  assert v_dash like 'A wartet laenger%',
+    'N: was laenger wartet, kommt zuerst — nicht was schneller geht';
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   O — Der Aufwand bleibt sichtbar
+   ═══════════════════════════════════════════════════════ */
+do $$
+declare v jsonb; x jsonb;
+begin
+  v := public.top_recommendations_for_email((select id from t where name='user'), 3);
+  select e into x from jsonb_array_elements(v) e where e ->> 'title' = 'B ist schneller';
+
+  /* Aus dem ORDER BY entfernt, im Ergebnis geblieben. */
+  assert (x ->> 'minutes')::int = 5, 'O: minutes weiterhin im Ergebnis';
+end $$;
+
+/* ═══════════════════════════════════════════════════════
+   P — Altbestand ohne estimated_minutes
+   ═══════════════════════════════════════════════════════ */
+do $$
+declare v jsonb; x jsonb;
+begin
+  update public.events
+     set estimated_minutes = null, estimated_effort = '12 Minuten'
+   where title = 'B ist schneller';
+
+  v := public.top_recommendations_for_email((select id from t where name='user'), 3);
+  select e into x from jsonb_array_elements(v) e where e ->> 'title' = 'B ist schneller';
+
+  assert (x ->> 'minutes')::int = 12,
+    'P: ohne Zahl greift der Rueckfall auf den Text';
+  assert x ->> 'effort' = '12 Minuten', 'P: der Text bleibt fuer die Anzeige';
+end $$;
+
 select 'Alle SQL-Zusicherungen erfuellt' as ergebnis;
 
 rollback;
