@@ -348,6 +348,8 @@ interface WeeklyPayload {
   newestReviewAt?: string | null;
   /* Standort, auf den sich diese Mail bezieht. */
   locationTitle?: string | null;
+  /* Der Registrierungsname — nur Rueckfall fuer den Betriebsnamen. */
+  accountName?: string | null;
   locationId?: string | null;
   userId?: string | null;
   /* Die Aufgaben aus dem produktiven Pfad (schedule_communications). */
@@ -741,6 +743,18 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         link: string | null;
       };
 
+      /*
+       * Der Name, unter dem diese Mail laeuft.
+       *
+       * locationTitle kommt aus dem Google-Profil des ausgewaehlten
+       * Betriebs, companyName aus der Registrierung. Bei einem Betrieb
+       * sind beide meist gleich; bei zweien ist nur der erste richtig.
+       *
+       * Reihenfolge: Standortname, Registrierungsname, neutral.
+       */
+      const betriebsname = String(
+        data.locationTitle || data.companyName || 'deinem Betrieb');
+
       const roheAufgaben = (Array.isArray(data.actions) ? data.actions
         : Array.isArray(data.engineEvents) ? data.engineEvents
         : []) as Array<Record<string, unknown>>;
@@ -779,7 +793,11 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
           ? `${data.unanswered} ${data.unanswered === 1 ? 'Bewertung wartet' : 'Bewertungen warten'} auf Antwort`
           : (data.reviewsNew ?? 0) > 0
             ? `${data.reviewsNew} neue ${data.reviewsNew === 1 ? 'Bewertung' : 'Bewertungen'} — alles beantwortet`
-            : 'Ruhige Woche bei ' + (data.companyName ?? escapeHtml(brand.name));
+            /* Der Name des Betriebs, um den es geht — nicht der aus
+               der Registrierung. Bei zwei Betrieben stand im Betreff
+               "Ruhige Woche bei Firma Rolf Mueller Sanitaer und
+               Heizungstechnik", waehrend die Mail von S&I handelte. */
+            : 'Ruhige Woche bei ' + escapeHtml(betriebsname);
 
       const body =
         `<p class="wr-text" style="margin:0 0 4px;font-size:14px;color:#5F6875;">${greeting}</p>` +

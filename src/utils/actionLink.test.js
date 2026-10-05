@@ -155,6 +155,28 @@ describe('Token-Erzeugung hängt am produktiven Pfad', () => {
   });
 });
 
+describe('Die Vorlage nennt den richtigen Betrieb', () => {
+  const WOCHE = (() => {
+    const start = MAIL.indexOf("case 'weekly_summary': {");
+    return start === -1 ? '' : MAIL.slice(start, MAIL.indexOf("case 'weekly_report'", start));
+  })();
+
+  it('bevorzugt den Standortnamen vor dem Registrierungsnamen', () => {
+    /* Bei zwei Betrieben stand im Betreff "Ruhige Woche bei Firma
+       Rolf Müller Sanitär und Heizungstechnik", während die Mail von
+       S&I handelte. */
+    expect(WOCHE).toMatch(/data\.locationTitle \|\| data\.companyName/);
+  });
+
+  it('nutzt diesen Namen im Betreff', () => {
+    expect(WOCHE).toMatch(/Ruhige Woche bei ' \+ escapeHtml\(betriebsname\)/);
+  });
+
+  it('hat einen neutralen Rückfall', () => {
+    expect(WOCHE).toMatch(/'deinem Betrieb'/);
+  });
+});
+
 describe('Die Vorlage rendert das produktive Feld', () => {
   const WOCHE = (() => {
     const start = MAIL.indexOf("case 'weekly_summary': {");
