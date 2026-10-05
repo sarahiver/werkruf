@@ -636,9 +636,24 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
          markiert die enthaltenen Review-Events erst nach erfolgreichem
          Einreihen; Queue-Dedupe schützt parallele Planer-Läufe. */
       const count = Number(payload.count ?? 1);
-      const title = count === 1
+
+      /*
+       * Der Betrieb gehoert in den Betreff.
+       *
+       * Seit Paket E1 entsteht je betroffenem Betrieb eine eigene
+       * Meldung. Ein Nutzer mit zwei Betrieben bekommt womoeglich zwei
+       * Mails in derselben Stunde — ohne Namen im Betreff saehen sie
+       * im Postfach identisch aus.
+       *
+       * companyName traegt den Google-Namen des betroffenen Standorts,
+       * nicht den aus der Registrierung.
+       */
+      const betrieb = String(payload.locationTitle || payload.companyName || '');
+
+      const title = (count === 1
         ? 'Eine kritische Bewertung ist eingegangen'
-        : `${count} kritische Bewertungen sind eingegangen`;
+        : `${count} kritische Bewertungen sind eingegangen`)
+        + (betrieb ? ` — ${betrieb}` : '');
 
       const html = layout(brand, title,
         p(greeting) +
