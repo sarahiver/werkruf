@@ -2928,6 +2928,21 @@ interface Facts {
   };
 
   reviews: {
+    /**
+     * Ist die Zahl verlaesslich?
+     *
+     * `total` entsteht mit einem Rueckfall auf Null — fehlende Daten
+     * werden dort zu einer Null. Fuer die meisten Regeln ist das
+     * harmlos: Sie fragen nach daysSinceNewest oder responseRate, und
+     * die sind bei fehlenden Daten null.
+     *
+     * Fuer eine Regel, die GENAU bei null feuert, ist es gefaehrlich.
+     * Sie wuerde "Erste Bewertungen einsammeln" empfehlen, obwohl der
+     * Betrieb hundert hat und nur der Abgleich gescheitert ist.
+     *
+     * Unbekannt ist nicht null.
+     */
+    zahlVerlaesslich: boolean;
     total: number;
     unanswered: number;
     averageRating: number | null;
@@ -3232,6 +3247,21 @@ function buildFacts(ctx: EvaluationContext): Facts {
   const now = ctx.now;
   const reviews = ctx.reviews;
   const total = reviews?.total ?? 0;
+
+  /*
+   * Die Zahl gilt als verlaesslich, wenn der Kontext sie wirklich
+   * geliefert hat UND der Abgleich nicht gerade gescheitert ist.
+   *
+   * Beides noetig: Ein Kontoumfang liefert gar kein reviews-Objekt;
+   * ein gescheiterter Abgleich liefert eins, aber mit veralteten oder
+   * fehlenden Daten.
+   */
+  const zahlVerlaesslich =
+    typeof reviews?.total === 'number'
+    && (ctx as unknown as { locationResolved?: boolean }).locationResolved !== false
+    /* syncFailed im Kontext, nicht operations — das ist das daraus
+       abgeleitete Faktum. */
+    && ctx.syncFailed !== true;
   const unanswered = reviews?.unanswered ?? 0;
 
   const incomplete = ctx.locations.flatMap((location) => {
@@ -3269,6 +3299,7 @@ function buildFacts(ctx: EvaluationContext): Facts {
       daysSinceNewest: daysSince(reviews?.newestAt ?? null, now),
       last7d: reviews?.last7d ?? 0,
       last30d: reviews?.last30d ?? 0,
+      zahlVerlaesslich,
       negativeOpen: ctx.lowRatedOpen.map((r) => ({
         id: r.id, rating: r.rating, createdAt: r.createdAt,
         reviewer: r.reviewer, ageHours: hoursBetween(r.createdAt, now),
@@ -3597,6 +3628,63 @@ const RULES: Rule[] = [
      Sicherheit unter 1: Die Aussage "wirkt aufgegeben" ist ein
      Erfahrungswert, keine gemessene Tatsache. Genau dafür gibt es
      das Feld. ── */
+  {
+    /*
+     * Noch gar keine Bewertung.
+     *
+     * review.drought greift hier nicht: Ihre Bedingung ist
+     * `daysSinceNewest !== null` — ohne eine einzige Bewertung gibt es
+     * kein "seit wann". Ein frisch verbundener Betrieb fiel dadurch
+     * durch beide Raster: keine Flaute, weil nie etwas da war.
+     *
+     * Das ist der haeufigste Zustand bei neuen Kunden und zugleich der,
+     * in dem WERKRUF am meisten helfen kann.
+     */
+    id: 'review.none_yet',
+    status: 'active',
+    meta: {
+      title: 'Noch keine Bewertungen',
+      purpose: 'Erkennt Betriebe ohne eine einzige Bewertung.',
+      rationale: 'Ein Profil ohne Bewertungen wird in der lokalen Suche schlechter gefunden und seltener angeklickt. Der Zusammenhang ist gut belegt, die Regel selbst trivial — deshalb hohe Sicherheit.',
+      createdAt: '2026-10-05',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    /* Die Anzahl, nicht der Schnitt: Um Bewertungen zu bitten erhoeht
+       die Zahl. Wer den Durchschnitt messen wuerde, liesse eine Regel
+       schlecht aussehen, die genau das tut, was sie soll. */
+    impactMetric: 'reviews.totalCount',
+    source: 'google_business',
+    category: 'reviews',
+    capability: 'none',
+    describes: 'Noch keine einzige Bewertung',
+    /*
+     * Beides noetig: null Bewertungen UND eine verlaessliche Zahl.
+     *
+     * Ohne die zweite Bedingung wuerde die Regel bei einem
+     * gescheiterten Abgleich "Erste Bewertungen einsammeln" empfehlen,
+     * obwohl der Betrieb hundert hat. Aus fehlenden Daten darf keine
+     * Empfehlung entstehen.
+     */
+    when: ({ facts }) =>
+      facts.reviews.zahlVerlaesslich && facts.reviews.total === 0,
+    insight: () => 'Für diesen Betrieb liegt noch keine einzige Bewertung vor.',
+    recommend: () => ({
+      type: 'reviews.none_yet',
+      title: 'Erste Bewertungen einsammeln',
+      summary: 'Noch keine Bewertung vorhanden.',
+      reason: 'Profile ohne Bewertungen werden in der lokalen Suche schlechter gefunden.',
+      /* Kein Versprechen ueber Rankings — nur, was tatsaechlich
+         bereitliegt. */
+      expectedBenefit: 'Bewertungslink und QR-Code liegen im Dashboard bereit',
+      estimatedMinutes: 3,
+      actionUrl: '/dashboard/kunden-gewinnung',
+      priority: 'medium',
+      confidence: 0.9,
+      sourceFacts: ['reviews.total', 'reviews.zahlVerlaesslich'],
+    }),
+  },
+
   {
     id: 'review.drought',
     status: 'active',
@@ -4068,6 +4156,103 @@ function evaluate(facts: Facts, thresholds: Thresholds): EngineResult {
  * faellt auf; sie faelschlich dem Konto zuzuordnen macht sie
  * betriebsunabhaengig und damit unauffaellig falsch.
  */
+/*
+ * Welche Art von Aufgabe ist das?
+ *
+ * Die Kategorie sagt, WORUM es geht — Bewertungen, Profil,
+ * Verbindung. Sie sagt nicht, ob etwas kaputt ist oder nur besser
+ * werden koennte. Genau das entscheidet aber, wie dringend eine
+ * Aufgabe ist und ob sie warten kann.
+ *
+ *   problem      Etwas ist kaputt oder laeuft schief. Wartet nicht.
+ *                Eine unbeantwortete schlechte Bewertung steht
+ *                oeffentlich; eine verlorene Verbindung macht alle
+ *                Daten veraltet.
+ *
+ *   growth       Nichts ist kaputt, es fehlt nur etwas. Keine
+ *                Bewertungen, keine Fotos, unvollstaendiges Profil.
+ *                Diese Aufgaben koennen rotieren — sie sind naechste
+ *                Woche genauso wahr.
+ *
+ *   opportunity  Ein Impuls von aussen: "vergleichbare Betriebe tun
+ *                gerade X". STRUKTURELL VORBEREITET, NICHT BENUTZT.
+ *                Solange keine Mitbewerberdaten vorliegen, darf keine
+ *                Mail so etwas behaupten — eine erfundene
+ *                Marktaussage ist schlimmer als keine.
+ *
+ * Die Zuordnung steht hier und nicht an der Regel, damit sie an einem
+ * Ort ueberblickbar bleibt. Eine Regel ohne Eintrag gilt als `growth`:
+ * Eine Wachstumsaufgabe faelschlich als Problem zu melden waere
+ * Alarmismus, umgekehrt geht nur etwas Dringlichkeit verloren.
+ */
+const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
+  /* ── Kaputt ── */
+  'connection.missing':         'problem',
+  'connection.lost':            'problem',
+  'review.negative_unanswered': 'problem',
+  'review.negative_batch':      'problem',
+  'reply.publish_failed':       'problem',
+  'sync.failing':               'problem',
+
+  /* ── Fehlt noch ── */
+  'review.none_yet':            'growth',
+  'review.drought':             'growth',
+  'review.response_rate_low':   'growth',
+  'reply.drafts_waiting':       'growth',
+  'profile.incomplete':         'growth',
+  'profile.photos_missing':     'growth',
+
+  /*
+   * health.declined: growth, nicht problem.
+   *
+   * Naheliegend waere problem — der Score ist ja gefallen. Der
+   * Wortlaut der Regel spricht dagegen:
+   *
+   *   Titel:  "Ansehen, woran der Rueckgang liegt"
+   *   Grund:  "Meist liegt es an unbeantworteten Bewertungen oder
+   *            fehlenden Angaben."
+   *
+   * Die Regel sagt selbst, dass die Ursache woanders steckt. Sie
+   * verweist, sie behebt nicht — und das, worauf sie verweist, ist
+   * bereits als eigene Empfehlung da.
+   *
+   * Als problem eingeordnet wuerde sie in F1b jede Rotation
+   * uebersteuern und dabei eine Aufgabe nach oben schieben, die keine
+   * ist: "Ansehen, woran es liegt" laesst sich nicht erledigen.
+   *
+   * Langfristig gehoert ein gefallener Score womoeglich gar nicht in
+   * die Aufgabenliste, sondern in die Score-Anzeige. Das waere ein
+   * eigenes Paket.
+   */
+  'health.declined':            'growth',
+};
+
+/**
+ * Die Klasse einer Regel.
+ *
+ * Der Rueckfall auf `growth` bleibt als Netz, aber er soll nicht
+ * stillschweigend greifen: Eine neue Regel ohne Eintrag ist ein
+ * Versehen, nicht eine Entscheidung. Deshalb ein Protokolleintrag —
+ * und ein Test, der jede Regel gegen die Zuordnung prueft.
+ *
+ * Ein harter Typzwang waere schoener: Jede Regeldefinition muesste
+ * ihre Klasse selbst angeben, und TypeScript wuerde es erzwingen. Das
+ * haette zwoelf Regeldefinitionen angefasst — mehr Flaeche, als diese
+ * Entscheidung wert ist. Der Test leistet dasselbe.
+ */
+function klasseFuer(ruleId: string): 'problem' | 'growth' | 'opportunity' {
+  const klasse = REGEL_KLASSE[ruleId];
+
+  if (!klasse) {
+    console.warn(JSON.stringify({
+      scope: 'engine', event: 'regel_ohne_klasse', ruleId,
+    }));
+    return 'growth';
+  }
+
+  return klasse;
+}
+
 const KONTO_REGELN = new Set<string>([
   'connection.missing',
   'connection.lost',
@@ -4095,6 +4280,8 @@ function toEventRows(result: EngineResult) {
        estimatedEffort wird daraus erzeugt. Sie ging hier verloren, und
        das Wochenbudget haette "5 Minuten" per Regex zerlegen muessen. */
     estimatedMinutes: r.estimatedMinutes,
+    /* problem, growth oder opportunity — siehe REGEL_KLASSE. */
+    recommendationClass: klasseFuer(r.ruleId),
     impact: r.expectedBenefit,
     inDashboard: r.channels.dashboard,
     inWeeklyEmail: r.channels.weeklyEmail,

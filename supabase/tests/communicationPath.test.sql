@@ -11,11 +11,54 @@
 
 begin;
 
+/*
+ * Montag herstellen.
+ *
+ * plan_communications verschickt die Wochenmail nur montags, und
+ * schedule_communications ruft es ohne Zeitpunkt auf. An jedem anderen
+ * Tag entstuende keine Queue-Zeile — und Test I uebersprang das still.
+ *
+ * Diese Huelle ruft den echten Planer mit einem Montagszeitpunkt auf
+ * und gilt nur bis zum rollback am Dateiende.
+ */
+do $$
+begin
+  execute replace(
+    pg_get_functiondef('public.plan_communications(uuid,timestamptz)'::regprocedure),
+    'FUNCTION public.plan_communications(', 'FUNCTION public.plan_communications_echt(');
+end $$;
+
+create or replace function public.plan_communications(
+  p_user_id uuid, p_now timestamptz default now()
+)
+returns jsonb language sql stable security definer set search_path to 'public'
+as $$
+  select public.plan_communications_echt(
+    p_user_id, date_trunc('week', p_now) + interval '7 hours');
+$$;
+
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
   ('user',    '11111111-1111-1111-1111-111111111111'),
   ('si',      '33333333-3333-3333-3333-333333333333'),
   ('werkruf', '44444444-4444-4444-4444-444444444444');
+
+/* schedule_communications laeuft ueber google_accounts join
+   auth.users — ohne beides findet es niemanden, und Test I uebersprang
+   still. */
+insert into auth.users (id, email)
+values ((select id from t where name='user'), 'iver@example.com')
+on conflict (id) do nothing;
+
+insert into public.user_profiles (id, company_name, industry_key)
+values ((select id from t where name='user'), 'Firma Rolf Müller', 'handwerk')
+on conflict (id) do update set company_name = excluded.company_name;
+
+insert into public.google_accounts (id, user_id, status)
+values (gen_random_uuid(), (select id from t where name='user'), 'active');
+
+insert into public.notification_preferences (user_id)
+values ((select id from t where name='user')) on conflict do nothing;
 
 insert into public.google_locations (id, user_id, title, selected_at) values
   ((select id from t where name='si'),      (select id from t where name='user'), 'S&I.',    now()),
@@ -189,12 +232,14 @@ begin
   select payload into v_payload from public.email_queue
    where template = 'weekly_summary' limit 1;
 
-  if v_payload is not null then
-    assert v_payload ? 'actions', 'I: das Payload traegt actions';
-    assert jsonb_array_length(v_payload -> 'actions') <= 3, 'I: hoechstens drei';
-    assert v_payload::text not like '%WERKRUF Fotos%',
-      'I: keine Empfehlung des anderen Betriebs';
-  end if;
+  /* Keine Huelle mehr: Die Montagshuelle oben sorgt dafuer, dass eine
+     Zeile entsteht. Vorher uebersprang dieser Block an sechs von
+     sieben Tagen still. */
+  assert v_payload is not null, 'I: eine Queue-Zeile entsteht';
+  assert v_payload ? 'actions', 'I: das Payload traegt actions';
+  assert jsonb_array_length(v_payload -> 'actions') <= 3, 'I: hoechstens drei';
+  assert v_payload::text not like '%WERKRUF Fotos%',
+    'I: keine Empfehlung des anderen Betriebs';
 end $$;
 
 /* ═══════════════════════════════════════════════════════
