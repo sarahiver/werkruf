@@ -354,6 +354,9 @@ interface WeeklyPayload {
   userId?: string | null;
   /* Die Aufgaben aus dem produktiven Pfad (schedule_communications). */
   actions?: unknown[];
+  /* all_clear, quiet_week oder action_due — siehe F1b. */
+  weeklyState?: string | null;
+  dueCount?: number;
   /* Aus weekly_payload_for — nicht produktiv, aber gelesen. */
   engineEvents?: unknown[];
 }
@@ -770,6 +773,19 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
       const betriebsname = String(
         data.locationTitle || data.companyName || 'deinem Betrieb');
 
+      /*
+       * Der Zustand der Woche.
+       *
+       * Eine leere Aufgabenliste bedeutet zweierlei: nichts offen,
+       * oder nichts faellig. Beide sehen gleich aus und muessen
+       * Verschiedenes sagen — "alles erledigt" bei drei offenen
+       * Aufgaben waere eine Falschaussage.
+       *
+       * Der Rueckfall auf actions.length gilt fuer Payloads aus der
+       * Zeit vor F1b.
+       */
+      const zustand = String(data.weeklyState ?? '');
+
       const roheAufgaben = (Array.isArray(data.actions) ? data.actions
         : Array.isArray(data.engineEvents) ? data.engineEvents
         : []) as Array<Record<string, unknown>>;
@@ -833,15 +849,25 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         /* Die Aufgaben kommen aus der Engine, nicht aus assessWeek.
            Dieselben Events, die das Dashboard zeigt — gefiltert auf
            den Mailkanal und auf drei begrenzt. */
-        actionList(engineAufgaben.map((e) => ({
-          title: e.title,
-          why: e.why,
-          /* Die strukturierte Zahl, nicht der Text. */
-          effort: typeof e.minutes === 'number'
-            ? (e.minutes === 1 ? '1 Minute' : `${e.minutes} Minuten`)
-            : (e.effortText ?? ''),
-          to: e.link ?? undefined,
-        }))) +
+        /*
+         * Bei leerer Liste keine kaputte Aufgabensektion, sondern ein
+         * Satz, der zum Zustand passt.
+         */
+        (engineAufgaben.length > 0
+          ? actionList(engineAufgaben.map((e) => ({
+              title: e.title,
+              why: e.why,
+              /* Die strukturierte Zahl, nicht der Text. */
+              effort: typeof e.minutes === 'number'
+                ? (e.minutes === 1 ? '1 Minute' : `${e.minutes} Minuten`)
+                : (e.effortText ?? ''),
+              to: e.link ?? undefined,
+            })))
+          : p(zustand === 'quiet_week'
+              /* Offene Aufgaben existieren — sie sind nur nicht an der
+                 Reihe. Niemals "alles perfekt". */
+              ? 'Diese Woche steht nichts Neues an. Deine offenen Aufgaben bleiben im Dashboard sichtbar.'
+              : 'Aktuell ist keine Aufgabe offen. WERKRUF beobachtet dein Profil weiter.')) +
         healthBox(data.healthScore ?? 0, delta, week.healthReason);
 
       const html = layout(brand, subject, body, {
