@@ -2970,6 +2970,19 @@ interface Facts {
 
   health: { score: number; previous: number | null; factors: Record<string, number> };
 
+  /**
+   * Regulaere Oeffnungszeiten.
+   *
+   * Zwei Aussagen, die nicht dasselbe sind:
+   *
+   *   present   Es sind Zeiten hinterlegt.
+   *   reliable  Wir wissen das sicher.
+   *
+   * Ein nie synchronisierter Standort hat present = false, aber auch
+   * reliable = false — aus fehlenden Daten darf keine Empfehlung
+   * entstehen.
+   */
+  openingHours: { present: boolean; reliable: boolean };
   operations: { syncFailedRecently: boolean; lastSyncedAt: string | null };
 }
 
@@ -3256,6 +3269,12 @@ function buildFacts(ctx: EvaluationContext): Facts {
    * ein gescheiterter Abgleich liefert eins, aber mit veralteten oder
    * fehlenden Daten.
    */
+  /* Aeltere Kontexte kennen das Feld nicht: dann gilt unbekannt, und
+     die Regel feuert nicht. */
+  const oeffnung = (ctx as unknown as {
+    openingHours?: { present?: boolean; reliable?: boolean };
+  }).openingHours;
+
   const zahlVerlaesslich =
     typeof reviews?.total === 'number'
     && (ctx as unknown as { locationResolved?: boolean }).locationResolved !== false
@@ -3321,6 +3340,13 @@ function buildFacts(ctx: EvaluationContext): Facts {
       factors: ctx.health?.factors ?? {},
     },
 
+    /* Kommt fertig aus dem Kontext — er kennt last_synced_at, den
+       Schluessel in google_profile und den Abgleichzustand. Hier nur
+       durchgereicht, mit sicherem Rueckfall fuer aeltere Kontexte. */
+    openingHours: {
+      present:  oeffnung?.present === true,
+      reliable: oeffnung?.reliable === true,
+    },
     operations: {
       syncFailedRecently: ctx.syncFailed,
       lastSyncedAt: ctx.locations[0]?.lastSyncedAt ?? null,
@@ -3768,6 +3794,56 @@ const RULES: Rule[] = [
   },
 
   {
+    /*
+     * Keine regulaeren Oeffnungszeiten hinterlegt.
+     *
+     * Eine der haeufigsten Luecken und eine der folgenreichsten: Wer
+     * nicht sieht, wann ein Betrieb erreichbar ist, ruft seltener an.
+     *
+     * Die Bedingung verlangt BEIDES — hinterlegt ist nichts, und wir
+     * wissen das sicher. Ein nie synchronisierter Standort saehe sonst
+     * aus wie einer ohne Oeffnungszeiten.
+     *
+     * Was hier NICHT geprueft wird: wie viele Tage gepflegt sind, ob
+     * die Zeiten plausibel wirken, ob ein Handwerker samstags offen
+     * haben sollte. Nur: hinterlegt oder nicht.
+     */
+    id: 'profile.opening_hours_missing',
+    status: 'active',
+    meta: {
+      title: 'Keine Oeffnungszeiten',
+      purpose: 'Erkennt Betriebe ohne hinterlegte regulaere Oeffnungszeiten.',
+      rationale: 'Oeffnungszeiten gehoeren zu den Angaben, die Google in den Suchergebnissen direkt anzeigt. Fehlen sie, fehlt die Antwort auf die haeufigste Frage. Die Regel prueft nur Vorhandensein — deshalb hohe Sicherheit.',
+      createdAt: '2026-10-09',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'write',
+    describes: 'Keine regulaeren Oeffnungszeiten hinterlegt',
+    when: ({ facts }) =>
+      facts.openingHours.reliable && !facts.openingHours.present,
+    insight: () => 'Fuer diesen Betrieb sind keine regulaeren Oeffnungszeiten hinterlegt.',
+    recommend: () => ({
+      type: 'profile.opening_hours_missing',
+      title: 'Öffnungszeiten ergänzen',
+      summary: 'Keine regulären Öffnungszeiten hinterlegt.',
+      reason: 'Google zeigt Öffnungszeiten direkt in den Suchergebnissen.',
+      expectedBenefit: 'Kunden sehen, wann dein Betrieb erreichbar ist',
+      /* Der Editor liegt unter /dashboard/google und schreibt
+         regularHours zu Google zurueck — das ist geprueft, nicht
+         angenommen. */
+      estimatedMinutes: 3,
+      actionUrl: '/dashboard/google',
+      priority: 'medium',
+      confidence: 0.9,
+      sourceFacts: ['openingHours.present', 'openingHours.reliable'],
+    }),
+  },
+
+  {
     id: 'profile.photos_missing',
     status: 'active',
     meta: {
@@ -4200,6 +4276,7 @@ const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
   'review.response_rate_low':   'growth',
   'reply.drafts_waiting':       'growth',
   'profile.incomplete':         'growth',
+  'profile.opening_hours_missing': 'growth',
   'profile.photos_missing':     'growth',
 
   /*
