@@ -3821,7 +3821,7 @@ const RULES: Rule[] = [
     impactMetric: 'profile.completeness',
     source: 'google_business',
     category: 'profile',
-    capability: 'write',
+    capability: 'profile.write',
     describes: 'Keine regulaeren Oeffnungszeiten hinterlegt',
     when: ({ facts }) =>
       facts.openingHours.reliable && !facts.openingHours.present,
