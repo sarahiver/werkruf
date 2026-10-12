@@ -1,0 +1,348 @@
+name: G2 Restore-Beweis
+
+# ═══════════════════════════════════════════════════════════════
+# WAS DIESER WORKFLOW IST
+# ═══════════════════════════════════════════════════════════════
+#
+# Der vollstaendige G2-Nachweis, von Hand gestartet, ohne Terminal:
+#
+#   echter Produktionsdump
+#   → Verifikation
+#   → Restore in eine komplett leere Datenbank
+#   → Fingerabdruck, Kernchecks
+#   → Kundentrennung gegen echtes auth.uid()
+#   → Datenmengenvergleich
+#
+# Das Ergebnis steht danach als lesbare Zusammenfassung oben im
+# Workflow-Lauf, nicht nur im Protokoll.
+#
+# ═══════════════════════════════════════════════════════════════
+# WARUM DAS SICHERER IST ALS EIN DUMP AUF DEM EIGENEN RECHNER
+# ═══════════════════════════════════════════════════════════════
+#
+# Der Dump enthaelt echte Bewertungen, Mailadressen und Profile. Hier
+# entsteht er im Runner, wird dort geprueft und verschwindet mit dem
+# Runner.
+#
+#   KEIN upload-artifact
+#   KEIN Commit
+#   KEIN Download
+#
+# Es gibt keinen Schritt, der ihn herausgibt. Das ist Absicht und darf
+# nicht ergaenzt werden.
+#
+# ═══════════════════════════════════════════════════════════════
+# WAS HIER NICHT GEPRUEFT WERDEN KANN
+# ═══════════════════════════════════════════════════════════════
+#
+# Das Ziel ist ein nacktes postgres:17 ohne pg_cron, pg_net und
+# supabase_vault. Also:
+#
+#   public und auth.users      vollstaendig pruefbar
+#   cron.job, Vault, net       im Dump enthalten, hier nicht
+#                              wiederherstellbar
+#
+# Im Katastrophenfall ist das Ziel ein neues Supabase-Projekt, wo diese
+# Extensions existieren. Dieser Workflow beweist Schema, Daten, Rechte,
+# Policies und Kundentrennung — nicht den Betrieb. Den beweist die
+# Cron-Migration, die im Repo steht.
+#
+# ═══════════════════════════════════════════════════════════════
+# VORAUSSETZUNG
+# ═══════════════════════════════════════════════════════════════
+#
+#   Secret SUPABASE_DIRECT_DB_URL
+#   = die DIREKTE Verbindung, nicht der Pooler:
+#     postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres
+#
+# Der Pooler kann eine pg_dump-Sitzung mitten im Lauf beenden — die
+# vermutete Ursache dafuer, dass die alte Baseline abgeschnitten war.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bestaetigung:
+        description: 'Zum Starten RESTORE eintippen (liest Produktion, aendert sie nicht)'
+        required: true
+        default: ''
+
+jobs:
+  beweis:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      ZIELDB: werkruf_restore
+      # Ausserhalb des Arbeitsverzeichnisses, damit kein Schritt den
+      # Dump versehentlich in ein Artefakt oder einen Commit zieht.
+      DUMPDIR: /tmp/werkruf-backup
+
+    steps:
+      - name: Bestaetigung pruefen
+        # Ein versehentlich gestarteter Lauf liest Produktion und
+        # erzeugt einen Dump mit Kundendaten im Runner. Das soll eine
+        # bewusste Handlung sein.
+        run: |
+          test "${{ inputs.bestaetigung }}" = "RESTORE" || {
+            echo "Bestaetigung fehlt. Im Startdialog RESTORE eintippen."
+            exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - name: pg_dump und psql 17 installieren
+        run: |
+          set -euo pipefail
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt \
+            $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          sudo sed -i 's|deb |deb [signed-by=/usr/share/keyrings/pgdg.gpg] |' \
+            /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      # ───────────────────────────────────────────────────────────
+      - name: 1 — Produktionsdump erzeugen und verifizieren
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        # dump.sh prueft selbst: Pooler-Port, pg_dump-Hauptversion
+        # gegen den Server, und verifiziert beide Artefakte am Ende.
+        #
+        # Kein set -x und kein echo der URL. Das Secret darf nicht ins
+        # Protokoll.
+        run: |
+          set -euo pipefail
+          test -n "${DATABASE_URL:-}" || {
+            echo "Secret SUPABASE_DIRECT_DB_URL fehlt."
+            echo "Repo → Settings → Secrets and variables → Actions → New secret"
+            exit 1; }
+          bash scripts/backup/dump.sh "$DUMPDIR"
+
+      - name: 2 — Was steht im Dump?
+        # Objektklassen aus dem Inhaltsverzeichnis. Keine Dateninhalte.
+        run: |
+          set -euo pipefail
+          DUMP="$(ls "$DUMPDIR"/*.dump | head -1)"
+          echo "DUMP=$DUMP" >> "$GITHUB_ENV"
+
+          {
+            echo "## 1 — Produktionsdump"
+            echo
+            echo '| | |'
+            echo '|---|---|'
+            echo "| Verbindung | direkt, Port 5432 |"
+            echo "| pg_dump | $(pg_dump --version | awk '{print $3}') |"
+            echo "| Format | custom (-Fc) |"
+            echo "| Groesse | $(du -h "$DUMP" | cut -f1) |"
+            echo "| sha256 | \`$(cut -c1-16 < "$DUMP.sha256")…\` |"
+            echo
+            echo '### Objektklassen im Inhaltsverzeichnis'
+            echo
+            echo '| Klasse | Anzahl |'
+            echo '|---|---:|'
+            pg_restore --list "$DUMP" > /tmp/toc.txt
+            for k in TABLE VIEW FUNCTION CONSTRAINT INDEX TRIGGER POLICY SEQUENCE "TABLE DATA" EXTENSION; do
+              # "|| true", nicht "|| echo 0": grep -c gibt bei null
+              # Treffern bereits 0 aus und endet mit 1. Ein echo
+              # daneben schriebe "0 0" in die Zelle.
+              printf '| %s | %s |\n' "$k" "$(grep -c " $k " /tmp/toc.txt || true)"
+            done
+            echo
+            if grep -q " TABLE auth users \| TABLE DATA auth users " /tmp/toc.txt; then
+              echo '`auth.users` ist enthalten.'
+            else
+              echo '**`auth.users` FEHLT** — der Dump ist unbrauchbar.'
+            fi
+            echo
+            if grep -q " TABLE DATA cron job" /tmp/toc.txt; then
+              echo 'Die Cron-Jobs sind als Daten enthalten (pg_cron meldet sie zum Dump an).'
+            else
+              echo 'Die Cron-Jobs sind NICHT im Dump — dann ist die Cron-Migration der einzige Weg.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ───────────────────────────────────────────────────────────
+      - name: 3 — Restore, Kernchecks, Kundentrennung
+        # Harte Schranke. restore.sh macht:
+        #   verify → leere DB → Rollen → Extensions melden → pg_restore
+        #   → Cron sofort stilllegen → Fingerabdruck → Kernchecks
+        #   → Kundentrennung gegen echtes auth.uid()
+        #
+        # Der Isolationstest ist der Punkt, der lokal nie lief: dort
+        # ist auth.uid() ein Stub und das Skript bricht ab, statt
+        # falsch gruen zu werden. Hier kommt die echte Funktion aus
+        # dem Produktionsdump mit.
+        run: |
+          set -euo pipefail
+          bash scripts/backup/restore.sh "$DUMP" --neu 2>&1 | tee /tmp/restore.log
+
+      - name: 4 — Restore zusammenfassen
+        if: always()
+        run: |
+          {
+            echo
+            echo "## 2 — Restore"
+            echo
+            echo '```'
+            sed -n '/══ 3b/,$p' /tmp/restore.log 2>/dev/null | head -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ───────────────────────────────────────────────────────────
+      - name: 5 — Produktion gegen Restore vergleichen
+        # BEWUSST NICHT BLOCKIEREND beim ersten Lauf.
+        #
+        # Das Ziel ist ein nacktes postgres:17. Objekte, die pg_cron,
+        # pg_net oder dem Vault gehoeren, koennen hier nicht entstehen,
+        # und der diff wird sie nennen. Welche Abweichungen erwartet
+        # sind, wissen wir nach diesem Lauf — dann wird aus dem Bericht
+        # eine Schranke.
+        #
+        # Hart bleiben die Schritte 3 und 6: Kernchecks, Kundentrennung
+        # und Datenmengen.
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atf scripts/backup/fingerprint.sql \
+            > /tmp/fp-prod.txt
+          psql -d "$ZIELDB" -v ON_ERROR_STOP=1 -Atf scripts/backup/fingerprint.sql \
+            > /tmp/fp-restore.txt
+
+          # Das aktiv-Flag der Cron-Jobs ist ein gewollter Unterschied:
+          # restore.sh legt sie still. Fuer den diff neutralisiert.
+          for f in prod restore; do
+            sed -E 's/^(cron\|[^|]*\|[^|]*\|)(aktiv|INAKTIV)\|/\1<aktivflag>|/' \
+              "/tmp/fp-$f.txt" > "/tmp/fp-$f.norm.txt"
+          done
+
+          {
+            echo
+            echo "## 3 — Fingerabdruck"
+            echo
+            echo "Produktion: $(wc -l < /tmp/fp-prod.txt) Objekte · Restore: $(wc -l < /tmp/fp-restore.txt)"
+            echo
+            if diff -u /tmp/fp-prod.norm.txt /tmp/fp-restore.norm.txt > /tmp/fp.diff; then
+              echo '**Strukturell identisch.**'
+            else
+              nur_p="$(grep -c '^-[a-z]' /tmp/fp.diff || true)"
+              nur_r="$(grep -c '^+[a-z]' /tmp/fp.diff || true)"
+              echo "Unterschiede: $nur_p nur in Produktion, $nur_r nur im Restore."
+              echo
+              echo '### Nach Objektklasse'
+              echo
+              echo '| Klasse | fehlt im Restore |'
+              echo '|---|---:|'
+              for k in schema fremdtabelle spalte sicht funktion constraint \
+                       index trigger rls policy sequenz identity recht recht-fkt cron; do
+                n="$(grep -c "^-$k|" /tmp/fp.diff || true)"
+                [ "$n" -gt 0 ] && printf '| %s | %s |\n' "$k" "$n"
+              done
+              echo
+              echo '<details><summary>Erste 120 Zeilen des diff</summary>'
+              echo
+              echo '```diff'
+              head -120 /tmp/fp.diff
+              echo '```'
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ───────────────────────────────────────────────────────────
+      - name: 6 — Datenmengen
+        # Harte Schranke: der Restore darf nicht MEHR haben als die
+        # Quelle und nicht leer sein, wo die Quelle Zeilen hat.
+        # Weniger ist bei laufender Produktion normal.
+        #
+        # Nur Anzahlen, keine Inhalte.
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+          ZAEHL="select t||'|'||n from (
+            select 'user_profiles' t, count(*) n from public.user_profiles
+            union all select 'google_accounts', count(*) from public.google_accounts
+            union all select 'google_locations', count(*) from public.google_locations
+            union all select 'google_reviews', count(*) from public.google_reviews
+            union all select 'events', count(*) from public.events
+            union all select 'recommendation_events', count(*) from public.recommendation_events
+            union all select 'email_queue', count(*) from public.email_queue
+            union all select 'action_tokens', count(*) from public.action_tokens
+            union all select 'notification_preferences', count(*) from public.notification_preferences
+            union all select 'sync_jobs', count(*) from public.sync_jobs
+            union all select 'auth.users', count(*) from auth.users
+          ) q order by t"
+
+          psql "$DATABASE_URL" -Atc "$ZAEHL" > /tmp/n-prod.txt
+          psql -d "$ZIELDB"    -Atc "$ZAEHL" > /tmp/n-restore.txt
+
+          fehler=0
+          {
+            echo
+            echo "## 4 — Daten"
+            echo
+            echo '| Tabelle | Produktion | Restore | |'
+            echo '|---|---:|---:|---|'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          while IFS='|' read -r t np; do
+            nr="$(grep "^$t|" /tmp/n-restore.txt | cut -d'|' -f2)"; nr="${nr:-0}"
+            hinweis=''
+            if [ "$nr" -gt "$np" ]; then hinweis='MEHR als die Quelle'; fehler=1
+            elif [ "$np" -gt 0 ] && [ "$nr" -eq 0 ]; then hinweis='LEER'; fehler=1
+            elif [ "$nr" -lt "$np" ]; then hinweis='Quelle gewachsen'
+            else hinweis='ok'; fi
+            printf '| %s | %s | %s | %s |\n' "$t" "$np" "$nr" "$hinweis" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done < /tmp/n-prod.txt
+
+          exit "$fehler"
+
+      # ───────────────────────────────────────────────────────────
+      - name: 7 — Ergebnis
+        if: always()
+        run: |
+          {
+            echo
+            echo "## Ergebnis"
+            echo
+            if grep -q "Kundentrennung bestaetigt" /tmp/restore.log 2>/dev/null; then
+              echo '- **A — Schema und Daten wiederherstellbar:** ja'
+              echo '- **B — Kundentrennung nach Restore:** bestaetigt, gegen echtes `auth.uid()`'
+            elif grep -q "NICHT GEPRUEFT" /tmp/restore.log 2>/dev/null; then
+              echo '- **A — Schema und Daten wiederherstellbar:** ja'
+              echo '- **B — Kundentrennung:** NICHT GEPRUEFT — siehe Protokoll von Schritt 3'
+            else
+              echo '- Lauf unvollstaendig. Protokoll von Schritt 3 lesen.'
+            fi
+            echo
+            echo 'Nicht Teil dieses Beweises, weil es ein Supabase-Projekt braucht:'
+            echo 'Cron-Jobs, Vault-Geheimnisse, Edge Functions, Frontend.'
+            echo 'Siehe `docs/operations/backup-restore.md`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dump vernichten
+        if: always()
+        # Der Runner wird ohnehin verworfen. Trotzdem ausdruecklich:
+        # wer diesen Workflow spaeter erweitert, soll sehen, dass der
+        # Dump hier endet und nicht weitergegeben wird.
+        run: rm -rf "$DUMPDIR" /tmp/toc.txt
