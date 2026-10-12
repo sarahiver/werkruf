@@ -201,9 +201,44 @@ jobs:
             echo "## 2 — Restore"
             echo
             echo '```'
-            sed -n '/══ 3b/,$p' /tmp/restore.log 2>/dev/null | head -80
+            sed -n '/══ 3b/,$p' /tmp/restore.log 2>/dev/null | head -120
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 4b — Produktionsbefunde eigens ausweisen
+        if: always()
+        # WARUM EIN EIGENER ABSCHNITT
+        #
+        # Die Kernchecks trennen zwei Dinge, die der erste Lauf gegen
+        # einen echten Produktionsdump in einen Topf geworfen hatte:
+        # was der Restore verloren hat (rot) und was er aus Produktion
+        # getreu uebernommen hat (gelb). Das Zweite ist kein Grund,
+        # den Restore-Beweis zu verwerfen — aber es darf auch nicht
+        # zwischen 120 Zeilen Protokoll verschwinden. Deshalb hier,
+        # oben, mit Namen.
+        run: |
+          set -euo pipefail
+          if grep -q 'PRODUKTIONSBEFUND' /tmp/restore.log 2>/dev/null; then
+            {
+              echo
+              echo "## 2b — Produktionsbefunde (nicht vom Restore verursacht)"
+              echo
+              echo "Der Restore hat diese Zustaende aus dem Dump getreu"
+              echo "uebernommen. Sie sind damit **Produktionszustand**, kein"
+              echo "Restore-Fehler. Der Restore-Beweis bleibt gueltig."
+              echo
+              echo '```'
+              sed -n '/PRODUKTIONSBEFUND/,/^[^ ]/p' /tmp/restore.log | head -60
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo
+              echo "## 2b — Produktionsbefunde"
+              echo
+              echo "Keine."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # ───────────────────────────────────────────────────────────
       - name: 5 — Produktion gegen Restore vergleichen
