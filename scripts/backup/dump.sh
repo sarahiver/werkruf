@@ -131,6 +131,22 @@ if [[ "$DATABASE_URL" == *"pooler.supabase.com"* ]]; then
   echo "   Session Pooler (IPv4, durchgehende Sitzung) — in Ordnung fuer pg_dump"
 fi
 
+# ── Was wird da eigentlich verbunden? ──
+#
+# Ohne diese Zeile sagt ein Fehlschlag nur
+#
+#   password authentication failed for user "postgres"
+#
+# und man raet, ob Passwort oder Benutzername falsch ist. Dabei steckt
+# die Antwort in der Adresse: der Session Pooler verlangt den Benutzer
+# MIT Projektkennung (postgres.<ref>), die direkte Verbindung nicht.
+# Wer nur den Host tauscht, behaelt den falschen Benutzer.
+#
+# Das Passwort wird dabei ersetzt, nicht gekuerzt — gekuerzt verraet es
+# die Laenge.
+echo "   Verbindung: $(printf '%s' "$DATABASE_URL" \
+  | sed -E 's#^(postgres(ql)?://[^:/@]*):[^@]*@#\1:********@#')"
+
 SERVER_NUM="$(psql "$DATABASE_URL" -Atc "select current_setting('server_version_num')")"
 SERVER_MAJOR=$(( SERVER_NUM / 10000 ))
 CLIENT_MAJOR="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"

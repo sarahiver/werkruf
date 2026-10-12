@@ -194,8 +194,37 @@ warnungen="$(grep -c '^pg_restore: warning' "$PROTOKOLL" || true)"
 echo "   Exit $RESTORE_EXIT, $fehler Fehler, $warnungen Warnungen"
 
 if [ "$fehler" -gt 0 ]; then
-  echo "   Die ersten Fehler:"
-  grep '^pg_restore: error' "$PROTOKOLL" | head -10 | sed 's/^/     /'
+  # ── Erwartet oder nicht? ──
+  #
+  # Ein Restore in ein nacktes PostgreSQL erzeugt zwangslaeufig
+  # Fehler: die Extensions fehlen, und alles, was an ihnen haengt,
+  # faellt hinterher. Beim ersten echten Lauf waren das 144 Stueck,
+  # und ohne diese Trennung sieht ein erwarteter Folgefehler aus wie
+  # ein verlorener Datensatz.
+  #
+  # Erwartet ist, was eine nicht verfuegbare Extension nennt oder
+  # eines ihrer Schemas. Alles andere gehoert angesehen.
+  ERWARTET='extension "(pg_cron|pg_net|pg_graphql|supabase_vault|pgsodium)"|schema "(cron|net|graphql|vault|pgsodium)" does not exist|relation "(cron|net|vault)\.'
+
+  # Erst die Fehlerzeilen heraus, dann trennen. Beides in eine Datei,
+  # nicht durch eine Pipe mit head: unter set -o pipefail toetet der
+  # SIGPIPE von head den ganzen Lauf. Genau daran ist der erste echte
+  # Restore gescheitert — nicht am Restore, sondern an dieser Zeile.
+  grep '^pg_restore: error' "$PROTOKOLL" > "$ABDRUCK_DIR/fehler.txt" || true
+  grep -vE "$ERWARTET" "$ABDRUCK_DIR/fehler.txt" \
+    > "$ABDRUCK_DIR/fehler-sonstige.txt" || true
+
+  n_sonstige="$(wc -l < "$ABDRUCK_DIR/fehler-sonstige.txt")"
+  n_erwartet=$(( fehler - n_sonstige ))
+
+  echo "   davon aus fehlenden Extensions: $n_erwartet, sonstige: $n_sonstige"
+
+  if [ "$n_sonstige" -gt 0 ]; then
+    echo "   Sonstige Fehler, die nichts mit Extensions zu tun haben:"
+    sed -n '1,8p' "$ABDRUCK_DIR/fehler-sonstige.txt" | sed 's/^/     /'
+  else
+    echo "   Alle Fehler stammen aus den fehlenden Extensions."
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────
