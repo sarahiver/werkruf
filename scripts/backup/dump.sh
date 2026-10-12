@@ -115,7 +115,20 @@ if [[ "$DATABASE_URL" == *":6543"* ]]; then
   exit 2
 fi
 if [[ "$DATABASE_URL" == *"pooler.supabase.com"* ]]; then
-  echo "   WARNUNG: Host sieht nach Pooler aus. Direkte Verbindung ist sicherer."
+  # Keine Warnung. Der Session Pooler ist hier die richtige Wahl,
+  # nicht die zweitbeste.
+  #
+  # Die direkte Adresse db.<ref>.supabase.co loest bei neueren
+  # Supabase-Projekten nur auf IPv6 auf. Ein GitHub-Runner spricht
+  # IPv4 und scheitert mit
+  #
+  #   connection to server at "db.<ref>.supabase.co"
+  #   (2a05:d018:...), port 5432 failed: Network is unreachable
+  #
+  # Der Session Pooler ist IPv4 und haelt eine durchgehende Sitzung —
+  # genau das, was pg_dump braucht. Der Transaction Pooler auf 6543
+  # tut das nicht; der wird oben abgewiesen.
+  echo "   Session Pooler (IPv4, durchgehende Sitzung) — in Ordnung fuer pg_dump"
 fi
 
 SERVER_NUM="$(psql "$DATABASE_URL" -Atc "select current_setting('server_version_num')")"

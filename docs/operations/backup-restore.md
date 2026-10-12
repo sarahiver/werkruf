@@ -98,17 +98,32 @@ die DIREKTE Verbindungs-URL, nicht der Pooler
 ein PostgreSQL für den Restore-Test (lokal oder Container)
 ```
 
-**Direkt oder Pooler** — das ist der Unterschied, an dem der alte Dump
-vermutlich gescheitert ist:
+**Welche Verbindung** — drei Varianten, zwei davon brauchbar:
 
 ```
-direkt   db.<ref>.supabase.co:5432                 ← diese nehmen
-Pooler   aws-0-<region>.pooler.supabase.com:6543   ← nicht
+Direct connection    db.<ref>.supabase.co:5432
+Session pooler       aws-0-<region>.pooler.supabase.com:5432
+Transaction pooler   aws-0-<region>.pooler.supabase.com:6543   ← nie
 ```
 
-`pg_dump` braucht eine durchgehende Sitzung. Ein Transaction-Pooler kann
-sie mitten im Lauf beenden. `dump.sh` bricht bei Port 6543 ab und warnt
-bei einem Pooler-Host.
+`pg_dump` braucht eine durchgehende Sitzung. Der Transaction Pooler
+hält keine; `dump.sh` bricht bei Port 6543 ab.
+
+**Aus GitHub Actions: Session Pooler.** Die direkte Adresse löst bei
+neueren Supabase-Projekten nur auf IPv6 auf, und Runner sprechen IPv4:
+
+```
+connection to server at "db.<ref>.supabase.co"
+(2a05:d018:...), port 5432 failed: Network is unreachable
+```
+
+Der Session Pooler ist IPv4 und hält die Sitzung. Beim Kopieren
+beachten: der Benutzername ist dort `postgres.<ref>`, nicht `postgres`
+— also die ganze Zeile aus dem Connect-Dialog übernehmen, nicht die
+direkte von Hand umbauen.
+
+Vom eigenen Rechner aus geht die direkte Verbindung, sofern der
+Anschluss IPv6 kann.
 
 Beide Skripte prüfen die pg_dump-Hauptversion gegen den Server und
 brechen bei Abweichung ab. Ein älteres `pg_dump` als der Server lässt
@@ -349,63 +364,63 @@ vom letzten Abgleich, der Tage zurückliegen kann.
 
 ---
 
-## Offen: Cron-Versionierung
+## Die Cron-Jobs
 
-**Dies ist der eine Punkt, der noch fehlt.** Im Repo ist nur
-`engine-daily` versioniert (`20261005100000_daily_engine_evaluation.sql`).
-Die übrigen Jobs existieren nur in Produktion, von Hand im SQL-Editor
-angelegt.
+Zehn Jobs betreiben WERKRUF. Ausgelesen aus `cron.job` am 12.10.2026,
+versioniert in `supabase/migrations/20261012120000_cron_kanonisch.sql`.
+Serverzeitzone ist **UTC**, alle Zeiten sind UTC.
 
-Inventar aufnehmen:
+| Job | Schedule | Ziel | Zweck |
+|---|---|---|---|
+| `engine-daily` | `30 4 * * *` | `google-business/events/evaluate-all` | Engine bewertet alle Betriebe neu |
+| `gbp-schedule` | `0 * * * *` | `google-business/sync/schedule` | plant Sync-Jobs ein |
+| `gbp-worker` | `*/5 * * * *` | `google-business/sync/run` | arbeitet sie ab, 8 je Lauf |
+| `gbp-maintenance` | `*/15 * * * *` | `run_sync_maintenance()`, **kein HTTP** | räumt auf; läuft auch ohne Edge Functions |
+| `gbp-api-monitor` | `30 5,6 * * *` | `gbp-api-monitor` | erkennt Google-API-Änderungen |
+| `comm-alerts` | `*/15 * * * *` | `send-email/plan` · `immediate_alert` | Sofortmeldungen |
+| `comm-weekly` | `0 7 * * 1` | `send-email/plan` · `all` | Montagsplanung |
+| `mail-schedule` | `0 8 * * *` | `send-email/schedule` | Trial-Erinnerung, Trial-Ende, Verbindung gerissen |
+| `mail-worker` | `*/10 * * * *` | `send-email/run` | arbeitet `email_queue` ab, 20 je Lauf |
+| `ops-alert` | `*/15 * * * *` | `ops-alert` | Betriebsalarme |
 
-```sql
-select jobid, jobname, schedule, active, left(command, 300)
-  from cron.job order by jobname;
-```
+Alle neun HTTP-Jobs holen `gbp_worker_secret` zur Laufzeit aus
+`vault.decrypted_secrets`. **Kein Secret steht im Befehlstext.**
 
-Dann je Job prüfen, **bevor** er versioniert wird:
+`gbp-api-monitor` ist zweimal eingeplant und führt nur aus, wenn
+`gbp_monitor_ist_laufzeit(7, 'Europe/Berlin')` zustimmt: 7 Uhr Berlin
+ist im Winter 06:00 UTC, im Sommer 05:00 UTC. Der zweite Termin ist
+der Nachholversuch nach einer Zeitumstellung.
 
-```
-wird er noch gebraucht?
-zeigt er auf den aktuellen Endpoint?
-dupliziert er einen neueren Job?
-passt die Kadenz zur heutigen Architektur?
-```
+### Nach einem Restore in ein neues Projekt
 
-Produktion nicht blind kopieren — sie kann Altlasten enthalten.
+Die Jobbefehle enthalten die Projekt-URL. Vor dem Anwenden der
+Migration den Wert in `pg_temp.werkruf_functions_basis()` anpassen —
+sonst zeigen alle zehn Jobs auf das alte, verlorene Projekt.
 
-Muster für die Migration, aus `20261005100000`:
+### Was die Migration anfasst
 
-```sql
-do $$
-begin
-  if exists (select 1 from cron.job where jobname = '<name>') then
-    perform cron.unschedule('<name>');
-  end if;
+Sie kanonisiert die zehn Jobs: vorhandene Definition gezielt
+entfernen, genau eine neue anlegen. Idempotent.
 
-  perform cron.schedule('<name>', '<schedule>', $job$
-    select net.http_post(
-      url     := 'https://<ref>.supabase.co/functions/v1/<pfad>',
-      headers := jsonb_build_object(
-                   'Content-Type',    'application/json',
-                   'X-Worker-Secret', (select decrypted_secret
-                                         from vault.decrypted_secrets
-                                        where name = 'gbp_worker_secret')),
-      body    := '{}'::jsonb,
-      timeout_milliseconds := 180000);
-  $job$);
-end $$;
-```
+Sie löscht **nicht** pauschal alle Jobs und fasst keine fremden oder
+Supabase-eigenen an. Eine Ausnahme: einen Job unter anderem Namen,
+dessen Befehl denselben Endpunkt **mit demselben Body** aufruft wie ein
+kanonischer — das ist eine funktionale Dublette, und zwei davon nehmen
+sich gegenseitig die Arbeit weg. Jede Entfernung erscheint als NOTICE.
 
-`unschedule` vor `schedule`: so entsteht beim zweiten Einspielen kein
-zweiter Job. **Keine Secrets in den Befehlstext** — nur der
-Vault-Verweis, wie oben.
+### Zwei Nebenwirkungen, die niemand entschieden hat
 
-`engine-daily` darf dabei nicht doppelt entstehen: entweder die neue
-Migration übernimmt ihn (dasselbe Muster ersetzt ihn sauber) oder sie
-lässt ihn aus. Nicht beides.
+`comm-weekly` läuft mit `channel: all` und umfasst damit montags 07:00
+auch die Sofortmeldungen, die `comm-alerts` ohnehin alle 15 Minuten
+macht. Der Dedupe-Schlüssel fängt es ab, es ist harmlos.
 
----
+Der `inactivity_reminder` geht **ausschließlich montags** raus, weil
+nur `comm-weekly` ohne Kanalfilter läuft. Plausibel, aber es ergibt
+sich aus `all` statt aus einer Entscheidung.
+
+Drei Jobs liegen auf `*/15` und starten gleichzeitig. Ein Versatz
+(`*/15`, `3-59/15`, `7-59/15`) wäre sinnvoll — aber das wäre eine
+Änderung, und die Migration kanonisiert, statt zu verbessern.
 
 ## Die alte Baseline
 
