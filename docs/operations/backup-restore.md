@@ -459,6 +459,130 @@ dem ersten erfolgreichen Lauf des neuen Workflows — solange der nicht
 grün war, ist die alte Verbindung der einzige Weg zur Datenbank, den
 die CI kennt.
 
+## Wie Migrationen nach Produktion kommen
+
+**Von Hand, über den SQL-Editor.** Kein Workflow wendet Migrationen an
+— `supabase db push` kommt in keinem der sechs Workflows vor,
+nachgesehen am 12.10.2026. `deploy.yml` deployt ausschließlich Edge
+Functions.
+
+Eine Migration zu committen ändert an Produktion also nichts. Das ist
+die Ursache des G2.1-Inventurdiffs: acht Sichten und eine Funktion
+existieren in Produktion und fehlen im Repo, und umgekehrt lagen drei
+Migrationen im Repo, ohne je in Produktion angekommen zu sein. Der
+Drift läuft in beide Richtungen, weil nichts ihn automatisch schließt.
+
+Für den Katastrophenfall ist das **kein** Problem: ein Restore holt
+alles aus dem Dump, nicht aus den Migrationen. Für den Normalbetrieb
+ist es eines, und es wird mit jedem Fremdkunden größer.
+
+### Der SQL-Editor zeigt kein NOTICE
+
+Wer eine Migration dort einfügt, sieht bei Erfolg nur
+
+```
+Success. No rows returned.
+```
+
+Die `raise notice`-Zeilen, mit denen die Migrationen ihren Erfolg
+melden, erscheinen nie. Fehler erscheinen (eine Exception wird rot
+angezeigt) — die Fail-closed-Bauweise trägt dort also, aber die
+positive Bestätigung fehlt.
+
+Folge: **jede Migration, die von Hand eingefügt wird, braucht eine
+Kontrollabfrage, die Zeilen zurückgibt.** Die steht im Fuß der
+jeweiligen Migration als Kommentar. Beispiel aus
+`20261012130000_ops_sichten_abdichten.sql`:
+
+```sql
+with s as (
+  select c.relname, c.relkind,
+         coalesce('security_invoker=true' = any(c.reloptions), false) as invoker,
+         has_table_privilege('anon', c.oid, 'SELECT')          as anon_liest,
+         has_table_privilege('authenticated', c.oid, 'SELECT') as auth_liest
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind in ('v','m')
+)
+select count(*) as sichten,
+       count(*) filter (where relkind = 'v' and not invoker) as ohne_invoker,
+       count(*) filter (where anon_liest) as anon_liest,
+       count(*) filter (where auth_liest) as auth_liest,
+       case when count(*) filter (
+              where (anon_liest or auth_liest) and not invoker) = 0
+            then 'GESCHLOSSEN' else 'NOCH OFFEN' end as verdikt
+  from s;
+```
+
+## Der Sichten-Befund vom 12.10.2026
+
+Gefunden beim ersten Restore-Beweis gegen einen echten
+Produktionsdump — nicht durch Nachdenken, sondern weil der Dump
+erstmals **ohne** `--no-privileges` lief und die Rechte damit
+überhaupt sichtbar wurden.
+
+Fünf Sichten in `public` waren für `anon` **und** `authenticated`
+lesbar, alle im Besitz von `postgres`, keine mit `security_invoker`:
+`ops_alert_status`, `ops_gbp_api_monitor`, `ops_gbp_pending_edits`,
+`ops_stripe_events`, `ops_sync_failures`.
+
+Eine Sicht läuft standardmäßig mit den Rechten ihres **Eigentümers**.
+RLS der Basistabellen greift dann nicht — wer die Sicht lesen darf,
+liest alle Zeilen aller Kunden. Das Data API stellt `public` bereit,
+und `anon` ist der öffentlich ausgelieferte Schlüssel. `ops_sync_failures`
+zeigte `user_id`, `account_id`, `location_id` und `error_code` aller
+Kunden; `ops_gbp_pending_edits` `user_id` und Firmennamen aller
+Standorte.
+
+Ursache: Supabase setzt auf `public`
+`alter default privileges ... grant all on tables to anon,
+authenticated, service_role`. Eine Sicht ohne eigenes `revoke` erbt
+daraus SELECT. Im Repo stand `security_invoker` an keiner Stelle und
+auf keiner `ops_`-Sicht ein `revoke`.
+
+Geschlossen am 12.10.2026 durch
+`20261012130000_ops_sichten_abdichten.sql`, von Hand im SQL-Editor
+eingespielt. Kontrollabfrage danach: 24 Sichten, `ohne_invoker 0`,
+`anon_liest 0`, `auth_liest 0`.
+
+### Welche Hälfte des Fixes hält
+
+Gemessen gegen PostgreSQL 16.15 am 12.10.2026:
+
+| Nach … | anon darf lesen | `security_invoker` |
+|---|---|---|
+| Anlegen bei aktiven Vorgaberechten | ja | aus |
+| `revoke` + `alter view set (security_invoker = true)` | nein | an |
+| `create or replace view` ohne `WITH` | **nein** | **aus** |
+| `drop view` + `create view` | ja | aus |
+
+Haltbar ist das `revoke`. `security_invoker` verschwindet schon beim
+nächsten `create or replace view`, lautlos — `CREATE OR REPLACE VIEW`
+ersetzt die `reloptions` durch die angegebenen, und ohne `WITH`-Klausel
+ist das die leere Menge.
+
+Deshalb gilt ab jetzt: **`security_invoker` gehört in die
+Sichtdefinition, nicht in ein nachgestelltes `ALTER`.**
+
+```sql
+create or replace view public.ops_x with (security_invoker = true)
+  as select ...;
+revoke all on public.ops_x from anon, authenticated;
+```
+
+`scripts/check-view-security.sh` erzwingt das im `sql-tests`-Job. Es
+prüft den Quelltext der Migrationen, nicht die Testdatenbank — die
+setzt Supabases Vorgaberechte nicht und ein Datenbanktest wäre dort
+dauerhaft falsch grün.
+
+### Was offen bleibt
+
+Die Vorgaberechte auf `public` selbst. Sie sind weiter aktiv, deshalb
+haben `leads`, `audit_logs`, `stripe_events`, `ai_usage_log` und
+weitere Tabellen `anon ALL` — dort hält RLS den Deckel zu, nachgewiesen
+durch die Kernchecks. Das abzuschalten wäre die Reparatur an der
+Wurzel, zwingt dann aber jede künftige Migration, ihre Rechte selbst zu
+vergeben. Eigene Entscheidung, offen, gehört vor H1 beantwortet.
+
 ## Was lokal nicht geprüft werden kann
 
 | | |
