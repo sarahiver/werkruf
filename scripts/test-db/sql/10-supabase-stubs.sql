@@ -272,3 +272,28 @@ create table if not exists storage.objects (
 grant usage on schema auth, cron, net, vault, storage to service_role;
 grant usage on schema auth to authenticated, anon;
 grant select on auth.users to service_role;
+
+/* ── usage auf public, wie in Produktion ──
+   ═════════════════════════════════════════
+
+   Ergaenzt am 12.10.2026 (G2.2). In Produktion abgefragt:
+
+     anon          auf public: usage=true  create=false
+     authenticated auf public: usage=true  create=false
+     service_role  auf public: usage=true  create=false
+
+   Hier fehlte usage auf public fuer alle drei. Das hatte bisher
+   keine Folge, weil kein Test als anon oder authenticated gegen
+   public gelesen hat — und das ist der Punkt: ein Test, der es
+   versucht, scheitert mit
+
+     ERROR: permission denied for schema public
+
+   und das sieht nach einem Rechtefehler im Schema aus, obwohl es
+   eine Lücke im Testaufbau ist. Genau so hat G1 Stunden gekostet.
+
+   Die Testdatenbank soll Produktion abbilden, auch wo sie strenger
+   waere. Eine Testumgebung, die haerter ist als Produktion,
+   verdeckt genauso viel wie eine, die weicher ist — nur faellt es
+   spaeter auf. */
+grant usage on schema public to anon, authenticated, service_role;
