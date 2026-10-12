@@ -192,9 +192,48 @@ union all
 -- recommendation_events.id ist bigint NOT NULL ohne Default, weil
 -- pg_dump die Sequenz getrennt schreibt. Dieser Teil fehlte im alten
 -- Dump. Hier steht beides.
-select 'sequenz|' || sequence_schema || '.' || sequence_name
-  from information_schema.sequences
- where sequence_schema = 'public'
+-- ── Sequenzen ──
+--
+-- pg_class, NICHT information_schema.sequences.
+--
+-- Der Lauf vom 12.10.2026 meldete "sequenz 0", waehrend das
+-- Inhaltsverzeichnis des Dumps 16 SEQUENCE-Eintraege auswies. Lokal
+-- gegen 16.15 nachgestellt:
+--
+--   create table mit_identity (id bigint generated always as identity);
+--   create table mit_serial   (id bigserial);
+--   create sequence freie_sequenz;
+--
+--   information_schema.sequences  → mit_serial_id_seq, freie_sequenz
+--   pg_class relkind = 'S'        → alle drei
+--
+-- information_schema.sequences zeigt die Sequenz einer
+-- Identity-Spalte nicht. Der Fingerabdruck war damit blind fuer genau
+-- den Verlust, an dem der alte Baseline-Dump gescheitert ist:
+-- recommendation_events.id ohne seine Sequenz. Zwei Datenbanken mit
+-- "sequenz 0" galten als strukturell identisch, auch wenn einer die
+-- Sequenz fehlte.
+--
+-- Dazu die besitzende Spalte: eine Sequenz, die noch da ist, aber
+-- ihre Bindung an die Spalte verloren hat, fuellt nichts mehr auf.
+-- Ohne diese Angabe saehe der Vergleich keinen Unterschied.
+select 'sequenz|' || n.nspname || '.' || c.relname
+       || '|' || coalesce(
+            (select dn.nspname || '.' || dc.relname || '.' || da.attname
+               from pg_catalog.pg_depend d
+               join pg_catalog.pg_class dc on dc.oid = d.refobjid
+               join pg_catalog.pg_namespace dn on dn.oid = dc.relnamespace
+               join pg_catalog.pg_attribute da
+                 on da.attrelid = d.refobjid and da.attnum = d.refobjsubid
+              where d.classid = 'pg_class'::regclass
+                and d.objid = c.oid
+                and d.refclassid = 'pg_class'::regclass
+                and d.deptype in ('a', 'i')
+              limit 1),
+            '(frei)')
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public' and c.relkind = 'S'
 union all
 select 'identity|' || n.nspname || '.' || r.relname || '.' || a.attname
        || '|' || a.attidentity::text

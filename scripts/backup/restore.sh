@@ -204,7 +204,39 @@ if [ "$fehler" -gt 0 ]; then
   #
   # Erwartet ist, was eine nicht verfuegbare Extension nennt oder
   # eines ihrer Schemas. Alles andere gehoert angesehen.
-  ERWARTET='extension "(pg_cron|pg_net|pg_graphql|supabase_vault|pgsodium)"|schema "(cron|net|graphql|vault|pgsodium)" does not exist|relation "(cron|net|vault)\.'
+  # ── Was in einem nackten PostgreSQL zwangslaeufig scheitert ──
+  #
+  # Zwei Gruppen, beide keine Restore-Defekte:
+  #
+  #   1. Objekte der Extensions, die hier fehlen (pg_cron, pg_net,
+  #      pg_graphql, Vault).
+  #
+  #   2. Rollen, die Supabase mitbringt und die kein pg_dump enthaelt,
+  #      weil Rollen Cluster-Objekte sind: supabase_admin,
+  #      dashboard_user, supabase_storage_admin, supabase_realtime_admin,
+  #      authenticator, pgbouncer. 00-rollen.sql legt nur die an, die
+  #      die Migrationen brauchen (anon, authenticated, service_role,
+  #      supabase_auth_admin, postgres) — bewusst, denn diese Datei ist
+  #      die Wahrheit darueber, was WERKRUF voraussetzt, nicht darueber,
+  #      was Supabase intern hat.
+  #
+  # Gruppe 2 fehlte im Muster. Der Lauf vom 12.10.2026 meldete deshalb
+  # 106 "sonstige" Fehler, und alle 106 waren
+  #
+  #   role "supabase_admin" does not exist
+  #   role "dashboard_user" does not exist
+  #
+  # Das ist nicht nur Laerm: 106 erwartete Fehler, die als unerwartet
+  # gezaehlt werden, verstecken den 107., der es wirklich ist.
+  #
+  # ACHTUNG, und das steht hier, damit es beim Lesen nicht untergeht:
+  # diese Fehler sind GRANTs und Eigentuemerzuweisungen, die verloren
+  # gehen. Im echten Katastrophenfall ist das Ziel ein neues
+  # Supabase-Projekt, wo diese Rollen existieren und die Anweisungen
+  # greifen. In diesem Beweis gehen sie verloren — die Rechtezahl im
+  # Fingerabdruck ist deshalb nur gegen Schritt 5 aussagekraeftig,
+  # nicht fuer sich.
+  ERWARTET='extension "(pg_cron|pg_net|pg_graphql|supabase_vault|pgsodium)"|schema "(cron|net|graphql|vault|pgsodium)" does not exist|relation "(cron|net|vault)\.|role "(supabase_admin|dashboard_user|supabase_storage_admin|supabase_realtime_admin|supabase_replication_admin|authenticator|pgbouncer)" does not exist'
 
   # Erst die Fehlerzeilen heraus, dann trennen. Beides in eine Datei,
   # nicht durch eine Pipe mit head: unter set -o pipefail toetet der
@@ -381,8 +413,14 @@ else
     echo "   [NICHT GEPRUEFT] auth.uid() ist hier ein Stub."
     echo "   Dieser Test gehoert an einen Restore eines echten Dumps."
     ISOLATION="nicht pruefbar"
-  elif grep -q "Weniger als zwei Nutzer" "$ABDRUCK_DIR/iso.log"; then
-    echo "   [NICHT GEPRUEFT] zu wenige Nutzer im Restore."
+  elif grep -q "Kein Nutzer mit Standorten" "$ABDRUCK_DIR/iso.log"; then
+    # Seit 12.10.2026 nur noch bei NULL Nutzern. Vorher hiess diese
+    # Bedingung "weniger als zwei" — und damit war die Kundentrennung
+    # bis zum zweiten Kunden grundsaetzlich nicht pruefbar, also genau
+    # bis zu dem Moment, in dem sie stimmen muss. Der Ein-Nutzer-Fall
+    # laeuft jetzt mit einer fremden uid als Gegenprobe; siehe
+    # restore-isolation.sql, Abschnitt 1b.
+    echo "   [NICHT GEPRUEFT] kein einziger Nutzer mit Standorten im Restore."
     ISOLATION="nicht pruefbar"
   else
     echo "   KUNDENTRENNUNG ROT" >&2
