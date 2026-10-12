@@ -23,6 +23,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:sql": "bash scripts/test-db/run.sh",
     "test:isolation:sessions": "node supabase/tests/customer_isolation_sessions.mjs",
     "eject": "react-scripts eject"
   },

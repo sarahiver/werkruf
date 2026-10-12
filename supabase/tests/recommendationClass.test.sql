@@ -8,11 +8,11 @@ begin;
 
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
-  ('user', '11111111-1111-1111-1111-111111111111'),
-  ('si',   '33333333-3333-3333-3333-333333333333');
+  ('user', test.id('user_a')),
+  ('si',   test.id('standort_si'));
 
-insert into public.google_locations (id, user_id, title, selected_at)
-values ((select id from t where name='si'), (select id from t where name='user'), 'S&I.', now());
+/* Vorspann in scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
 
 /* ═══════════════════════════════════════════════════════
    1 — Die Spalte existiert und ist beschraenkt

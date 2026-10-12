@@ -8,17 +8,14 @@ begin;
 
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
-  ('userA',  '11111111-1111-1111-1111-111111111111'),
-  ('userB',  '22222222-2222-2222-2222-222222222222'),
-  ('si',     '33333333-3333-3333-3333-333333333333');
+  ('userA',  test.id('user_a')),
+  ('userB',  test.id('user_b')),
+  ('si',     test.id('standort_si'));
 
-insert into auth.users (id, email) values
-  ((select id from t where name='userA'), 'a@example.com'),
-  ((select id from t where name='userB'), 'b@example.com')
-on conflict (id) do nothing;
-
-insert into public.google_locations (id, user_id, title, selected_at)
-values ((select id from t where name='si'), (select id from t where name='userA'), 'S&I.', now());
+/* Beide Nutzer mit eigenem Konto — dieser Test lebt vom Unterschied
+   zwischen ihnen. Vorspann in scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
+select test.fremder();
 
 insert into public.events (id, user_id, location_id, type, category, priority, title, summary)
 values ('eeee2222-0000-0000-0000-000000000001',

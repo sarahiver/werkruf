@@ -8,28 +8,22 @@ begin;
 
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
-  ('user',    '11111111-1111-1111-1111-111111111111'),
-  ('si',      '33333333-3333-3333-3333-333333333333'),
-  ('werkruf', '44444444-4444-4444-4444-444444444444');
+  ('user',    test.id('user_a')),
+  ('si',      test.id('standort_si')),
+  ('werkruf', test.id('standort_werkruf'));
 
-insert into auth.users (id, email)
-values ((select id from t where name='user'), 'iver@example.com')
-on conflict (id) do nothing;
+/* Nutzer, Profil, Konto, beide Standorte, Benachrichtigungen —
+   scripts/test-db/sql/80-fixtures.sql. Vorher stand das hier, ohne
+   provider_account_id und account_id; beide sind in Produktion
+   Pflichtspalten. */
+select test.basis();
 
+/* Der Registrierungsname. Steht hier und nicht im Helfer, weil dieser
+   Test ihn gegen den Standorttitel abgrenzt. */
 insert into public.user_profiles (id, company_name, industry_key)
 values ((select id from t where name='user'),
         'Firma Rolf Müller Sanitär und Heizungstechnik', 'handwerk')
 on conflict (id) do update set company_name = excluded.company_name;
-
-insert into public.google_accounts (id, user_id, status)
-values (gen_random_uuid(), (select id from t where name='user'), 'active');
-
-insert into public.google_locations (id, user_id, title, selected_at) values
-  ((select id from t where name='si'),      (select id from t where name='user'), 'S&I.',    now()),
-  ((select id from t where name='werkruf'), (select id from t where name='user'), 'WERKRUF', null);
-
-insert into public.notification_preferences (user_id)
-values ((select id from t where name='user')) on conflict do nothing;
 
 /* Hilfsmittel: die Meldungen eines Standorts. */
 create or replace function pg_temp.meldungen(p_user uuid)
@@ -196,17 +190,35 @@ end $$;
 /* ═══════════════════════════════════════════════════════
    G — Abbestellt
    ═══════════════════════════════════════════════════════ */
+/*
+ * G1-Korrektur: Vorher ueberschrieb dieser Abschnitt
+ * public.wants_notification() mit einem eigenen Rumpf. Das ging gegen
+ * das echte Schema nicht mehr —
+ *
+ *   ERROR: cannot change name of input parameter "p_user_id"
+ *
+ * weil CREATE OR REPLACE Parameternamen nicht umbenennen darf und der
+ * Test p_user statt p_user_id schrieb.
+ *
+ * Der Fehler war aber nicht der Name. Eine Produktionsfunktion im Test
+ * zu ersetzen heisst, die eigene Nachbildung zu pruefen statt des
+ * Deployten. Abbestellt wird jetzt so abbestellt, wie ein Kunde es tut:
+ * ueber notification_preferences. Damit laeuft auch wants_notification
+ * selbst mit durch den Test.
+ */
 do $$
 declare v_anzahl integer;
 begin
-  create or replace function public.wants_notification(p_user uuid, p_kind text)
-  returns boolean language sql as $f$ select p_kind <> 'negative_review' $f$;
+  update public.notification_preferences
+     set negative_review = false
+   where user_id = (select id from t where name='user');
 
   select count(*) into v_anzahl from pg_temp.meldungen((select id from t where name='user'));
   assert v_anzahl = 0, 'G: keine Meldung fuer irgendeinen Betrieb';
 
-  create or replace function public.wants_notification(p_user uuid, p_kind text)
-  returns boolean language sql as $f$ select true $f$;
+  update public.notification_preferences
+     set negative_review = true
+   where user_id = (select id from t where name='user');
 end $$;
 
 /* ═══════════════════════════════════════════════════════
@@ -296,6 +308,27 @@ declare v jsonb;
 begin
   update public.google_locations set title = null
    where id = (select id from t where name='werkruf');
+
+  /*
+   * G1-Korrektur: eine NEUE ungemeldete Bewertung.
+   *
+   * Abschnitt H hat gemeldet, und schedule_communications ruft danach
+   * mark_events_delivered() — dieselbe Bewertung kommt nie zweimal.
+   * Dieser Abschnitt baute aber darauf, dass ein erneuter Lauf die
+   * Mails von H wiederholt. Das kann nicht funktionieren und haengt
+   * nicht am Schema: der Abschnitt las Zustand, den H verbraucht hatte.
+   *
+   * Die Erwartung bleibt unveraendert — nur die Voraussetzung wird
+   * jetzt hergestellt statt vorausgesetzt.
+   */
+  insert into public.events
+    (id, user_id, location_id, type, category, priority, title, summary, lifecycle,
+     subject_type, subject_id)
+  values ('dddd3333-0000-0000-0000-00000000000c',
+          (select id from t where name='user'), (select id from t where name='werkruf'),
+          'review.negative_unanswered', 'reviews', 90,
+          'WERKRUF ohne Namen', 'x', 'new',
+          'review', 'ffff0000-0000-0000-0000-00000000000c');
 
   delete from public.email_queue;
   perform public.schedule_communications('immediate_alert');

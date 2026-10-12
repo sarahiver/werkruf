@@ -17,29 +17,20 @@ end $$;
 
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
-  ('user',    '11111111-1111-1111-1111-111111111111'),
-  ('si',      '33333333-3333-3333-3333-333333333333'),
-  ('werkruf', '44444444-4444-4444-4444-444444444444');
+  ('user',    test.id('user_a')),
+  ('si',      test.id('standort_si')),
+  ('werkruf', test.id('standort_werkruf'));
 
-insert into auth.users (id, email)
-values ((select id from t where name='user'), 'iver@example.com')
-on conflict (id) do nothing;
+/* Nutzer, Konto, beide Standorte, Benachrichtigungen —
+   scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
 
-/* Der Registrierungsname — nicht der Name des Betriebs. */
+/* Der Registrierungsname — nicht der Name des Betriebs. Steht hier und
+   nicht im Helfer, weil genau diese Unterscheidung geprueft wird. */
 insert into public.user_profiles (id, company_name, industry_key)
 values ((select id from t where name='user'),
         'Firma Rolf Müller Sanitär und Heizungstechnik', 'handwerk')
 on conflict (id) do update set company_name = excluded.company_name;
-
-insert into public.google_accounts (id, user_id, status)
-values (gen_random_uuid(), (select id from t where name='user'), 'active');
-
-insert into public.google_locations (id, user_id, title, selected_at) values
-  ((select id from t where name='si'),      (select id from t where name='user'), 'S&I.',    now()),
-  ((select id from t where name='werkruf'), (select id from t where name='user'), 'WERKRUF', null);
-
-insert into public.notification_preferences (user_id)
-values ((select id from t where name='user')) on conflict do nothing;
 
 /* ═══════════════════════════════════════════════════════
    A — openCount zaehlt nur den eigenen Betrieb
@@ -215,9 +206,7 @@ do $$
 declare v_payload jsonb;
 begin
   /* WERKRUF bekommt zehn Bewertungen. S&I hat keine. */
-  insert into public.google_reviews (user_id, location_id, star_rating, is_answered)
-  select (select id from t where name='user'), (select id from t where name='werkruf'),
-         5, true from generate_series(1, 10);
+  perform test.bewertungen('standort_werkruf', 10, 5, true);
 
   delete from public.email_queue;
   perform public.schedule_communications('all');

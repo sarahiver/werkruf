@@ -13,13 +13,12 @@ begin;
 
 create temporary table t (name text primary key, id uuid) on commit drop;
 insert into t values
-  ('user',    '11111111-1111-1111-1111-111111111111'),
-  ('si',      '33333333-3333-3333-3333-333333333333'),
-  ('werkruf', '44444444-4444-4444-4444-444444444444');
+  ('user',    test.id('user_a')),
+  ('si',      test.id('standort_si')),
+  ('werkruf', test.id('standort_werkruf'));
 
-insert into public.google_locations (id, user_id, title, selected_at) values
-  ((select id from t where name='si'),      (select id from t where name='user'), 'S&I.',    now()),
-  ((select id from t where name='werkruf'), (select id from t where name='user'), 'WERKRUF', null);
+/* Vorspann in scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
 
 /* Die Lage aus deinem Abschnitt 24: A, B lokal; C fremd; D Konto;
    E Probebetrieb; F pausiert; G abgelaufen. */

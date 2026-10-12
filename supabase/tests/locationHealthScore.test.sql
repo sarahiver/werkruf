@@ -13,33 +13,39 @@ begin;
 create temporary table t_ids (name text primary key, id uuid) on commit drop;
 
 insert into t_ids values
-  ('user',    '11111111-1111-1111-1111-111111111111'),
-  ('fremder', '22222222-2222-2222-2222-222222222222'),
-  ('si',      '33333333-3333-3333-3333-333333333333'),
-  ('werkruf', '44444444-4444-4444-4444-444444444444');
+  ('user',    test.id('user_a')),
+  ('fremder', test.id('user_b')),
+  ('si',      test.id('standort_si')),
+  ('werkruf', test.id('standort_werkruf'));
 
-insert into public.google_locations (id, user_id, title, primary_phone, website_uri, locality, primary_category, selected_at, created_at)
-values
-  ((select id from t_ids where name='si'),
-   (select id from t_ids where name='user'),
-   'S&I.', '+49 40 1', 'https://si.example', 'Hamburg', 'gcid:web_designer',
-   now(), now() - interval '10 days'),
-  ((select id from t_ids where name='werkruf'),
-   (select id from t_ids where name='user'),
-   'WERKRUF', null, null, 'Hamburg', 'gcid:plumber',
-   null, now() - interval '20 days');
+/* Nutzer, Konto und beide Standorte —
+   scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
+
+/* Die Profilfelder, an denen dieser Test haengt. Sie stehen hier und
+   nicht im Helfer: der Score wird daraus berechnet, also gehoert
+   sichtbar in den Test, welche Werte angesetzt sind.
+
+   S&I vollstaendig, WERKRUF ohne Telefon und Website. */
+update public.google_locations set
+  primary_phone    = '+49 40 1',
+  website_uri      = 'https://si.example',
+  locality         = 'Hamburg',
+  primary_category = 'gcid:web_designer',
+  created_at       = now() - interval '10 days'
+where id = (select id from t_ids where name='si');
+
+update public.google_locations set
+  locality         = 'Hamburg',
+  primary_category = 'gcid:plumber',
+  created_at       = now() - interval '20 days'
+where id = (select id from t_ids where name='werkruf');
 
 /* S&I: vier Bewertungen, alle beantwortet, Schnitt 5,0 */
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, google_created_at)
-select (select id from t_ids where name='user'), (select id from t_ids where name='si'),
-       5, true, now() - interval '3 days'
-from generate_series(1, 4);
+select test.bewertungen('standort_si', 4, 5, true, interval '3 days');
 
 /* WERKRUF: zwei Bewertungen, keine beantwortet, Schnitt 3,0 */
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, google_created_at)
-select (select id from t_ids where name='user'), (select id from t_ids where name='werkruf'),
-       3, false, now() - interval '200 days'
-from generate_series(1, 2);
+select test.bewertungen('standort_werkruf', 2, 3, false, interval '200 days');
 
 /* ═══════════════════════════════════════════════════════
    1 — Zwei Betriebe, zwei verschiedene Werte

@@ -1,46 +1,50 @@
 -- SQL-Abnahme fuer sync_failure_resolved / ops_sync_failures.
 --
--- Laeuft gegen einen echten Postgres, nicht gegen eine Nachbildung.
--- Legt ein Minimalschema an, spielt die Szenarien durch und prueft
--- jede Erwartung mit einem assert.
+-- Laeuft gegen das echte Schema aus Baseline und Migrationen:
 --
---   psql -f ops_alerts_resolution.test.sql
+--   scripts/test-db/run.sh ops_alerts_resolution
 --
+-- Spielt die Szenarien durch und prueft jede Erwartung mit assert.
 -- Bricht beim ersten fehlgeschlagenen assert ab.
+--
+-- ───────────────────────────────────────────────────────────────
+-- WAS SICH IN G1 GEAENDERT HAT
+-- ───────────────────────────────────────────────────────────────
+--
+-- Vorher legte dieser Test public.sync_jobs selbst an — eine
+-- vereinfachte Fassung mit elf Spalten, waehrend die echte Tabelle
+-- mehr hat. Und er zog die zu pruefende Funktion als Textausschnitt
+-- aus der Migration nach:
+--
+--   \ir migrations_fragment_sync_failure_resolved.sql
+--
+-- Damit prueften die asserts eine Kopie, nicht das Deployte. Weicht die
+-- Migration eines Tages ab, bliebe dieser Test gruen. Dieselbe
+-- Fehlerklasse wie eine Typpruefung auf einer Kopie der index.ts.
+--
+-- Beides ist weg. Tabelle und Funktion kommen jetzt aus Baseline und
+-- Migration, der Test fuegt nur noch Zeilen ein.
 
 \set ON_ERROR_STOP on
 
 begin;
 
-/* ── Minimalschema: nur, was die Funktion anfasst ── */
-create table public.sync_jobs (
-  id           uuid primary key default gen_random_uuid(),
-  user_id      uuid not null,
-  account_id   uuid,
-  location_id  uuid,
-  job_type     text not null,
-  status       text not null,
-  attempts     integer not null default 0,
-  max_attempts integer not null default 3,
-  error_code   text,
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
-);
+/* Nutzer und Standorte, damit die Kennungen unten auf echte Zeilen
+   zeigen — scripts/test-db/sql/80-fixtures.sql. */
+select test.basis();
+select test.fremder();
 
--- Die zu pruefende Funktion, ausgeschnitten aus
--- ../migrations/20260929140000_ops_alerts_resolved_failures.sql.
--- Liegt daneben, damit der Test ohne cron-, net- und email_queue-
--- Schema laeuft.
-\ir migrations_fragment_sync_failure_resolved.sql
-
-/* ── Feste Kennungen ── */
+/* ── Feste Kennungen ──
+   Dieselben Werte wie in test.bezeichner; psql-Variablen koennen
+   test.id() nicht aufrufen. Die Kontokennungen sind frei gewaehlt:
+   sync_jobs.account_id traegt keinen Fremdschluessel. */
 \set kunde_a  '11111111-1111-1111-1111-111111111111'
 \set kunde_b  '22222222-2222-2222-2222-222222222222'
-\set konto_a1 'aaaaaaa1-0000-0000-0000-000000000001'
+\set konto_a1 '55555555-5555-5555-5555-555555555555'
 \set konto_a2 'aaaaaaa2-0000-0000-0000-000000000002'
-\set konto_b1 'bbbbbbb1-0000-0000-0000-000000000001'
-\set loc_wr   'cccccccc-0000-0000-0000-00000000000a'
-\set loc_si   'cccccccc-0000-0000-0000-00000000000b'
+\set konto_b1 '66666666-6666-6666-6666-666666666666'
+\set loc_wr   '44444444-4444-4444-4444-444444444444'
+\set loc_si   '33333333-3333-3333-3333-333333333333'
 
 /* ═══════════════════════════════════════════════════════
    SZENARIO 1 — Der reale Fall
