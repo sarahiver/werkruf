@@ -42,6 +42,54 @@ und das fällt erst eine Woche später auf, wenn keine Wochenmail kommt.
 
 ---
 
+## Wohin restauriert wird
+
+**Im Katastrophenfall: in ein neues Supabase-Projekt. Nicht in ein
+nacktes PostgreSQL.**
+
+Das ist keine Vorliebe, sondern eine Eigenschaft der Extensions. Ein
+vollständiger Produktionsdump enthält `CREATE EXTENSION` für `pg_cron`,
+`pg_net` und den Vault. Ein gewöhnliches `postgres:17` kennt keine
+davon, und `pg_cron` lässt sich nicht nachträglich hinzufügen — es
+braucht `shared_preload_libraries`.
+
+`restore.sh` prüft das vor dem Restore (Schritt 3b) und nennt die
+Lücke in einem Satz, statt hundert Folgefehler zu produzieren.
+
+Was ein Restore in ein nacktes PostgreSQL **kann**: das `public`-Schema,
+die `auth`-Tabellen, alle Daten, alle Constraints, Policies und Rechte.
+Für eine Prüfung des Schemas und der Datenmengen genügt das.
+
+Was es **nicht kann** — und zwar nicht, weil der Dump schlecht ist,
+sondern weil diese Dinge Extensions gehören:
+
+| | |
+|---|---|
+| `cron.job`, `cron.job_run_details` | gehören `pg_cron` |
+| die Vault-Geheimnisse | gehören `supabase_vault` |
+| `net._http_response` | gehört `pg_net` |
+
+### Und ein Punkt, der schwerer wiegt
+
+`pg_dump` nimmt die **Daten** von Extension-eigenen Tabellen nur mit,
+wenn die Extension sie per `pg_extension_config_dump` dafür anmeldet.
+`pg_cron` tut das nicht.
+
+> **Die produktiven Cron-Jobs stehen in keinem pg_dump.** Auch nicht im
+> neuen. Die Versionierung im Repo ist deshalb nicht gute Praxis,
+> sondern der einzige Weg, auf dem sie einen Verlust überleben.
+
+Zu bestätigen mit:
+
+```sql
+select extname, extversion, extconfig is not null as daten_im_dump
+  from pg_extension order by extname;
+```
+
+Steht bei `pg_cron` `daten_im_dump = false`, gilt der Satz.
+
+---
+
 ## Voraussetzungen
 
 ```
@@ -255,6 +303,35 @@ Reihenfolge der letzten sechs Punkte ist nicht beliebig: erst Secrets,
 dann Functions, dann Cron aktivieren. Ein aktivierter Cron ohne Secret
 schlägt fehl und füllt `cron.job_run_details` mit Fehlern.
 
+### Recovery-Reihenfolge
+
+```
+1  Ziel bereitstellen        neues Supabase-Projekt (nicht nackt)
+2  Dump verifizieren         verify.sh — vor allem anderen
+3  Datenbank restaurieren    restore.sh, Crons bleiben inaktiv
+4  Vault-Secrets setzen      gbp_worker_secret
+5  Edge Functions deployen   aus dem Repo, 12 Stück
+6  Environment prüfen        Brevo, Google, Stripe; Delivery auf test
+7  Cron-Migration anwenden   die Jobs kommen aus dem Repo, nicht aus
+                             dem Dump — siehe oben
+8  Smoke Tests               Engine, Planer, Worker, Alerts, Sync
+9  Crons aktivieren          active = true, einzeln
+```
+
+Schritt 2 steht vor 3, weil ein Restore aus einem beschädigten Dump
+Stunden kosten kann, bevor es auffällt.
+
+Schritt 4 vor 5, weil eine Edge Function ohne Secret beim ersten
+Aufruf scheitert und der Fehler dann wie ein Codefehler aussieht.
+
+Schritt 7 vor 8 und 8 vor 9: ein aktivierter Cron, der auf eine noch
+nicht deployte Function zeigt, erzeugt Fehlerrauschen, in dem der
+eigentliche Smoke-Test untergeht.
+
+Schritt 9 einzeln, nicht `update cron.job set active = true`. Zuerst
+`engine-daily`, dessen Lauf prüfen, dann der Planer, dann der Worker —
+in der Reihenfolge, in der sie montags ohnehin laufen.
+
 ---
 
 ## Die Betriebsreihenfolge am Montag
@@ -329,6 +406,43 @@ Migration übernimmt ihn (dasselbe Muster ersetzt ihn sauber) oder sie
 lässt ihn aus. Nicht beides.
 
 ---
+
+## Die alte Baseline
+
+`supabase/schema/production-baseline-2026-09-22.sql` bleibt im Repo,
+**als deprecated markiert, nicht gelöscht**.
+
+Gründe fürs Behalten: `scripts/test-db/setup.sh` baut die
+Testdatenbank daraus, und `scripts/test-db/sql/20-baseline-luecken.sql`
+begründet jede ergänzte Eigenschaft mit einer Zeilennummer in dieser
+Datei. Beides bricht, wenn sie verschwindet.
+
+Sobald der erste vollständige Export vorliegt:
+
+1. Export als `supabase/schema/production-schema-<datum>.sql` ablegen.
+2. `setup.sh` auf die neue Datei umstellen.
+3. `20-baseline-luecken.sql` prüfen — was der vollständige Export
+   mitbringt, kann dort weg. Die Datei ist so gebaut, dass sie das von
+   selbst merkt: sie ergänzt nur, was fehlt.
+4. Erst dann die alte Baseline entfernen, in einem eigenen Commit, mit
+   `baseline-luecken.md` als Begründung in der Historie.
+
+Nicht in einem Schritt. Die alte Datei ist kaputt, aber sie ist die
+einzige Erklärung dafür, warum der Testaufbau so aussieht, wie er
+aussieht.
+
+## Das Pooler-Secret
+
+`SUPABASE_POOLER_DB_URL` wird nach dem Umbau **nirgends mehr
+verwendet** — eine repo-weite Suche findet es nur noch in zwei
+Kommentaren, die erklären, warum es weg ist. In Workflows laufen
+ausschließlich `SUPABASE_ACCESS_TOKEN` (Deploy) und
+`SUPABASE_DIRECT_DB_URL` (Export).
+
+Das Secret kann in den Repo-Einstellungen gelöscht werden. Erst nach
+dem ersten erfolgreichen Lauf des neuen Workflows — solange der nicht
+grün war, ist die alte Verbindung der einzige Weg zur Datenbank, den
+die CI kennt.
 
 ## Was lokal nicht geprüft werden kann
 

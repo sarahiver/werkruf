@@ -118,6 +118,51 @@ echo "   angelegt"
 
 # ─────────────────────────────────────────────────────────────────
 echo
+echo "══ 3b — Extensions im Ziel"
+#
+# WARUM DAS VOR DEM RESTORE STEHT
+#
+# Ein vollstaendiger Produktionsdump enthaelt CREATE EXTENSION fuer
+# pg_cron, pg_net und den Vault. Ein nacktes postgres-Image hat keines
+# davon — pg_cron braucht shared_preload_libraries und laesst sich
+# nicht nachtraeglich per CREATE EXTENSION hinzufuegen.
+#
+# Ohne diesen Schritt haette man hundert Folgefehler im Protokoll und
+# wuesste nicht, welcher davon die Ursache ist. Hier steht die Ursache
+# einmal, vorher, in einem Satz.
+#
+# Es ist KEIN Abbruch: das public-Schema laesst sich ohne diese
+# Extensions wiederherstellen, und fuer eine Pruefung des Schemas und
+# der Daten genuegt das. Was fehlt, steht im Bericht.
+if [ "$(head -c 5 "$DATEI")" = "PGDMP" ]; then
+  pg_restore --list "$DATEI" \
+    | grep -oP '^\d+;.* EXTENSION - \K\S+' | sort -u > "$ABDRUCK_DIR/ext-dump.txt" || true
+
+  psql -d "$ZIELDB" -Atc \
+    "select name from pg_available_extensions" | sort -u > "$ABDRUCK_DIR/ext-da.txt"
+
+  fehlende="$(comm -23 "$ABDRUCK_DIR/ext-dump.txt" "$ABDRUCK_DIR/ext-da.txt" | tr '\n' ' ')"
+
+  if [ -n "${fehlende// /}" ]; then
+    echo "   NICHT VERFUEGBAR: $fehlende"
+    echo
+    echo "   Das Zielsystem kennt diese Extensions nicht. Das public-Schema"
+    echo "   und die Daten lassen sich trotzdem wiederherstellen; alles, was"
+    echo "   diesen Extensions GEHOERT, nicht:"
+    echo "     pg_cron         → cron.job, cron.job_run_details"
+    echo "     supabase_vault  → die Geheimnisse"
+    echo "     pg_net          → net._http_response"
+    echo
+    echo "   Im Katastrophenfall ist das Ziel deshalb ein NEUES"
+    echo "   SUPABASE-PROJEKT, kein nacktes PostgreSQL. Siehe"
+    echo "   docs/operations/backup-restore.md, \"Wohin restauriert wird\"."
+  else
+    echo "   alle Extensions des Dumps verfuegbar"
+  fi
+fi
+
+# ─────────────────────────────────────────────────────────────────
+echo
 echo "══ 4 — Restore"
 
 PROTOKOLL="$ABDRUCK_DIR/restore.log"
