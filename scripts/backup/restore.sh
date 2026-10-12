@@ -290,15 +290,72 @@ done
 echo
 echo "══ 7 — Kernobjekte namentlich"
 
-# Kein "&& echo gruen": unter set -e loest ein Fehler links von &&
-# den Abbruch nicht aus, und beim ersten Lauf lief das Skript nach
-# einem fehlgeschlagenen Kerncheck munter weiter.
-if psql -d "$ZIELDB" -v ON_ERROR_STOP=1 -q -f "$HIER/restore-kernchecks.sql" \
-     2>&1 | sed 's/^/   /'; then
-  echo "   alle Kernchecks gruen"
-else
-  echo "   KERNCHECKS ROT" >&2
+# ── Die Vorbedingung, ohne die die Trennung nicht traegt ──
+#
+# restore-kernchecks.sql unterscheidet zwei Dinge:
+#
+#   Restore-Defekt     der Restore hat etwas verloren    → rot
+#   Produktionsbefund  der Dump trug es getreu herueber  → Warnung
+#
+# Diese Unterscheidung beruht auf einem Schluss: wenn RLS nach dem
+# Restore aus ist, war es im Dump aus — also in Produktion. Der
+# Schluss gilt nur, solange pg_restore an keiner RLS- oder
+# Policy-Anweisung gescheitert ist. Ist er das, koennte ein
+# "Produktionsbefund" in Wahrheit ein verlorenes ENABLE ROW LEVEL
+# SECURITY sein, und dann ist er rot, nicht gelb.
+#
+# Also nachsehen, statt es anzunehmen.
+VERTRAUEN="ja"
+if [ -f "$ABDRUCK_DIR/fehler.txt" ] \
+   && grep -qiE 'row level security|policy' "$ABDRUCK_DIR/fehler.txt"; then
+  VERTRAUEN="nein"
+  echo "   WARNUNG: pg_restore hatte Fehler an RLS- oder Policy-Anweisungen."
+  echo "   Die Trennung Restore-Defekt / Produktionsbefund traegt fuer"
+  echo "   diesen Lauf NICHT. Jeder Befund unten ist als moeglicher"
+  echo "   Restore-Verlust zu behandeln:"
+  grep -iE 'row level security|policy' "$ABDRUCK_DIR/fehler.txt" \
+    | sed -n '1,5p' | sed 's/^/     /'
+  echo
+fi
+
+KERN_LOG="$ABDRUCK_DIR/kernchecks.log"
+
+set +e
+psql -d "$ZIELDB" -v ON_ERROR_STOP=1 -q \
+  -f "$HIER/restore-kernchecks.sql" > "$KERN_LOG" 2>&1
+KERN_EXIT=$?
+set -e
+
+sed 's/^/   /' "$KERN_LOG"
+
+# Produktionsbefunde eigens ausweisen. Sie stehen schon oben im
+# Protokoll, aber als WARNING zwischen Notices — und was zwischen
+# Notices steht, liest niemand.
+#
+# Die Zahl aus der Meldung lesen und nicht Zeilen zaehlen: die Befunde
+# stehen als mehrzeilige WARNING, Zeilenzaehlen waere vom Umbruch
+# abhaengig. Kein \K und kein Gedankenstrich im Muster — beides ist
+# von Locale und UTF-8-Behandlung des Greps abhaengig.
+BEFUNDE="$(sed -n 's/.*PRODUKTIONSBEFUND.*[^0-9]\([0-9][0-9]*\) Eintraege.*/\1/p' \
+  "$KERN_LOG" | head -1)"
+BEFUNDE="${BEFUNDE:-0}"
+
+if [ "$KERN_EXIT" -ne 0 ]; then
+  echo "   KERNCHECKS ROT — der Restore hat etwas verloren" >&2
   exit 1
+fi
+
+if [ "$BEFUNDE" -gt 0 ]; then
+  if [ "$VERTRAUEN" = "ja" ]; then
+    echo "   Kernchecks: kein Restore-Defekt."
+    echo "   ABER $BEFUNDE Produktionsbefund(e) — siehe oben."
+    echo "   Der Restore ist bewiesen, die Produktion ist es nicht."
+  else
+    echo "   KERNCHECKS ROT — $BEFUNDE Befunde, Einordnung nicht belastbar" >&2
+    exit 1
+  fi
+else
+  echo "   alle Kernchecks gruen"
 fi
 
 # ─────────────────────────────────────────────────────────────────
