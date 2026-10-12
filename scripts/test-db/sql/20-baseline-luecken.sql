@@ -54,10 +54,14 @@
  *
  *   id bigint NOT NULL
  *
- * ohne Default, und ihre eigene Funktion log_recommendation_event()
- * fuegt ohne id ein. Eine Spalte, die beides ist, kann in Produktion nur
- * Identity oder Serial sein; pg_dump schreibt die Sequenz getrennt, und
- * dieser Teil ist abgeschnitten.
+ * ohne Default, und public.record_recommendation_action() fuegt ohne id
+ * ein. Eine Spalte, die beides ist, kann in Produktion nur Identity oder
+ * Serial sein; pg_dump schreibt die Sequenz getrennt, und dieser Teil ist
+ * abgeschnitten.
+ *
+ * (Hier stand bis 12.10.2026 log_recommendation_event() als Beleg. Diese
+ * Funktion existiert nicht. Die Schlussfolgerung war richtig, der Beleg
+ * falsch — gefunden in G2.)
  *
  * Ob Produktion GENERATED ALWAYS oder BY DEFAULT verwendet, steht nicht
  * in der Baseline. BY DEFAULT ist die vorsichtigere Wahl: sie laesst
