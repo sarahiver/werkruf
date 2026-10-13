@@ -20,6 +20,54 @@ Die veralteten direkten Functions `send-welcome-email` und
 als Function/Webhook noch als Cronjob aktiv sein. Der Stripe-Webhook sendet
 keine Mail mehr direkt über Brevo.
 
+**Zur Zeile „Weekly Digest":** Produktiv läuft der Montagsplaner, nicht
+`schedule_weekly_summaries`. Die Funktion ist seit dem 5. Oktober 2026
+ausdrücklich als Altlast markiert und hat keinen Aufrufer
+(`supabase/tests/communicationPath.test.sql`, Abschnitt K).
+
+## Wer operative Mails bekommt (seit 13. Oktober 2026)
+
+Drei Mails fordern zu Handlungen auf, die hinter der Bezahlschranke liegen —
+Antworten veröffentlichen läuft in `requirePaidAccess`, `/dashboard/fotos` und
+`/dashboard/kunden-gewinnung` stehen hinter `ProGate`:
+
+| Mail | Empfänger |
+|---|---|
+| `critical_review_alert` | nur berechtigte Pläne |
+| `weekly_summary` | nur berechtigte Pläne |
+| `inactivity_reminder` | nur berechtigte Pläne |
+| `connection_broken` | **alle** — Ziel `/dashboard/google` ist für `free` erreichbar, und eine abgerissene Verbindung stoppt auch die freien Teile |
+| `welcome`, `payment_failed`, `visibility_report` | unverändert, keine operative Kommunikation |
+
+Geprüft wird das an **einer** Stelle: in der Empfängerschleife von
+`schedule_communications()`, vor der Kanalschleife. Ein später hinzugefügter
+Kanal dieser Funktion ist damit von sich aus gesperrt — die sichere Richtung.
+Der Rückgabewert trägt `blocked`: wie viele Empfänger der Plan ausgeschlossen
+hat. Ohne diese Zahl sagt „0 verschickt" nicht, ob nichts anlag oder alles
+gesperrt war.
+
+Berechtigt heißt `public.has_paid_access(user_id)` — die SQL-Fassung der Regel
+aus `src/utils/subscription.js`. Zwei Umsetzungen, weil der Versand in pg_cron
+läuft und JavaScript nicht aufrufen kann. Sie werden gegen **dieselbe**
+Fallmatrix geprüft:
+
+* `supabase/tests/operativeMails.test.sql` — SQL-Seite, inklusive Wirkung auf
+  `email_queue`
+* `src/utils/entitlement.test.js` — JS-Seite
+* `src/utils/planGateSql.test.js` — liest die Matrix aus der SQL-Abnahme und
+  rechnet jeden Fall mit der JS-Regel nach; weichen sie ab, fällt der Test
+
+Die Oberfläche sagt dasselbe: `/dashboard` schränkt „Du bekommst montags eine
+Mail" für nicht freigeschaltete Betriebe ein, und die Benachrichtigungs-
+einstellungen weisen darauf hin, dass die Schalter erst mit dem Zugang greifen
+(`src/components/dashboard/mailVersprechen.test.js`). Erst eine Mail
+ankündigen, die nicht kommt, und dann eine schicken, die auf eine
+Bezahlschranke führt, wäre dieselbe Unehrlichkeit in zwei Richtungen.
+
+Unberührt bleiben `plan_communications()` (hat der Kanal etwas zu sagen?) und
+`wants_notification()` (will der Nutzer es hören?). Drei Fragen, drei Orte;
+alle drei müssen zustimmen.
+
 ## Fehler- und Datenschutzverhalten
 
 * `enqueue_email` lehnt leere oder syntaktisch ungültige Adressen ab. Planer

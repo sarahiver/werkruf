@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { Mail, AlertTriangle, Check, Loader } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import supabase from '../../supabaseClient';
+import { wantsOperationalMail } from '../../utils/subscription';
 import { Card, SectionTitle, spin } from './gb/GbUi';
 
 /* ─────────────────────────────────────────────
@@ -62,6 +63,16 @@ const GroupLabel = styled.p`
   text-transform: uppercase; letter-spacing: .08em;
   color: var(--color-text-muted); margin: 18px 0 2px;
   &:first-child { margin-top: 0; }
+`;
+
+/* Wie Note, aber ohne Trennlinie: Dieser Hinweis steht oben im
+   Kasten, nicht als Fussnote darunter. */
+const Hinweis = styled.p`
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-bottom: 14px;
+  font-family: var(--font-body); font-size: .78rem; line-height: 1.55;
+  color: var(--color-text-muted);
+  svg { flex-shrink: 0; margin-top: 2px; }
 `;
 
 const Note = styled.p`
@@ -142,7 +153,12 @@ const DEFAULTS = {
 };
 
 export default function NotificationSettings() {
-  const { user } = useAuthContext();
+  const { user, profile } = useAuthContext();
+  /* Dieselbe Regel, die der Versand benutzt — nicht eine zweite
+     Vorstellung davon, wer Mails bekommt. Siehe
+     src/utils/subscription.js und, auf der SQL-Seite,
+     public.wants_operational_mail. */
+  const bekommtOperative = wantsOperationalMail(profile);
   const [prefs, setPrefs]   = useState(DEFAULTS);
   const [loading, setLoad]  = useState(true);
   const [saving, setSaving] = useState(false);
@@ -214,6 +230,23 @@ export default function NotificationSettings() {
       </SectionTitle>
 
       <Card style={{ opacity: loading ? .5 : 1 }}>
+        {/* Ohne Pro-Zugang gehen Wochenmail, Sofortmeldungen und die
+            Abwesenheitserinnerung nicht hinaus (H1 P0 #4). Die
+            Schalter bleiben benutzbar — die Einstellung wird
+            gespeichert und gilt, sobald der Zugang da ist. Sie
+            kommentarlos stehen zu lassen waere die andere Haelfte
+            desselben gebrochenen Versprechens: erst eine Mail
+            ankuendigen, die nicht kommt, dann eine Mail schicken, die
+            auf eine Bezahlschranke fuehrt. */}
+        {!loading && !bekommtOperative && (
+          <Hinweis role="status">
+            <AlertTriangle size={13} />
+            Diese Einstellungen werden gespeichert, greifen aber erst mit dem
+            Pro-Zugang: Wochenmail und Sofortmeldungen verschickt WERKRUF nur
+            für freigeschaltete Betriebe. Dass deine Verbindung zu Google
+            abgerissen ist, erfährst du weiterhin.
+          </Hinweis>
+        )}
         {GROUPS.map((group) => (
           <React.Fragment key={group.label}>
             <GroupLabel>{group.label}</GroupLabel>

@@ -25,6 +25,19 @@ insert into t values
    scripts/test-db/sql/80-fixtures.sql. */
 select test.basis();
 
+/* Operative Mails gehen seit H1 nur an berechtigte Empfaenger
+   (Migration 20261013130000, zentrale Pruefung in der
+   Empfaengerschleife von schedule_communications). Die Vorgabe in
+   user_profiles.plan ist 'free' — ohne diese Zeile findet diese
+   Abnahme keine Mail mehr, und zwar zu Recht.
+
+   Sie steht hier und nicht im Helfer: Welchen Plan ein Testbetrieb
+   hat, ist fachlich und soll im Test sichtbar sein. Ein Helfer, der
+   stillschweigend 'pro' setzte, wuerde kuenftige Mail-Tests gruen
+   machen, ohne dass jemand merkt, dass der Plan dafuer noetig war. */
+update public.user_profiles set plan = 'pro' where id = test.id('user_a');
+
+
 /* Der Registrierungsname — nicht der Name des Betriebs. Steht hier und
    nicht im Helfer, weil genau diese Unterscheidung geprueft wird. */
 insert into public.user_profiles (id, company_name, industry_key)

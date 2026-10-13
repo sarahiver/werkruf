@@ -11,6 +11,7 @@ import { useDashboardBriefing } from '../../hooks/useDashboardBriefing';
 import WerkrufScore from '../../components/dashboard/WerkrufScore';
 import NaechsteSchritte from '../../components/dashboard/NaechsteSchritte';
 import { useHealthScore } from '../../hooks/useHealthScore';
+import { wantsOperationalMail } from '../../utils/subscription';
 import {
   Page, PageTitle, PageSub, Card, SectionTitle,
   StatusBanner, Recommendation, HealthCard, Insight, ErrorState,
@@ -260,6 +261,17 @@ export default function DashboardHome() {
               title="Probleme melden sich von selbst"
               detail="Reisst die Verbindung ab oder ändert Google deine Angaben, erfährst du es — ohne nachzusehen."
             />
+            {/* Ohne Pro-Zugang gehen die ersten beiden nicht hinaus
+                (H1 P0 #4). Sie hier ohne Einschränkung zu versprechen
+                wäre dieselbe Unehrlichkeit wie eine Mail, die auf eine
+                Bezahlschranke führt — nur in der anderen Richtung. */}
+            {!wantsOperationalMail(profile) && (
+              <Recommendation
+                severity="warning"
+                title="Die Mails gehören zum Pro-Zugang"
+                detail="Übersicht, Score und offene Aufgaben siehst du auch ohne. Wochenmail und Sofortmeldungen verschickt WERKRUF für freigeschaltete Betriebe — dass deine Verbindung abgerissen ist, erfährst du in jedem Fall."
+              />
+            )}
           </Card>
         </>
       )}
