@@ -242,13 +242,47 @@ Soll ein Kunde die Funktion per RPC aufrufen:
 grant execute on function public.x(…) to authenticated;
 ```
 
-Das tun heute fünf Funktionen, und alle fünf haben den Grant explizit
-in ihrer eigenen Migration: `events_feed`, `claim_own_lead`,
-`touch_dashboard_visit`, `werkruf_score_location`, `enqueue_email`.
+Das tun heute sieben Funktionen, und alle haben den Grant explizit in
+ihrer eigenen Migration: `events_feed`, `claim_own_lead`,
+`touch_dashboard_visit`, `werkruf_score_location`, `enqueue_email`,
+`accept_terms`, `current_terms_version`.
 
 **`security definer` braucht `set search_path`.** Ohne ihn kann ein
 Aufrufer über seinen eigenen `search_path` bestimmen, welche Tabelle
 die Funktion trifft.
+
+## Muster: etwas festhalten, was der Kunde auslöst
+
+Die Zustimmung zu den Bedingungen (H1, Migration `20261013140000`) ist
+der Fall, an dem sich das Muster am besten zeigen lässt: Der Klick
+passiert im Browser, der **Nachweis** darf aber nichts aus dem Browser
+übernehmen.
+
+```
+Browser  →  accept_terms(p_version)            authenticated
+               ↓  auth.uid(), now(),
+                  current_terms_version()
+            record_terms_acceptance(uid, ver)   service_role
+               ↓
+            user_profiles.accepted_terms_*      für den Client gesperrt
+```
+
+Vier Dinge kann der Browser dadurch nicht:
+
+| | Warum nicht |
+|---|---|
+| den Zeitpunkt wählen | `now()` setzt die innere Funktion; es gibt keinen Parameter dafür |
+| die Version wählen | gespeichert wird `current_terms_version()`; `p_version` dient nur dem Abgleich — weicht es ab, wird nichts gespeichert |
+| die Spalten direkt schreiben | Schreibrechte auf `user_profiles` sind eine Spaltenliste, und eine Whitelist wächst nicht mit (`entitlement.test.sql`, Abschnitt 1) |
+| für jemand anderen zustimmen | `accept_terms` nimmt keine `user_id`; es gilt `auth.uid()` aus dem geprüften JWT |
+
+Was der Browser können **muss**: sagen, dass der Haken gesetzt wurde.
+Dieser eine Klick ist clientseitig, weil er im Browser passiert — daran
+ist nichts zu härten, und so zu tun als ob wäre Theater.
+
+Die äußere Funktion ist für `authenticated` ausführbar, die innere
+nicht. Genau das ist der Grund für die Teilung: Die innere nimmt eine
+fremde `user_id` an und gehört deshalb dem Server.
 
 ## Was CI erzwingt
 
@@ -258,6 +292,8 @@ die Funktion trifft.
 | `defaultRechte.test.sql` B | eine neue Tabelle, Sequenz oder Funktion, die offen ist — auf welchem Weg auch immer | `sql-tests` |
 | `defaultRechte.test.sql` B (Gegenrichtung) | der Serverpfad ist zu — `service_role` kommt nicht durch | `sql-tests` |
 | `defaultRechte.test.sql` C | eine neue Sicht, die `anon` lesen darf | `sql-tests` |
+| `entitlement.test.sql` 1 | eine Entitlement-, Stripe- oder Zustimmungsspalte, die der Client schreiben darf | `sql-tests` |
+| `consent.test.sql` 5 | ein zweiter Weg an `accept_terms` vorbei in die Zustimmungsspalten | `sql-tests` |
 | `defaultRechte.test.sql` D | das Muster „RLS + Policy + Grant" wirkt nicht wie beschrieben | `sql-tests` |
 | `defaultRechte.test.sql` E | `security_invoker` wirkt nicht mehr wie angenommen | `sql-tests` |
 | `check-view-security.sh` | eine Migration legt eine Sicht ohne `security_invoker` an | `sql-tests` |

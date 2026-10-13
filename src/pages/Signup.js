@@ -368,9 +368,14 @@ export default function Signup() {
           Bereits registriert? <Link to="/login" state={location.state}>Einloggen</Link>
         </SwitchText>
 
+        {/* Hinweis, nicht Zustimmung. Der Haken steht im naechsten
+            Schritt (/onboarding) — dort gibt es eine gepruefte
+            Sitzung, und nur dann ist eine Zustimmung einem Konto
+            zuordenbar. Beide Wege hierher (E-Mail und Google) laufen
+            dort zusammen. */}
         <TermsNote>
-          Mit der Registrierung stimmst du unseren{' '}
-          <a href="/datenschutz">Datenschutzbestimmungen</a> zu.
+          Im nächsten Schritt bestätigst du die{' '}
+          <a href="/datenschutz">Datenschutzerklärung</a>.
         </TermsNote>
         </>}
       </Card>

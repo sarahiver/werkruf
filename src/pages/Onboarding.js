@@ -1,10 +1,11 @@
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, CheckCircle, Search, Zap } from 'lucide-react';
+import { ArrowRight, CheckCircle, Search, Zap, AlertTriangle } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import { clearPublicFunnel } from '../utils/publicFunnel';
+import supabase from '../supabaseClient';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -113,15 +114,111 @@ const FeatureDesc = styled.p`
   font-family: var(--font-body); font-size: .75rem; color: var(--color-text-muted); margin-top: 1px;
 `;
 
+/* ── Zustimmung ── */
+
+const Zustimmung = styled.label`
+  display: flex; align-items: flex-start; gap: 10px;
+  margin-top: 20px; padding: 14px 16px;
+  background: var(--color-bg); border-radius: var(--radius-card);
+  cursor: pointer;
+  font-family: var(--font-body); font-size: .82rem; line-height: 1.55;
+  color: var(--color-text);
+  input { margin-top: 2px; flex-shrink: 0; width: 17px; height: 17px; accent-color: var(--color-accent); }
+  a { color: var(--color-accent); }
+`;
+
+const Fehler = styled.p`
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 10px;
+  font-family: var(--font-body); font-size: .8rem; line-height: 1.5;
+  color: #B3261E;
+  svg { flex-shrink: 0; margin-top: 2px; }
+`;
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Onboarding() {
-  const { user }                 = useAuthContext();
+  const { user, profile, refreshProfile } = useAuthContext();
   const { brand }                = useIndustry();
   const navigate                 = useNavigate();
 
+  /*
+   * ═══════════════════════════════════════════════════════════
+   * DIE ZUSTIMMUNG
+   * ═══════════════════════════════════════════════════════════
+   *
+   * Warum hier und nicht auf der Registrierungsseite:
+   *
+   * Es gibt zwei Wege in ein Konto — E-Mail mit Bestaetigungslink und
+   * Google OAuth. Beim ersten gibt es im Moment des Klicks noch keine
+   * Sitzung (die entsteht erst mit dem Link in der Mail), beim zweiten
+   * laeuft ein Redirect zu Google dazwischen. Eine Zustimmung ohne
+   * Sitzung ist niemandem zuordenbar, und sie durch den Browser zu
+   * tragen (Metadaten, sessionStorage) hiesse, genau den Teil in die
+   * Hand des Clients zu geben, der nachweisbar sein soll.
+   *
+   * Diese Seite ist die erste Stelle, die BEIDE Wege erreichen und auf
+   * der eine gepruefte Sitzung vorliegt. Deshalb steht der Haken hier
+   * — vor der ersten Benutzung, nicht danach.
+   *
+   * Festgehalten wird serverseitig: accept_terms() nimmt keine
+   * user_id und keinen Zeitstempel (Migration 20261013140000). Der
+   * Browser sagt nur, welche Fassung er angezeigt hat; weicht sie von
+   * der geltenden ab, wird nichts gespeichert.
+   *
+   * Kein Re-Consent: Wer schon zugestimmt hat, sieht den Haken nicht
+   * mehr. Eine neue Fassung fragt NICHT erneut.
+   */
+  const [fassung, setFassung]   = React.useState(null);
+  const [haken, setHaken]       = React.useState(false);
+  const [fehler, setFehler]     = React.useState(null);
+  const [laeuft, setLaeuft]     = React.useState(false);
+
+  /* Null heisst: noch nicht geladen — dann ist weder "zugestimmt" noch
+     "nicht zugestimmt" bekannt, und der Haken bleibt aus. */
+  const schonZugestimmt = Boolean(profile?.accepted_terms_at);
+
+  React.useEffect(() => {
+    if (schonZugestimmt) return undefined;
+    let abgebrochen = false;
+
+    (async () => {
+      const { data, error } = await supabase.rpc('current_terms_version');
+      if (abgebrochen) return;
+      if (error) {
+        /* Ohne Fassung wird nicht zugestimmt. Fail closed: Lieber
+           eine Fehlermeldung als ein Eintrag ohne Bezug. */
+        console.error('[Onboarding] current_terms_version', error.code ?? error.message);
+        setFehler('Die geltenden Bedingungen konnten nicht geladen werden. Bitte Seite neu laden.');
+        return;
+      }
+      setFassung(data ?? null);
+    })();
+
+    return () => { abgebrochen = true; };
+  }, [schonZugestimmt]);
+
   const goToDashboard = async () => {
+      /* Zuerst die Zustimmung, dann weiter. Scheitert sie, bleibt der
+         Nutzer hier — ohne Eintrag weitergehen zu lassen waere ein
+         Nachweis, den es nicht gibt. */
+      if (!schonZugestimmt) {
+        setFehler(null);
+        setLaeuft(true);
+        const { error } = await supabase.rpc('accept_terms', { p_version: fassung });
+        setLaeuft(false);
+
+        if (error) {
+          console.error('[Onboarding] accept_terms', error.code ?? error.message);
+          setFehler('Die Zustimmung konnte nicht gespeichert werden. Bitte noch einmal versuchen.');
+          return;
+        }
+        /* Damit das Profil im Kontext den Eintrag kennt — sonst
+           erschiene der Haken beim Zurueckkehren erneut. */
+        await refreshProfile?.();
+      }
+
       clearPublicFunnel();
       /* Direkt zur Verbindungsseite statt auf die Dashboard-Startseite.
          Der Landingpage-CTA verspricht die Google-Verbindung; ein
@@ -179,9 +276,41 @@ export default function Onboarding() {
               </FeatureItem>
             </FeatureList>
 
-            <NextBtn onClick={goToDashboard}>
-              Google-Unternehmensprofil verbinden <ArrowRight size={16} />
+            {/* Der Haken nur, solange keine Zustimmung vorliegt. Kein
+                Rechtstext an dieser Stelle — verlinkt werden die
+                Dokumente, die es gibt. */}
+            {!schonZugestimmt && (
+              <Zustimmung>
+                <input
+                  type="checkbox"
+                  checked={haken}
+                  onChange={(e) => { setHaken(e.target.checked); setFehler(null); }}
+                />
+                <span>
+                  Ich habe die{' '}
+                  <a href="/datenschutz" target="_blank" rel="noopener noreferrer">
+                    Datenschutzerklärung
+                  </a>{' '}
+                  gelesen und stimme ihr zu. Das{' '}
+                  <a href="/impressum" target="_blank" rel="noopener noreferrer">
+                    Impressum
+                  </a>{' '}
+                  nennt den Anbieter.
+                </span>
+              </Zustimmung>
+            )}
+
+            <NextBtn
+              onClick={goToDashboard}
+              disabled={laeuft || (!schonZugestimmt && (!haken || !fassung))}
+            >
+              {laeuft ? 'Wird gespeichert…'
+                : <>Google-Unternehmensprofil verbinden <ArrowRight size={16} /></>}
             </NextBtn>
+
+            {fehler && (
+              <Fehler role="alert"><AlertTriangle size={14} /> {fehler}</Fehler>
+            )}
           </>
         )}
       </Card>
