@@ -6642,15 +6642,43 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
     }).then(() => {}, () => {});
   }
 
-  /* Den ausgewaehlten Betrieb umstellen, falls der Link zu einem
-     anderen gehoert als der zuletzt gewaehlte. Sonst zeigte das
-     Dashboard nach dem Einstieg den falschen. */
+  /*
+   * Den ausgewaehlten Betrieb umstellen, falls der Link zu einem
+   * anderen gehoert als der zuletzt gewaehlte. Sonst zeigte das
+   * Dashboard nach dem Einstieg den falschen.
+   *
+   * Hier stand ein direktes UPDATE auf selected_at. Das hat genau
+   * das NICHT getan, was der Satz darueber verspricht: Ohne die alte
+   * Auswahl zurueckzusetzen verletzt es
+   * google_locations_one_selected_per_user (23505, in der
+   * Testdatenbank gemessen), und der Fehler ging in
+   * .then(() => {}, () => {}) unter. Bei mehreren Betrieben schlug
+   * der Wechsel also still fehl — bei einem fiel es nicht auf, weil
+   * dasselbe UPDATE dieselbe Zeile traf.
+   *
+   * activate_google_location (Migration 20261013120000) macht
+   * Zuruecksetzen und Setzen als getrennte Anweisungen unter einem
+   * Advisory-Lock und prueft das Eigentum — dieselbe Pruefung wie
+   * hier vorher: gehoert dem Nutzer, nicht geloescht. Ein aktives
+   * Google-Konto verlangt sie bewusst nicht, sonst landete ein Kunde
+   * mit abgerissener Verbindung beim falschen Betrieb.
+   */
   if (ctx.locationId) {
-    await db.from('google_locations')
-      .update({ selected_at: new Date().toISOString() })
-      .eq('id', ctx.locationId as string)
-      .eq('user_id', ctx.userId as string)
-      .then(() => {}, () => {});
+    const { data: umgestellt, error: wechselFehler } = await db
+      .rpc('activate_google_location', {
+        p_location_id: ctx.locationId as string,
+        p_user_id: ctx.userId as string,
+      });
+
+    /* Kein Abbruch: Der Einstieg selbst gilt, auch wenn der Wechsel
+       nicht greift. Aber nicht mehr stillschweigend — vorher war
+       dieser Fall unsichtbar. */
+    if (wechselFehler || umgestellt !== true) {
+      log.warn('standortwechsel_ohne_wirkung', {
+        code: wechselFehler?.code ?? null,
+        ergebnis: wechselFehler ? null : umgestellt,
+      });
+    }
   }
 
   const zielPfad = String(ctx.targetPath ?? '/dashboard');
@@ -6837,11 +6865,24 @@ async function handleEinstieg(request: Request): Promise<Response> {
       .maybeSingle();
 
     if (loc) {
-      await db.from('google_locations')
-        .update({ selected_at: new Date().toISOString() })
-        .eq('id', ergebnis.locationId as string)
-        .eq('user_id', user.id)
-        .then(() => {}, () => {});
+      /* Wie in handleActionLinkPost: Das frueher hier stehende
+         direkte UPDATE verletzte bei mehreren Betrieben
+         google_locations_one_selected_per_user, weil es die alte
+         Auswahl nicht zuruecksetzte — und der Fehler wurde
+         geschluckt. Die Vorpruefung oben bleibt stehen: Sie liefert
+         den Zweig darunter und damit die Protokollzeile. */
+      const { data: umgestellt, error: wechselFehler } = await db
+        .rpc('activate_google_location', {
+          p_location_id: ergebnis.locationId as string,
+          p_user_id: user.id,
+        });
+
+      if (wechselFehler || umgestellt !== true) {
+        log.warn('standortwechsel_ohne_wirkung', {
+          code: wechselFehler?.code ?? null,
+          ergebnis: wechselFehler ? null : umgestellt,
+        });
+      }
     } else {
       /* Kein kuenstlicher Standortwechsel. Das Dashboard zeigt dann,
          was es ohnehin zeigen wuerde. */

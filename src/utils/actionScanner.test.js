@@ -129,9 +129,23 @@ describe('POST startet die Anmeldung', () => {
 
   it('stellt den Betrieb um', () => {
     /* Sonst zeigte das Dashboard nach dem Einstieg den zuletzt
-       gewählten statt den aus dem Link. */
-    expect(POST).toMatch(/selected_at/);
-    expect(POST).toMatch(/\.eq\('user_id', ctx\.userId/);
+       gewählten statt den aus dem Link.
+
+       Hier stand vorher `toMatch(/selected_at/)` plus
+       `.eq('user_id', ctx.userId`. Das prüfte den Mechanismus, und
+       der Mechanismus war der Fehler: Ein direktes UPDATE auf
+       selected_at verletzt bei mehreren Betrieben
+       google_locations_one_selected_per_user, weil es die alte
+       Auswahl nicht zurücksetzt (gemessen in
+       supabase/tests/standortwechsel.test.sql, Abschnitt 1). Der
+       Test war grün, während die Umstellung still fehlschlug.
+
+       Jetzt geprüft: dass überhaupt umgestellt wird, über den einen
+       dafür gebauten Weg — und dass der Nutzer aus dem geprüften
+       Token kommt, nicht aus der Anfrage. */
+    expect(POST).toMatch(/rpc\('activate_google_location'/);
+    expect(POST).toMatch(/p_user_id: ctx\.userId/);
+    expect(POST).not.toMatch(/\.update\(\s*\{\s*selected_at/);
   });
 
   it('leitet mit 302 weiter, nicht 301', () => {

@@ -188,3 +188,71 @@ describe('Die Übergabeseite', () => {
     expect(SEITE).not.toMatch(/ergebnis\.(userId|email|locationTitle)/);
   });
 });
+
+/* ═══════════════════════════════════════════════════════
+   DER BETRIEBSWECHSEL (H1, Befund aus P0 #5)
+   ═══════════════════════════════════════════════════════
+
+   Beide Pfade setzten selected_at mit einem direkten UPDATE, ohne die
+   bisherige Auswahl zurueckzusetzen. Bei mehreren Betrieben verletzt
+   das google_locations_one_selected_per_user — gemessen in
+   supabase/tests/standortwechsel.test.sql, Abschnitt 1 — und der
+   Fehler ging in .then(() => {}, () => {}) unter. Der Wechsel
+   scheiterte still, und danach stand der falsche Betrieb im
+   Dashboard.
+
+   Diese Pruefungen sind strukturell, weil die Wirkung in SQL liegt und
+   dort geprueft wird. Hier geht es nur darum, dass die Pfade den
+   richtigen Weg nehmen und das Ergebnis nicht wegwerfen. */
+
+describe('Der Betriebswechsel geht über eine Anweisung', () => {
+
+  it.each([
+    ['handleEinstieg', EINSTIEG],
+    ['handleActionLinkPost', POST],
+  ])('%s schreibt selected_at nicht selbst', (_name, rumpf) => {
+    expect(rumpf).not.toMatch(/selected_at:/);
+    expect(rumpf).not.toMatch(/\.update\(\s*\{\s*selected_at/);
+  });
+
+  it.each([
+    ['handleEinstieg', EINSTIEG],
+    ['handleActionLinkPost', POST],
+  ])('%s ruft activate_google_location', (_name, rumpf) => {
+    expect(rumpf).toMatch(/rpc\('activate_google_location'/);
+    expect(rumpf).toMatch(/p_location_id/);
+    expect(rumpf).toMatch(/p_user_id/);
+  });
+
+  it.each([
+    ['handleEinstieg', EINSTIEG],
+    ['handleActionLinkPost', POST],
+  ])('%s verschweigt einen misslungenen Wechsel nicht', (_name, rumpf) => {
+    /* Das war der eigentliche Schaden: Nicht dass es scheiterte,
+       sondern dass niemand es sehen konnte. */
+    expect(rumpf).toMatch(/standortwechsel_ohne_wirkung/);
+    expect(rumpf).toMatch(/!== true/);
+  });
+
+  it.each([
+    ['handleEinstieg', EINSTIEG],
+    ['handleActionLinkPost', POST],
+  ])('%s bricht den Einstieg deswegen nicht ab', (_name, rumpf) => {
+    /* Der Link hat den Nutzer angemeldet. Dass der Betriebswechsel
+       nicht griff, ist ein Hinweis, kein Grund, ihn vor eine
+       Fehlerseite zu setzen. */
+    expect(rumpf).not.toMatch(/standortwechsel_ohne_wirkung[\s\S]{0,200}throw/);
+  });
+
+  it('nimmt nicht den Dashboard-Weg', () => {
+    /* select_google_location verlangt ein aktives Google-Konto. Ein
+       Kunde mit abgerissener Verbindung landete damit beim falschen
+       Betrieb — aus einem Fehler waere ein zweiter geworden. Der
+       Unterschied der beiden Eingaenge steht in Migration
+       20261013120000 und wird in standortwechsel.test.sql,
+       Abschnitt 3, gemessen. */
+    for (const rumpf of [EINSTIEG, POST]) {
+      expect(rumpf).not.toMatch(/rpc\('select_google_location'/);
+    }
+  });
+});

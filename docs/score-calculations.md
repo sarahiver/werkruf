@@ -61,6 +61,35 @@ Entscheidung — der Bewertungslink wird gedruckt und auf Rechnungen geklebt.
 wird; gewählt wird über `public.select_google_location()`, den bestehenden Weg
 mit Eigentumsprüfung und Advisory-Lock. Keine zweite Auswahllogik.
 
+### Wer die Auswahl setzen darf — und wie
+
+Die Mechanik steht seit dem 13.10.2026 genau einmal da, in
+`public.apply_google_location_selection()`: Advisory-Lock, Zurücksetzen und
+Setzen als **getrennte** Anweisungen. Eine gemeinsame Anweisung verletzt
+`google_locations_one_selected_per_user`, weil die Zeilenreihenfolge im UPDATE
+nicht festgelegt ist.
+
+Darauf sitzen zwei Eingänge mit unterschiedlicher Strenge:
+
+| Eingang | Aufrufer | Verlangt |
+| --- | --- | --- |
+| `select_google_location()` | Dashboard-Auswahl, `auto_select_single_location` | Standort gehört dem Nutzer, nicht gelöscht, **Google-Konto aktiv** |
+| `activate_google_location()` | Mail-Link: `handleActionLinkPost`, `handleEinstieg` | Standort gehört dem Nutzer, nicht gelöscht |
+
+**Warum der Mail-Weg kein aktives Konto verlangt.** Ein Link in einer Mail zeigt
+auf einen bestimmten Betrieb; genau den soll der Kunde danach sehen, auch wenn
+die Google-Verbindung inzwischen abgerissen ist — sonst landet er beim falschen
+Betrieb und sieht daneben einen Reauth-Hinweis, der sich auf einen anderen
+bezieht.
+
+**Der Befund dahinter.** Beide Mail-Pfade setzten `selected_at` vorher mit einem
+direkten UPDATE, ohne die alte Auswahl zurückzusetzen. Bei mehreren Betrieben ist
+das ein `23505`, und der Fehler wurde geschluckt (`.then(() => {}, () => {})`):
+Der Wechsel schlug still fehl, das Dashboard zeigte weiter den alten Betrieb —
+genau das, was der Kommentar an der Stelle verhindern sollte. Bei genau einem
+Standort fiel es nicht auf, weil dasselbe UPDATE dieselbe Zeile traf. Gemessen
+und festgehalten in `supabase/tests/standortwechsel.test.sql`, Abschnitt 1.
+
 Bis zum 30.09.2026 nahm die Berechnung den primären beziehungsweise ältesten
 Standort und filterte die Bewertungen **gar nicht** nach Standort. Bei zwei
 Betrieben ergab das einen Wert, der zu keinem von beiden gehörte.
