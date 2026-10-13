@@ -297,3 +297,54 @@ grant select on auth.users to service_role;
    verdeckt genauso viel wie eine, die weicher ist — nur faellt es
    spaeter auf. */
 grant usage on schema public to anon, authenticated, service_role;
+
+/* ── service_role auf die bestehenden Tabellen, wie in Produktion ──
+   ═════════════════════════════════════════════════════════════════
+
+   Ergaenzt am 13.10.2026 (H1). In Produktion hat service_role auf
+   allen Tabellen in public alle Rechte — nicht weil eine Migration
+   es vergibt, sondern weil Supabase bei der Projekteinrichtung
+
+     alter default privileges in schema public
+       grant all on tables to anon, authenticated, service_role;
+
+   gesetzt hat und jede Tabelle das geerbt hat (nachgewiesen im
+   G2-Restore-Beweis: die Kernchecks listen genau diese Rechte).
+
+   Hier fehlte das. Gefunden, als smartcheckLead.test.sql pruefte, ob
+   der SERVERWEG offen ist — nicht nur, ob der Browserweg zu ist:
+
+     ERROR: permission denied for table leads
+
+   Das war kein Befund, sondern die vierte Stelle, an der die
+   Testdatenbank von Produktion abweicht (nach usage auf public, den
+   Vorgaberechten und auth.uid()). Und es ist die unangenehmste Art
+   von Abweichung: die Testumgebung ist HAERTER als Produktion,
+   deshalb faellt sie nur auf, wenn ein Test ausdruecklich prueft,
+   dass etwas funktioniert. Ein Test, der nur prueft, dass etwas
+   abgewiesen wird, waere hier dauerhaft falsch gruen geblieben.
+
+   20261012140000_deny_by_default.sql setzt die Vorgabe fuer KUENFTIGE
+   Objekte; auf die Baseline-Tabellen wirkt sie nicht rueckwirkend.
+   Deshalb hier einmalig fuer den Bestand. */
+do $$
+declare v_tabelle text;
+begin
+  for v_tabelle in
+    select quote_ident(c.relname)
+      from pg_catalog.pg_class c
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p')
+  loop
+    execute 'grant all on public.' || v_tabelle || ' to service_role';
+  end loop;
+
+  for v_tabelle in
+    select quote_ident(c.relname)
+      from pg_catalog.pg_class c
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind = 'S'
+  loop
+    execute 'grant all on sequence public.' || v_tabelle || ' to service_role';
+  end loop;
+end $$;

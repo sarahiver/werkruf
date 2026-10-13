@@ -38,6 +38,23 @@ verify_jwt = false
 # daily deduplication and a server-side Places lookup.
 verify_jwt = false
 
+[functions.smartcheck-lead]
+# Oeffentlicher, registrierungsfreier Endpunkt fuer den SmartCheck.
+#
+# Warum ohne JWT: der SmartCheck laeuft vor jeder Registrierung. Ein
+# Besucher hat keinen Token.
+#
+# Warum trotzdem nicht offen: der Schutz steht in der Function —
+# Herkunftspruefung gegen PUBLIC_REPORT_ALLOWED_ORIGINS, strikte
+# Validierung mit Laengengrenzen, atomares Rate-Limit ueber
+# check_rate_limit je IP und je gehashter E-Mail, Doppelungsfenster von
+# einer Stunde, Write ausschliesslich mit der Service Role.
+#
+# Der Grund, warum es diesen Endpunkt gibt und kein "grant insert on
+# leads to anon": der anon-Schluessel liegt im Browser-Bundle. Siehe
+# Kopf von supabase/functions/smartcheck-lead/index.ts.
+verify_jwt = false
+
 [functions.stripe-webhook]
 # Stripe sendet keinen Authorization-Header.
 # Schutz: Signaturpruefung gegen STRIPE_WEBHOOK_SECRET (Pflicht).

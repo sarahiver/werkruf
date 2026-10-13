@@ -405,6 +405,48 @@ export default function SmartCheck() {
     runAnalysis(val);
   };
 
+  /* Fehlertexte je Code aus smartcheck-lead. Kein technischer Jargon:
+     ein Handwerksbetrieb soll lesen, was er tun kann, nicht was der
+     Server meldet. */
+  const FEHLERTEXT = {
+    invalid_email:          'Diese E-Mail-Adresse sieht nicht richtig aus. Bitte prüfe sie noch einmal.',
+    missing_company:        'Der Betrieb konnte nicht übernommen werden. Bitte wähle ihn oben noch einmal aus.',
+    invalid_place_id:       'Der Betrieb konnte nicht übernommen werden. Bitte wähle ihn oben noch einmal aus.',
+    rate_limited:           'Es sind gerade zu viele Anfragen eingegangen. Bitte versuche es in einer Stunde noch einmal.',
+    rate_limit_unavailable: 'Wir konnten die Anfrage gerade nicht annehmen. Bitte versuche es in ein paar Minuten noch einmal.',
+    storage_failed:         'Wir konnten die Anfrage gerade nicht speichern. Bitte versuche es noch einmal.',
+    not_configured:         'Wir konnten die Anfrage gerade nicht speichern. Bitte versuche es noch einmal.',
+    origin_not_allowed:     'Wir konnten die Anfrage gerade nicht speichern. Bitte versuche es noch einmal.',
+  };
+
+  /* ── Erfolg erst nach bestaetigter Speicherung ──
+     ═══════════════════════════════════════════════
+
+     Vorher stand hier:
+
+       try { await supabase.from('leads').insert([...]); }
+       catch(e) { console.error(e); }
+       setPhase('sent');
+
+     Drei Fehler in fuenf Zeilen:
+
+     1. Der Browser schrieb als `anon` direkt in public.leads. RLS
+        verweigert das (G2-Restore-Beweis: "public.leads: anon hat
+        INSERT, RLS verweigert es"). Der Lead kam nie an.
+
+     2. setPhase('sent') stand hinter dem try/catch und lief in jedem
+        Fall. Der Besucher sah "gesendet", auch wenn nichts gespeichert
+        war.
+
+     3. Der catch fing gar nichts: der Supabase-Client WIRFT bei einem
+        Datenbankfehler nicht, er gibt { error } zurueck. Der Fehler
+        wurde also nicht verschluckt — er wurde nie angesehen. Das sah
+        im Code wie eine Fehlerbehandlung aus und war keine.
+
+     Jetzt geht der Lead ueber smartcheck-lead (Service Role,
+     Validierung, Rate-Limit) und `sent` wird nur bei stored === true
+     gesetzt. Jeder andere Ausgang zeigt einen Fehler und laesst den
+     Knopf erneut benutzen. */
   const handleSubmit = async () => {
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setEmailErr('Bitte eine gültige E-Mail eingeben.');
@@ -412,12 +454,41 @@ export default function SmartCheck() {
     }
     setEmailErr('');
     setSending(true);
-    try {
-      await supabase.from('leads').insert([{
-        company_name: result.name, contact_person: '-', phone: '-',
-        city: result.city, email, source: 'smart_check', status: 'new',
-      }]);
-    } catch(e) { console.error(e); }
+
+    const { data, error: invokeError } = await supabase.functions.invoke(
+      'smartcheck-lead',
+      {
+        body: {
+          email:       email.trim(),
+          companyName: result?.name,
+          city:        result?.city,
+          /* result traegt keine placeId — die steht in der Auswahl.
+             Siehe runAnalysis: setResult({ name, city, rating, … }). */
+          placeId:     place?.value?.place_id,
+          score:       result?.score,
+          rating:      result?.rating,
+          reviewCount: result?.reviewCount,
+        },
+      },
+    );
+
+    /* Fehlercode aus der Antwort holen. Bei 4xx/5xx ist data null und
+       der Rumpf steckt in invokeError.context — dasselbe Muster wie in
+       LeadForm.js, damit es eines bleibt. */
+    let code = data?.error;
+    if (invokeError?.context instanceof Response) {
+      try {
+        code = (await invokeError.context.clone().json()).error || code;
+      } catch (_) { /* Antwort ohne JSON */ }
+    }
+
+    if (invokeError || !data?.stored) {
+      setSending(false);
+      setEmailErr(FEHLERTEXT[code]
+        || 'Wir konnten die Anfrage gerade nicht speichern. Bitte versuche es noch einmal.');
+      return;
+    }
+
     setSending(false);
     setPhase('sent');
   };
