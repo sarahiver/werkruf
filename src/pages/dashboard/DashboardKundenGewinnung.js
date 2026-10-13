@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Copy, CheckCheck, Download, Star, ExternalLink, Smartphone } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useBetriebsname } from '../../hooks/useBetriebsname';
+import { useAusgewaehlterStandort } from '../../hooks/useAusgewaehlterStandort';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -151,8 +152,43 @@ export default function DashboardKundenGewinnung() {
   const { profile } = useAuthContext();
   const [copied, setCopied] = useState(false);
   const qrRef = useRef(null);
+  const { standort, grund, anzahl, loading: standortLaedt } = useAusgewaehlterStandort();
 
-  const placeId     = profile?.google_place_id;
+  /* ── Woher die Place-ID kommt, und woher nicht mehr ──
+     ═══════════════════════════════════════════════════
+
+     Bis H1 stand hier:
+
+       const placeId = profile?.google_place_id;
+
+     Diese Spalte stammt aus dem alten Places-Funnel: handle_new_user()
+     uebernimmt sie aus den Signup-Metadaten, die der oeffentliche
+     SmartCheck mitgibt. Ein FREMDKUNDE, der sich regulaer registriert
+     und danach Google verbindet, hat sie nie — und las deshalb
+     "Betrieb noch nicht verknüpft", obwohl sein Profil korrekt
+     verbunden war und sein Standort samt place_id in
+     google_locations stand.
+
+     Jetzt gilt der ausgewaehlte Standort aus dem OAuth-Sync
+     (§11). Die Auswahlregel ist dieselbe, die Score und Decision
+     Engine benutzen — siehe useAusgewaehlterStandort.
+
+     ── Der Legacy-Wert (§13) ──
+
+     Er wird NICHT entfernt, aber er ist nachgeordnet und greift nur,
+     wenn es ueberhaupt keinen Standort gibt. Das ist der Altkunde,
+     der aus dem SmartCheck kam und Google nie verbunden hat.
+
+     Was ausdruecklich NICHT passiert (§12): ein Rueckfall auf den
+     Profilwert, wenn ein Standort existiert. Bei mehreren Betrieben
+     waere das ein globaler Place-ID-Fallback auf Profilebene — der
+     QR-Code zeigte dann auf den Betrieb aus der Registrierung,
+     waehrend die Kennzahlen daneben den ausgewaehlten zeigen. Kein
+     stilles Mischen: welche Quelle gilt, steht unten im UI. */
+  const oauthPlaceId  = standort?.place_id || null;
+  const legacyPlaceId = (anzahl === 0 && profile?.google_place_id) || null;
+  const placeId       = oauthPlaceId || legacyPlaceId;
+  const quelle        = oauthPlaceId ? 'oauth' : (legacyPlaceId ? 'legacy' : null);
   /* Der Google-Name gewinnt, sobald ein Betrieb ausgewaehlt ist — das
      ist der Name, den Kunden auf Maps sehen. company_name bleibt der
      Rechnungsname. Siehe hooks/useBetriebsname.js. */
@@ -197,33 +233,60 @@ export default function DashboardKundenGewinnung() {
     img.src = url;
   };
 
-  if (!placeId) {
-    return (
-      <Page>
-        <PageTitle>Kunden-Gewinnung</PageTitle>
-        <NoBusiness>
-          <Star size={36} color="var(--color-accent)" style={{ marginBottom: 14, display: 'block', margin: '0 auto 14px' }} />
-          <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem',
-            textTransform: 'uppercase', color: 'var(--color-primary)', marginBottom: 8 }}>
-            Betrieb noch nicht verknüpft
-          </p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem',
-            color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-            Verknüpfe zuerst deinen Google Business Eintrag in der Übersicht,<br/>
-            dann steht dein Bewertungslink bereit.
-          </p>
-        </NoBusiness>
-      </Page>
-    );
-  }
+  /* ── Zustaende, und warum sie in ProGate stehen ──
+
+     Vorher stand der Frueh-Ausstieg VOR ProGate. Ein free-Nutzer sah
+     damit "Betrieb noch nicht verknüpft" statt der Bezahlschranke —
+     eine Diagnose fuer ein Problem, das er nicht hat. Die
+     Reihenfolge ist jetzt: erst Berechtigung, dann Zustand.
+
+     Founding Partner passieren ProGate wie Pro (§14, §17) — das
+     entscheidet hasPaidAccess in src/utils/subscription.js. */
+  const zustandsSeite = (titel, text) => (
+    <Page>
+      <PageTitle>Kunden-Gewinnung</PageTitle>
+      <NoBusiness>
+        <Star size={36} color="var(--color-accent)" style={{ marginBottom: 14, display: 'block', margin: '0 auto 14px' }} />
+        <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem',
+          textTransform: 'uppercase', color: 'var(--color-primary)', marginBottom: 8 }}>
+          {titel}
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem',
+          color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+          {text}
+        </p>
+      </NoBusiness>
+    </Page>
+  );
 
   return (
     <ProGate feature="Kunden-Gewinnung">
+    {standortLaedt ? zustandsSeite(
+      'Einen Moment',
+      'Wir holen gerade deinen Betrieb.',
+    ) : grund === 'ohne_auswahl' ? zustandsSeite(
+      anzahl > 1 ? 'Welchen Betrieb meinst du?' : 'Betrieb noch nicht bestätigt',
+      anzahl > 1
+        ? `Du verwaltest ${anzahl} Betriebe. Wähle in der Übersicht einen aus — dann gehören Bewertungslink und QR-Code zu genau diesem Betrieb.`
+        : 'Dein Betrieb ist verbunden. Bestätige ihn einmal in der Übersicht, dann gehören Bewertungslink und QR-Code zu genau diesem Betrieb.',
+    ) : !placeId ? zustandsSeite(
+      'Betrieb noch nicht verknüpft',
+      standort
+        ? 'Dein Betrieb ist verbunden, aber Google hat für ihn noch keine Kennung geliefert, mit der ein Bewertungslink funktioniert. Das ist meist ein Zeichen dafür, dass das Profil noch nicht vollständig bestätigt ist.'
+        : 'Verbinde zuerst dein Google-Unternehmensprofil in der Übersicht, dann steht dein Bewertungslink bereit.',
+    ) : (
     <Page>
       <PageTitle>Kunden-Gewinnung</PageTitle>
       <PageSub>
-        Mehr Bewertungen = mehr Sichtbarkeit. Teile deinen Link und watch your rating climb.
+        Mehr Bewertungen heißt mehr Sichtbarkeit. Teile deinen Link — jede neue
+        Bewertung zählt.
       </PageSub>
+      {quelle === 'legacy' && (
+        <PageSub style={{ color: 'var(--color-text-muted)' }}>
+          Dieser Link stammt noch aus deiner Anmeldung. Sobald du dein
+          Google-Unternehmensprofil verbindest, gilt der Betrieb von dort.
+        </PageSub>
+      )}
 
       <Grid>
         {/* Review Link */}
@@ -311,6 +374,7 @@ export default function DashboardKundenGewinnung() {
         </TipCard>
       </Grid>
     </Page>
+    )}
     </ProGate>
   );
 }
