@@ -157,6 +157,9 @@ export function anzeigeTitel(event) {
 export default function NaechsteSchritte({
   events, loading, fehler, onNeuLaden,
   standortAuswahlNoetig, standortAuswahlZiel = '/dashboard/google',
+  /* null, 'laedt', 'keine_gefunden' oder 'fehler' — aus
+     useDashboardBriefing, dort steht die Herleitung. */
+  ohneBetrieb,
   onGesehen, onGeoeffnet, onWeggeklickt, wegklickenLaeuft,
 }) {
   /* Gesehen heisst: Die Karte war im Sichtbereich. Nicht: Sie wurde
@@ -215,6 +218,62 @@ export default function NaechsteSchritte({
           <Aktion as="button" type="button" onClick={onNeuLaden} style={{ marginTop: 14 }}>
             <RotateCw size={14} /> Erneut versuchen
           </Aktion>
+        </Zustand>
+      </Bereich>
+    );
+  }
+
+  /* ── Kein Betrieb vorhanden ──
+     Nicht derselbe Zustand wie „keiner ausgewählt": Hier gibt es
+     nichts, woraus man wählen könnte.
+
+     Steht vor „Alles erledigt", weil dort sonst „Diese Woche musst du
+     nichts tun" über einem leeren Konto stünde.
+
+     Nach dem Fehlerzweig: Dass die Aufgaben gerade nicht geladen
+     werden konnten, bleibt sichtbar — dieser Zustand ist kein Grund,
+     einen Fehler zu verschweigen.
+
+     Und nur ohne Aufgaben: Liefert die Engine ihre eigene Aufgabe
+     dazu (account.no_locations), gewinnt die Aufgabenliste. Zwei
+     Quellen, eine Anzeige.
+
+     Und solange der Standortimport noch läuft, steht hier NICHT
+     „Google hat keinen Betrieb zurückgegeben" — das wäre eine
+     Diagnose über einen Lauf, der noch unterwegs ist. Dafür gibt es
+     den Wert 'laedt'.
+
+     Kein erfundener Grund: Google liefert eine leere Liste, keine
+     Begründung. Was zu prüfen ist, steht hier und auf der Zielseite. */
+  if (ohneBetrieb && (!events || events.length === 0)) {
+    return (
+      <Bereich>
+        <Titel>Deine nächsten Schritte</Titel>
+        <Zustand>
+          <h3>Noch kein Betrieb da</h3>
+          {ohneBetrieb === 'keine_gefunden' ? (
+            <p>
+              Google hat für das verbundene Konto kein Unternehmensprofil
+              zurückgegeben, das du verwalten darfst. Prüfe, ob du im
+              Google-Unternehmensprofil als Inhaber oder Administrator eingetragen
+              bist — und ob du dich mit dem richtigen Konto verbunden hast.
+            </p>
+          ) : ohneBetrieb === 'fehler' ? (
+            <p>
+              Deine Betriebe konnten nicht geladen werden. WERKRUF versucht es
+              beim nächsten regulären Lauf erneut — du musst nichts tun.
+            </p>
+          ) : (
+            <p>
+              WERKRUF holt gerade die Unternehmen, die du bei Google verwaltest.
+              Sobald sie da sind, stehen hier deine nächsten Schritte.
+            </p>
+          )}
+          {ohneBetrieb === 'keine_gefunden' && (
+            <Aktion href={standortAuswahlZiel} style={{ marginTop: 14 }}>
+              Verbindung prüfen <ArrowRight size={14} />
+            </Aktion>
+          )}
         </Zustand>
       </Bereich>
     );

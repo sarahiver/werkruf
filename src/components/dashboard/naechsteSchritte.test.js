@@ -76,7 +76,7 @@ describe('Titel', () => {
   });
 });
 
-describe('Die vier Zustände', () => {
+describe('Die Zustände', () => {
   it('zeigt beim Laden Platzhalter, nicht „Alles erledigt"', () => {
     /* Ein kurz aufblitzendes „nichts zu tun" wäre eine Falschaussage. */
     const { container } = render(<NaechsteSchritte events={[]} loading />);
@@ -112,6 +112,78 @@ describe('Die vier Zustände', () => {
 
     rerender(<NaechsteSchritte events={[]} fehler="kaputt" />);
     expect(screen.queryByText(/Alles erledigt/)).not.toBeInTheDocument();
+  });
+
+  it('sagt ohne Betrieb nicht „Alles erledigt"', () => {
+    /* H1 P0 #5. Der Zustand eines Fremdkunden, dessen Google-Konto
+       verbunden ist, aber kein verwaltbares Profil hergibt. „Diese
+       Woche musst du nichts tun" wäre dort die falscheste von allen
+       möglichen Aussagen. */
+    render(<NaechsteSchritte events={[]} ohneBetrieb="keine_gefunden" />);
+
+    expect(screen.queryByText(/Alles erledigt/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Noch kein Betrieb da/)).toBeInTheDocument();
+    /* Und ein Weg weiter, nicht nur eine Feststellung. */
+    expect(screen.getByText(/Verbindung prüfen/)).toBeInTheDocument();
+  });
+
+  it('nennt ohne Betrieb keinen Grund, den Google nicht liefert', () => {
+    /* §32: Die API gibt eine leere Liste zurück, keine Begründung.
+       Was dasteht, sind die zwei Ursachen, die der Kunde selbst
+       prüfen kann — als Möglichkeit, nicht als Diagnose. */
+    render(<NaechsteSchritte events={[]} ohneBetrieb="keine_gefunden" />);
+
+    expect(screen.getByText(/Inhaber oder Administrator/)).toBeInTheDocument();
+    expect(screen.queryByText(/Google sagt|laut Google|Google meldet/i)).not.toBeInTheDocument();
+  });
+
+  it('lässt der Engine den Vortritt, wenn sie eine Aufgabe liefert', () => {
+    /* Zwei Quellen für denselben Zustand (dieser Zweig und die Regel
+       account.no_locations), aber nur eine Anzeige. Sonst stünde die
+       Aussage zweimal untereinander. */
+    const aufgabe = E({
+      id: 'k1', type: 'account.no_locations',
+      title: 'Zugriff auf dein Unternehmensprofil prüfen',
+      priority: 95, isDismissable: false,
+    });
+
+    render(<NaechsteSchritte events={[aufgabe]} ohneBetrieb="keine_gefunden" />);
+
+    expect(screen.getByText(/Zugriff auf dein Unternehmensprofil prüfen/)).toBeInTheDocument();
+    expect(screen.queryByText(/Noch kein Betrieb da/)).not.toBeInTheDocument();
+  });
+
+  it('behauptet während des Imports nicht, Google habe nichts geliefert', () => {
+    /* Die Minute direkt nach dem Verbinden. „Google hat kein Profil
+       zurückgegeben" wäre eine Diagnose über einen Lauf, der noch
+       unterwegs ist — und der Kunde würde in seinen Google-
+       Einstellungen nach einem Fehler suchen, den es nicht gibt. */
+    render(<NaechsteSchritte events={[]} ohneBetrieb="laedt" />);
+
+    expect(screen.queryByText(/Alles erledigt/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inhaber oder Administrator/)).not.toBeInTheDocument();
+    expect(screen.getByText(/holt gerade die Unternehmen/)).toBeInTheDocument();
+    /* Kein Handlungsaufruf: Es gibt nichts zu prüfen, solange der
+       Lauf nicht fertig ist. */
+    expect(screen.queryByText(/Verbindung prüfen/)).not.toBeInTheDocument();
+  });
+
+  it('sagt bei gescheitertem Import, was passiert', () => {
+    render(<NaechsteSchritte events={[]} ohneBetrieb="fehler" />);
+
+    expect(screen.queryByText(/Alles erledigt/)).not.toBeInTheDocument();
+    expect(screen.getByText(/nächsten regulären Lauf erneut/)).toBeInTheDocument();
+    expect(screen.queryByText(/Inhaber oder Administrator/)).not.toBeInTheDocument();
+  });
+
+  it('verschweigt ohne Betrieb keinen Fehler', () => {
+    /* Der Zustand ist kein Grund, „Aufgaben konnten nicht geladen
+       werden" zu unterdrücken — sonst sieht ein Ausfall des Feeds aus
+       wie ein leeres Konto. */
+    render(<NaechsteSchritte events={[]} ohneBetrieb="keine_gefunden" fehler="Netzwerk weg" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/nicht geladen werden/);
+    expect(screen.queryByText(/Noch kein Betrieb da/)).not.toBeInTheDocument();
   });
 });
 

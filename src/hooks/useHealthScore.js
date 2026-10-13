@@ -56,6 +56,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
      * aber vom ersten der Liste. Zwei Betriebe in einem Wert.
      *
      * Verbindlich, und identisch zur SQL-Berechnung:
+     *   kein Standort                 → kein Score, eigener Zustand
      *   genau ein Standort            → dieser
      *   mehrere mit Auswahl           → der ausgewaehlte (selected_at)
      *   mehrere ohne gueltige Auswahl → kein Score. Raten waere
@@ -64,6 +65,42 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     const alle = locations ?? [];
     const gewaehlt = alle.find((l) => l?.selected_at);
     const location = alle.length === 1 ? alle[0] : gewaehlt ?? null;
+
+    /*
+     * KEIN Betrieb — der Zustand eines Fremdkunden am ersten Tag.
+     *
+     * Vorher fehlte dieser Zweig, und das Ergebnis war der schlimmste
+     * von allen: `location` ist null, die Bedingung unten greift
+     * nicht (sie verlangt mehr als einen Standort), und der Wert
+     * rechnet sich aus fuenf leeren Faktoren zu 0 von 100 zusammen.
+     *
+     * Also stand auf dem Dashboard eines Betriebs, der WERKRUF
+     * gerade verbunden hatte und noch gar keinen Betrieb hat:
+     *
+     *   0/100 — "Dein Profil laesst Anfragen liegen"
+     *
+     * Das ist keine Kennzahl, das ist ein Vorwurf. Und er trifft
+     * jemanden, der nichts falsch gemacht hat.
+     *
+     * Die SQL-Seite macht es laengst richtig:
+     * compute_location_health_score gibt bei p_location_id = null
+     * `{score: null, grund: 'kein_standort'}` zurueck — ausdruecklich
+     * mit der Begruendung, eine 0 sehe aus wie ein schlechter
+     * Betrieb. Hier stand sie trotzdem.
+     *
+     * Eigener level, nicht 'kein_standort': "waehle einen Betrieb
+     * aus" waere falsch, wenn es keinen gibt, aus dem man waehlen
+     * koennte.
+     */
+    if (alle.length === 0) {
+      return {
+        score: null, level: 'keine_betriebe', factors: [],
+        summary: 'Sobald WERKRUF einen Betrieb von Google bekommt, steht hier dein Score.',
+        headline: 'Noch kein Betrieb verbunden',
+        locationId: null,
+        locationTitle: null,
+      };
+    }
 
     if (alle.length > 1 && !gewaehlt) {
       return {

@@ -60,6 +60,9 @@ const STATUS_ICONS = {
   critical: <AlertTriangle size={20} />,
   setup:    <Link2 size={20} />,
   error:    <AlertTriangle size={20} />,
+  /* Verbunden, aber kein Betrieb: dasselbe Zeichen wie setup — es
+     fehlt noch eine Verknuepfung, nichts ist kaputt. */
+  keine_betriebe: <Link2 size={20} />,
 };
 
 export default function DashboardHome() {
@@ -67,7 +70,7 @@ export default function DashboardHome() {
   const {
     status, actions, nextAction,
     healthScore, feedLaedt, feedFehler, feedNeuLaden,
-    standortAuswahlNoetig, datenstand, melde,
+    standortAuswahlNoetig, ohneBetrieb, datenstand, melde,
     isConnected, lastSyncedAt, runningJob,
     locations, stats, replyCounts,
     loading, error, reload,
@@ -127,7 +130,11 @@ export default function DashboardHome() {
       {/* ═══ 2. WAS IST PASSIERT? ═══
           Der Wochenrückblick. Jede Zahl mit einem Satz daneben — eine
           Zahl allein ist eine Aufgabe für den Leser. */}
-      {isConnected && !loading && stats && (
+      {/* Ohne Betrieb war nichts los — und die Zahlen darin kämen aus
+          dem Nichts. "Noch keine Bewertungen. Der Bewertungslink
+          hilft" wäre sogar ein Verweis auf eine Seite, die ohne
+          Betrieb keinen Link hat. */}
+      {isConnected && !loading && !ohneBetrieb && stats && (
         <>
           <SectionTitle><Activity size={15} /> Was war los</SectionTitle>
           <Card>
@@ -190,6 +197,7 @@ export default function DashboardHome() {
         onNeuLaden={feedNeuLaden}
         standortAuswahlNoetig={standortAuswahlNoetig}
         standortAuswahlZiel="/dashboard/google"
+        ohneBetrieb={ohneBetrieb}
         onGesehen={melde.gesehen}
         onGeoeffnet={melde.geoeffnet}
         onWeggeklickt={melde.weggeklickt}

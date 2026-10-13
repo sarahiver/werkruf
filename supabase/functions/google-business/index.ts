@@ -2652,6 +2652,15 @@ interface LocationSyncResult {
   updated: number;
   unchanged: number;
   markedDeleted: number;
+  /**
+   * Wurde in diesem Lauf automatisch ein Betrieb ausgewaehlt?
+   *
+   * Nur bei genau einem Standort und nur, wenn vorher keiner
+   * ausgewaehlt war — siehe ensureSelection(). Steht im Ergebnis und
+   * damit im Audit-Log, weil es eine Zustandsaenderung ist, die der
+   * Kunde nicht selbst ausgeloest hat.
+   */
+  autoSelectedLocationId: string | null;
   durationMs: number;
 }
 
@@ -2776,10 +2785,17 @@ class LocationSyncService {
        getActiveConnection() richten sich danach. */
     await this.ensurePrimary(userId);
 
+    /* Und, bei genau einem Betrieb, ihn auch auswaehlen. Siehe
+       ensureSelection(): is_primary und selected_at sind zwei
+       verschiedene Dinge, und bisher setzte nach dem Erstimport
+       niemand das zweite. */
+    const ausgewaehlt = await this.ensureSelection(userId);
+
     const result: LocationSyncResult = {
       accountId,
       googleAccounts: googleAccounts.length,
       fetched, created, updated, unchanged, markedDeleted,
+      autoSelectedLocationId: ausgewaehlt,
       durationMs: Date.now() - startedAt,
     };
 
@@ -2815,6 +2831,57 @@ class LocationSyncService {
         .update({ is_primary: true })
         .eq('id', (candidate as { id: string }).id);
     }
+  }
+
+  /**
+   * Waehlt den einzigen Betrieb aus, falls es genau einen gibt und
+   * keiner ausgewaehlt ist.
+   *
+   * ─── WARUM DAS NOETIG IST ───
+   *
+   * is_primary und selected_at sind zwei verschiedene Dinge, und
+   * ensurePrimary setzt nur das erste. selected_at setzte nach dem
+   * Erstimport NIEMAND. Ein frisch verbundener Betrieb mit genau
+   * einem Standort stand damit auf "kein Betrieb ausgewaehlt" —
+   * waehrend werkruf_score_location denselben Standort sehr wohl
+   * nimmt. Zwei Antworten auf dieselbe Frage; der Kunde sah
+   * Kennzahlen, aber keinen Bewertungslink.
+   *
+   * ─── WARUM NUR BEI EINEM ───
+   *
+   * Produktentscheidung, ausgeschrieben in der Migration
+   * 20261013110000: Bei einem Standort gibt es nichts zu entscheiden,
+   * bei mehreren ist die Auswahl eine echte Entscheidung. Der
+   * Bewertungslink wird gedruckt.
+   *
+   * ─── WARUM IN SQL ───
+   *
+   * Die Entscheidung und das Setzen gehoeren in dieselbe Transaktion
+   * wie die Pruefung "ist schon einer ausgewaehlt", sonst waehlen
+   * zwei gleichzeitige Syncs beide aus und der zweite laeuft in den
+   * Unique-Index. Ausgewaehlt wird ueber select_google_location — den
+   * bestehenden Weg, mit Eigentumspruefung. Keine zweite
+   * Auswahllogik.
+   *
+   * Ein Fehler hier haelt den Sync nicht auf: Die Standorte sind
+   * geschrieben, und die Auswahl holt der naechste Lauf nach.
+   */
+  private async ensureSelection(userId: string): Promise<string | null> {
+    const { data, error } = await this.db
+      .rpc('auto_select_single_location', { p_user_id: userId });
+
+    if (error) {
+      this.log.warn('auto_select_failed', { userId, code: error.code ?? null });
+      return null;
+    }
+
+    const locationId = (data as string | null) ?? null;
+
+    if (locationId) {
+      this.log.debug('auto_selected_location', { userId, locationId });
+    }
+
+    return locationId;
   }
 }
 
@@ -2969,6 +3036,24 @@ interface Facts {
   };
 
   replies: { draft: number; approved: number; published: number; failed: number };
+
+  /**
+   * Zahlen ueber das KONTO, nicht ueber den Umfang des Durchgangs.
+   *
+   * profile.locationCount zaehlt die Standorte, die in diesem Umfang
+   * beurteilt werden — im Kontoumfang sind das null, weil dort kein
+   * Standort beurteilt wird. Das ist fuer die Betriebsregeln richtig
+   * und fuer eine Kontoregel unbrauchbar: "null Standorte im Umfang"
+   * und "null Standorte im Konto" sind nicht dasselbe.
+   *
+   * null heisst unbekannt. Eine Regel, die auf 0 feuert, darf bei
+   * unbekannt NICHT feuern — sonst empfiehlt sie "keine Betriebe
+   * gefunden", weil eine Zahl fehlte.
+   */
+  account: {
+    /** Aktive Betriebe im Konto (deleted_at is null). null = unbekannt. */
+    locationCount: number | null;
+  };
 
   profile: {
     locationCount: number;
@@ -3224,8 +3309,20 @@ const hoursBetween = (from: string, to: string) =>
 const daysSince = (from: string | null, now: string) =>
   from === null ? null : Math.floor((new Date(now).getTime() - new Date(from).getTime()) / 864e5);
 
-/** Übersetzt den Rohkontext aus Postgres in Fakten. */
-function buildFacts(ctx: EvaluationContext): Facts {
+/**
+ * Übersetzt den Rohkontext aus Postgres in Fakten.
+ *
+ * @param kontoStandorte
+ *   Wie viele aktive Betriebe das KONTO hat — unabhaengig davon, ob
+ *   dieser Durchgang einen Betrieb oder das Konto beurteilt. Der
+ *   Kontext liefert diese Zahl nicht; sie kommt aus derselben Abfrage,
+ *   mit der evaluateUser die Umfaenge bestimmt. Das ist Absicht: So
+ *   kann eine Kontoregel nicht behaupten "keine Betriebe", waehrend
+ *   daneben Betriebsumfaenge laufen.
+ *
+ *   null heisst unbekannt, nicht null Betriebe.
+ */
+function buildFacts(ctx: EvaluationContext, kontoStandorte: number | null): Facts {
   /*
    * Der Kontext hat zwei Formen.
    *
@@ -3337,6 +3434,10 @@ function buildFacts(ctx: EvaluationContext): Facts {
 
     replies: ctx.replies ?? { draft: 0, approved: 0, published: 0, failed: 0 },
 
+    account: {
+      locationCount: typeof kontoStandorte === 'number' ? kontoStandorte : null,
+    },
+
     profile: {
       locationCount: ctx.locations.length,
       incomplete,
@@ -3446,6 +3547,72 @@ const RULES: Rule[] = [
       confidence: 1.0,
       isDismissable: false,
       sourceFacts: ['connection.status'],
+    }),
+  },
+
+  /* ── Konto verbunden, aber kein Betrieb ──
+     Der Zustand, in dem ein Fremdkunde ohne diese Regel haengen
+     bleibt: Google antwortet, die Verbindung steht, und es kommt
+     trotzdem kein Betrieb an. ── */
+  {
+    id: 'account.no_locations',
+    status: 'active',
+    meta: {
+      title: 'Kein verwaltbarer Betrieb',
+      purpose: 'Erkennt eine stehende Google-Verbindung ohne einen einzigen Betrieb.',
+      rationale: 'Ohne Betrieb kann WERKRUF nichts messen und nichts anzeigen. Ohne diese Regel sagt das Dashboard "Alles im Griff" — und meint damit ein leeres Konto.',
+      createdAt: '2026-10-13',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    /* Wie connection.missing: Es hebt keine einzelne Kennzahl, es
+       macht alle erst messbar. */
+    impactMetric: 'health.score',
+    source: 'google_business',
+    category: 'connection',
+    capability: 'none',
+    describes: 'Verbindung steht, aber kein Betrieb vorhanden',
+    /*
+     * Drei Bedingungen, und jede ist noetig:
+     *
+     *   exists          Ohne Verbindung sagt connection.missing es
+     *                   schon — zwei Empfehlungen fuer denselben
+     *                   Zustand waeren eine zu viel.
+     *   status active   Bei needs_reauth oder revoked gilt
+     *                   connection.lost. Die leere Liste ist dann
+     *                   eine Folge, keine eigene Aussage.
+     *   === 0           Nicht `!locationCount`: null heisst
+     *                   unbekannt, und aus einer fehlenden Zahl darf
+     *                   keine Empfehlung entstehen.
+     */
+    when: ({ facts }) =>
+      facts.connection.exists
+      && facts.connection.status === 'active'
+      && facts.account.locationCount === 0,
+    insight: () => 'Die Verbindung zu Google steht, es kam aber kein Betrieb an.',
+    recommend: () => ({
+      type: 'account.no_locations',
+      title: 'Zugriff auf dein Unternehmensprofil prüfen',
+      summary: 'Google hat für dieses Konto keinen Betrieb zurückgegeben, den du verwalten darfst.',
+      /*
+       * §32: Nicht behaupten, Google kenne den Grund. Die API liefert
+       * eine leere Liste, keine Begruendung. Was hier steht, sind die
+       * zwei Ursachen, die der Kunde selbst pruefen kann — als
+       * Moeglichkeiten formuliert, nicht als Diagnose.
+       */
+      reason: 'Das passiert meist, wenn das Profil unter einem anderen Google-Konto liegt '
+        + 'oder du dort nicht als Inhaber oder Administrator eingetragen bist. '
+        + 'Woran es liegt, sagt Google uns nicht.',
+      expectedBenefit: 'Danach kann WERKRUF deinen Betrieb überwachen',
+      estimatedMinutes: 5,
+      actionUrl: '/dashboard/google',
+      priority: 'critical',
+      /* Tatsache, keine Ableitung: die Liste ist leer oder nicht. */
+      confidence: 1.0,
+      /* Wegklicken wuerde den Zustand nicht aendern — es gibt dann
+         weiterhin nichts zu zeigen. */
+      isDismissable: false,
+      sourceFacts: ['account.locationCount', 'connection.status'],
     }),
   },
 
@@ -4275,6 +4442,12 @@ const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
   /* ── Kaputt ── */
   'connection.missing':         'problem',
   'connection.lost':            'problem',
+  /* account.no_locations: problem, nicht growth.
+     Naheliegend waere growth — "es fehlt noch etwas". Aber es fehlt
+     nicht etwas, es fehlt alles: Ohne Betrieb ist das Produkt
+     wirkungslos, genau wie ohne Verbindung. Und es rotiert nicht —
+     naechste Woche ist es genauso wahr und genauso blockierend. */
+  'account.no_locations':       'problem',
   'review.negative_unanswered': 'problem',
   'review.negative_batch':      'problem',
   'reply.publish_failed':       'problem',
@@ -4343,6 +4516,10 @@ function klasseFuer(ruleId: string): 'problem' | 'growth' | 'opportunity' {
 const KONTO_REGELN = new Set<string>([
   'connection.missing',
   'connection.lost',
+  /* "Kein Betrieb vorhanden" ist eine Aussage ueber das Konto. Sie
+     koennte auch gar nicht anders sein: Ohne Standort gibt es keinen
+     Betriebsumfang, in dem sie entstehen koennte. */
+  'account.no_locations',
 ]);
 
 function istKontoRegel(ruleId: string): boolean {
@@ -4395,12 +4572,19 @@ function toEventRows(result: EngineResult) {
  * zusammen.
  *
  * @param locationId  null wertet den Kontoumfang aus
+ * @param kontoStandorte
+ *   Aktive Betriebe des Nutzers — die Zahl, mit der evaluateUser die
+ *   Umfaenge bestimmt hat. Wird durchgereicht, damit eine Kontoregel
+ *   "kein Betrieb vorhanden" feststellen kann, ohne dafuer ein
+ *   zweites Mal zu zaehlen und damit womoeglich etwas anderes zu
+ *   sehen als die Umfangsliste.
  */
 async function evaluateScope(
   userId: string,
   locationId: string | null,
   thresholds: Thresholds,
   log: Logger,
+  kontoStandorte: number | null,
 ): Promise<{ events: number; created: number; updated: number; resolved: number; health: number | null }> {
   const db = adminClient();
 
@@ -4413,7 +4597,7 @@ async function evaluateScope(
     throw new GbpError('internal_error', 'Kontext nicht ladbar', { cause: kontextFehler });
   }
 
-  const facts = buildFacts(kontext as EvaluationContext);
+  const facts = buildFacts(kontext as EvaluationContext, kontoStandorte);
   const result = evaluate(facts, thresholds);
 
   /*
@@ -4487,6 +4671,27 @@ async function evaluateUser(userId: string, log: Logger): Promise<{
   const thresholds = thresholdResult.data as Thresholds;
   const locations = (locationResult.data ?? []) as { id: string; title: string }[];
 
+  /*
+   * Unbekannt ist nicht null.
+   *
+   * Scheitert die Standortabfrage, ist `locations` leer — und eine
+   * leere Liste sieht genauso aus wie "dieser Betrieb hat keine
+   * Standorte". Die Regel account.no_locations wuerde dann wegen
+   * eines Datenbankfehlers behaupten, Google habe keinen Betrieb
+   * geliefert.
+   *
+   * Deshalb hier null statt 0. Die Betriebsumfaenge fallen in diesem
+   * Fall ohnehin weg; der Kontoumfang laeuft weiter und beurteilt die
+   * Verbindung, die er auch ohne Standortliste kennt.
+   */
+  const kontoStandorte = locationResult.error ? null : locations.length;
+
+  if (locationResult.error) {
+    log.warn('locations_unreadable', {
+      userId, code: (locationResult.error as { code?: string }).code ?? null,
+    });
+  }
+
   /* Konto zuerst: Faellt die Verbindung aus, sind die Betriebsfakten
      ohnehin veraltet — die Empfehlung dazu soll dann oben stehen. */
   const umfaenge: (string | null)[] = [null, ...locations.map((l) => l.id)];
@@ -4496,7 +4701,7 @@ async function evaluateUser(userId: string, log: Logger): Promise<{
 
   for (const locationId of umfaenge) {
     try {
-      const r = await evaluateScope(userId, locationId, thresholds, log);
+      const r = await evaluateScope(userId, locationId, thresholds, log, kontoStandorte);
       events += r.events; created += r.created; updated += r.updated; resolved += r.resolved;
       /* Der Score des zuletzt bewerteten Betriebs ist nicht "der"
          Score des Nutzers. Genommen wird der des ausgewaehlten —

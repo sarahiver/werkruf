@@ -314,6 +314,11 @@ export const STATUS_COLORS = {
   critical: { fg: '#B3261E', bg: '#FDECEA' },
   setup:    { fg: 'var(--color-accent)', bg: 'rgba(var(--color-accent-rgb), .1)' },
   error:    { fg: '#B3261E', bg: '#FDECEA' },
+  /* Verbunden, aber ohne Betrieb. Dieselbe Farbe wie setup: Es ist
+     ein Einrichtungszustand, kein Fehler des Kunden — und vor allem
+     nicht gruen. Ohne eigenen Eintrag fiele der Zustand auf ok
+     zurueck, also auf Gruen, und waere damit genau falsch. */
+  keine_betriebe: { fg: 'var(--color-accent)', bg: 'rgba(var(--color-accent-rgb), .1)' },
 };
 
 const StatusWrap = styled.div`
@@ -492,7 +497,28 @@ const FactorVerdict = styled.p`
 const HEALTH_COLORS = { good: '#1E7E34', ok: '#D48A00', weak: '#D93025' };
 
 export function HealthCard({ score, level, headline, summary, factors, loading }) {
-  if (loading || score === null) return <SkeletonBlock $h={240} />;
+  if (loading) return <SkeletonBlock $h={240} />;
+
+  /*
+   * Kein Wert — und das ist eine Antwort, kein Ladezustand.
+   *
+   * Vorher stand hier `loading || score === null` und damit ein
+   * Platzhalter, der nie verschwindet: bei mehreren Betrieben ohne
+   * Auswahl und bei keinem Betrieb gibt es dauerhaft keinen Score.
+   * Ein Skeleton, der ewig pulsiert, sieht aus wie ein Ausfall.
+   *
+   * Der Satz dazu kommt aus useHealthScore — dort steht, warum es
+   * keinen Wert gibt. Keine 0 und kein leerer Ring: Beides saehe aus
+   * wie ein schlechter Betrieb. */
+  if (score === null || score === undefined) {
+    return (
+      <HealthWrap>
+        <HealthHeadline>{headline || 'Noch kein Score'}</HealthHeadline>
+        {summary && <HealthSummary>{summary}</HealthSummary>}
+      </HealthWrap>
+    );
+  }
+
   const color = HEALTH_COLORS[level] || HEALTH_COLORS.ok;
 
   return (

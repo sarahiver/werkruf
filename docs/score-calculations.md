@@ -19,12 +19,47 @@ SQL wie im Browser identisch:
 
 | Lage | Verhalten |
 | --- | --- |
+| **kein Standort** | **kein Score** — eigener Zustand, siehe unten |
 | genau ein aktiver Standort | dieser, auch ohne Auswahl |
 | mehrere mit Auswahl | der über `selected_at` gewählte |
 | mehrere ohne gültige Auswahl | **kein Score** — nicht 0, nicht geraten |
 
 Eine 0 wäre falsch: Sie sieht aus wie ein schlechter Betrieb. Stattdessen liefert
 die Funktion `score: null` mit `grund: 'kein_standort'`.
+
+**Kein Standort (H1, 13.10.2026).** Die erste Zeile fehlte im Browser: SQL gab
+schon immer `score: null`, `useHealthScore` rechnete aber fünf leere Faktoren zu
+**0 von 100** zusammen und beschriftete sie mit „Dein Profil lässt Anfragen
+liegen". Das traf genau den Zustand, in dem ein neuer Kunde am ersten Tag ist —
+Google verbunden, noch kein Betrieb angekommen. Der Browser liefert dafür jetzt
+einen eigenen Zustand `level: 'keine_betriebe'` statt `kein_standort`: „Wähle
+einen Betrieb aus" ist falsch, wenn es keinen gibt, aus dem man wählen könnte.
+
+### Automatische Auswahl bei genau einem Betrieb
+
+`selected_at` wurde nach dem Erstimport von nichts gesetzt — `ensurePrimary`
+setzt `is_primary`. Ein Betrieb mit genau einem Standort stand deshalb bis zum
+ersten eigenen Klick auf „kein Betrieb ausgewählt", während
+`werkruf_score_location` denselben Standort sehr wohl nahm. Zwei Antworten auf
+dieselbe Frage: Kennzahlen ja, Bewertungslink nein.
+
+Seit H1 wählt der Standort-Sync aus:
+
+| Lage | Verhalten |
+| --- | --- |
+| genau ein aktiver Standort, keine Auswahl | wird automatisch ausgewählt |
+| mehrere Standorte | **keine Automatik** — der Kunde bestätigt |
+| bestehende Auswahl | bleibt unberührt, auch der Zeitpunkt |
+| kein aktives Google-Konto | keine Automatik |
+
+Die Entscheidung ist bewusst so gefallen: Bei einem Standort gibt es nichts zu
+entscheiden, und eine Rückfrage mit genau einer möglichen Antwort ist keine
+Bestätigung, sondern eine Hürde. Bei mehreren ist die Auswahl eine echte
+Entscheidung — der Bewertungslink wird gedruckt und auf Rechnungen geklebt.
+
+`public.auto_select_single_location(user_id)` entscheidet nur, **ob** gewählt
+wird; gewählt wird über `public.select_google_location()`, den bestehenden Weg
+mit Eigentumsprüfung und Advisory-Lock. Keine zweite Auswahllogik.
 
 Bis zum 30.09.2026 nahm die Berechnung den primären beziehungsweise ältesten
 Standort und filterte die Bewertungen **gar nicht** nach Standort. Bei zwei

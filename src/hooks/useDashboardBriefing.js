@@ -56,7 +56,7 @@ export function useDashboardBriefing() {
     loading: connectionLoading,
   } = useGoogleBusiness();
   const {
-    locations, stats, replyCounts, lastSyncedAt, runningJob,
+    locations, stats, replyCounts, lastSyncedAt, runningJob, locationImport,
     loading: dataLoading, error, reload, triggerSync,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
@@ -114,6 +114,45 @@ export function useDashboardBriefing() {
   const standortAuswahlNoetig = !loading && !locationResolved && locations.length > 1;
 
   /*
+   * Verbunden, aber kein Betrieb — und warum.
+   *
+   * Ein anderer Zustand als "keiner ausgewaehlt": Hier gibt es
+   * nichts, woraus man waehlen koennte. Ohne diese Unterscheidung
+   * lief der Zustand in den ok-Zweig ganz unten: "Alles im Griff" —
+   * gesagt ueber ein leeres Konto.
+   *
+   * ── Warum drei Werte und nicht ein Ja/Nein ──
+   *
+   * "Google hat keinen Betrieb zurueckgegeben" ist falsch, solange der
+   * Standortimport noch laeuft. Das ist kein Randfall: Genau diese
+   * Minute erlebt jeder neue Kunde direkt nach dem Verbinden.
+   *
+   * Die Unterscheidung ist nicht neu — /dashboard/google trifft sie
+   * schon (DashboardGoogleBusiness.js:505) und benutzt dafuer
+   * locationImport aus useGoogleBusinessData. Hier dieselbe Quelle,
+   * damit beide Seiten nicht auseinanderlaufen:
+   *
+   *   'laedt'           Import laeuft oder ist noch nicht gelaufen
+   *   'keine_gefunden'  Import durchgelaufen, Google kennt keinen
+   *   'fehler'          Import gescheitert, wird wiederholt
+   *
+   * ── Warum ueberhaupt im Browser, wenn die Engine eine Regel hat ──
+   *
+   * account.no_locations liefert dieselbe Aussage fuer Aufgabenliste
+   * und Mail. Sie reicht hier aber nicht: Nach dem Verbinden laeuft
+   * zuerst nur der Standortimport, und evaluateUser haengt am
+   * Bewertungs-Sync — der ohne Betrieb nie laeuft. Bis zum taeglichen
+   * Lauf gibt die Engine also keine Aufgabe her. Der Kunde sieht das
+   * Dashboard aber jetzt.
+   */
+  const ohneBetrieb = useMemo(() => {
+    if (loading || !isConnected || locations.length > 0) return null;
+    if (locationImport?.keineBetriebe) return 'keine_gefunden';
+    if (locationImport?.status === 'failed') return 'fehler';
+    return 'laedt';
+  }, [loading, isConnected, locations.length, locationImport]);
+
+  /*
    * Wie alt sind die angezeigten Daten?
    *
    * Ein technischer Hinweis, keine Aufgabe. Der Kunde kann nichts
@@ -155,6 +194,37 @@ export function useDashboardBriefing() {
         detail: 'Verbinde dein Google-Profil — danach läuft alles Weitere von selbst.',
       };
     }
+    /*
+     * Verbunden, aber ohne Betrieb. Steht VOR den Engine-Zustaenden:
+     * Solange kein Betrieb da ist, ist jede andere Aussage ueber das
+     * Profil gegenstandslos.
+     *
+     * Ein level fuer drei Lagen, aber drei Saetze — die Stufe ist
+     * dieselbe (nichts kaputt, noch nicht eingerichtet), die Aussage
+     * nicht. Wortlaut wie auf /dashboard/google, damit der Kunde
+     * nicht zwei Erklaerungen fuer denselben Zustand liest.
+     *
+     * Kein erfundener Grund: Google liefert eine leere Liste, keine
+     * Begruendung. Was der Kunde pruefen kann, steht in der Aufgabe
+     * darunter und auf /dashboard/google.
+     */
+    if (ohneBetrieb) {
+      return {
+        level: 'keine_betriebe',
+        ...(ohneBetrieb === 'keine_gefunden' ? {
+          headline: 'Noch kein Betrieb verbunden',
+          detail: 'Die Verbindung zu Google steht, es kam aber kein Unternehmensprofil an, '
+            + 'das du verwalten darfst.',
+        } : ohneBetrieb === 'fehler' ? {
+          headline: 'Betriebe konnten nicht geladen werden',
+          detail: 'WERKRUF versucht es beim nächsten regulären Lauf erneut.',
+        } : {
+          headline: 'Deine Betriebe werden geladen',
+          detail: 'WERKRUF holt gerade die Unternehmen, die du bei Google verwaltest. '
+            + 'Das dauert einen Moment — du musst nichts tun.',
+        }),
+      };
+    }
     if (critical > 0) {
       return {
         level: 'critical',
@@ -176,7 +246,7 @@ export function useDashboardBriefing() {
         ? `${stats.totalReviews} Bewertungen, alle beantwortet. WERKRUF meldet sich, wenn sich etwas ändert.`
         : 'WERKRUF meldet sich, wenn sich etwas ändert.',
     };
-  }, [loading, error, engineAufgaben, isConnected, stats]);
+  }, [loading, error, engineAufgaben, isConnected, ohneBetrieb, stats]);
 
   /* ── Frage 3: Was als Nächstes? ──
      Genau eine Handlung. Zwei gleichwertige Knöpfe sind keine
@@ -194,6 +264,8 @@ export function useDashboardBriefing() {
     feedFehler,
     feedNeuLaden,
     standortAuswahlNoetig,
+    /* null, 'laedt', 'keine_gefunden' oder 'fehler' — siehe oben. */
+    ohneBetrieb,
     datenstand,
     /* Rueckmeldungen an den Lebenszyklus der Engine. */
     melde: {
