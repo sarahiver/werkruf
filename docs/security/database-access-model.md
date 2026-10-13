@@ -284,6 +284,19 @@ Die äußere Funktion ist für `authenticated` ausführbar, die innere
 nicht. Genau das ist der Grund für die Teilung: Die innere nimmt eine
 fremde `user_id` an und gehört deshalb dem Server.
 
+**Wer gefragt wird.** Der Haken steht in `/onboarding` — die einzige
+Stelle, die beide Registrierungswege (E-Mail-Bestätigung und Google
+OAuth) erreichen und auf der eine geprüfte Sitzung vorliegt.
+`getPostAuthDestination` schickt jede Anmeldung ohne
+`accepted_terms_at` dorthin; bestehende Konten laufen dadurch einmal
+durch das Onboarding. Die Weiche liest `accepted_terms_version`
+**nicht** — was nicht abgefragt wird, kann nicht versehentlich
+verglichen werden, und genau dieser Vergleich wäre eine
+Re-Consent-Architektur: Eine Textänderung würde dann alle Nutzer
+erneut durchschleusen. Ein Lesefehler führt nicht ins Onboarding; wer
+wegen eines Datenbankfehlers dort landet, kann auch nicht zustimmen
+(dieselbe Datenbank) und steckt fest.
+
 ## Was CI erzwingt
 
 | Prüfung | Was sie findet | Wo |
