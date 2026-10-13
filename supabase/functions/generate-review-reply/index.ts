@@ -30,6 +30,7 @@
 ═══════════════════════════════════════════════════════════════════════════ */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { leseAccess } from '../../../src/utils/accessGate.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -855,22 +856,22 @@ async function requireUser(request: Request): Promise<{ id: string; email: strin
   return { id: data.user.id, email: data.user.email ?? null };
 }
 
+/* Dieselbe Regel wie in google-business — und ab H1 wirklich
+   dieselbe, nicht eine zweite Abschrift davon. Die Regel steht in
+   src/utils/subscription.js, geteilt ueber accessGate.js.
+
+   Vorher waren die beiden Faelle Byte fuer Byte gleich bis auf einen
+   Zeilenumbruch. Dass sie nie auseinandergelaufen sind, war Glueck;
+   dass zwei Schreibpfade gar kein Gate hatten, war die Folge
+   derselben Ursache. */
 async function requirePaidAccess(userId: string): Promise<void> {
-  const { data, error } = await adminClient()
-    .from('user_profiles')
-    .select('plan, trial_ends_at, stripe_subscription_id, stripe_subscription_status')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error) throw new ReplyError('internal_error', 'Abo-Status nicht ladbar', { cause: error });
-
-  const status = data?.stripe_subscription_status as string | null | undefined;
-  const hasStripeState = Boolean(data?.stripe_subscription_id || status);
-  const stripeAllows = ['active', 'trialing', 'past_due'].includes(status ?? '');
-  const trialEnd = data?.trial_ends_at ? new Date(data.trial_ends_at).getTime() : 0;
-  const legacyAllows = data?.plan === 'pro' || (data?.plan === 'trial' && trialEnd > Date.now());
-
-  if (hasStripeState ? !stripeAllows : !legacyAllows) {
+  let ergebnis;
+  try {
+    ergebnis = await leseAccess(adminClient(), userId);
+  } catch (cause) {
+    throw new ReplyError('internal_error', 'Abo-Status nicht ladbar', { cause });
+  }
+  if (!ergebnis.erlaubt) {
     throw new ReplyError('payment_required', 'Kein aktiver Produktzugang');
   }
 }

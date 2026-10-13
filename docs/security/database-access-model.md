@@ -222,7 +222,7 @@ Zeilen. Mit: 2 Zeilen (RLS greift). Ohne: 3 Zeilen (RLS umgangen).
 ## Muster: Funktion
 
 ```sql
-create or replace function public.x(…) returns … 
+create or replace function public.x(…) returns …
 language plpgsql
 security definer
 set search_path = ''

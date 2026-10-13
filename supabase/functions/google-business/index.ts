@@ -32,6 +32,7 @@ import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
+import { leseAccess } from '../../../src/utils/accessGate.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -619,19 +620,28 @@ async function requireUser(request: Request): Promise<AuthenticatedUser> {
   return { id: data.user.id, email: data.user.email ?? null };
 }
 
-async function requirePaidAccess(userId: string): Promise<void> {
-  const { data, error } = await adminClient()
-    .from('user_profiles')
-    .select('plan, trial_ends_at, stripe_subscription_id, stripe_subscription_status')
-    .eq('id', userId).maybeSingle();
-  if (error) throw new GbpError('internal_error', 'Abo-Status nicht ladbar', { cause: error });
+/* Das Gate. Die REGEL steht nicht hier, sondern in
+   src/utils/subscription.js — ueber accessGate.js geteilt mit
+   generate-review-reply und mit dem Frontend (ProGate).
 
-  const status = data?.stripe_subscription_status as string | null | undefined;
-  const hasStripeState = Boolean(data?.stripe_subscription_id || status);
-  const stripeAllows = ['active', 'trialing', 'past_due'].includes(status ?? '');
-  const trialEnd = data?.trial_ends_at ? new Date(data.trial_ends_at).getTime() : 0;
-  const legacyAllows = data?.plan === 'pro' || (data?.plan === 'trial' && trialEnd > Date.now());
-  if (hasStripeState ? !stripeAllows : !legacyAllows) {
+   Vorher stand die Regel hier ausgeschrieben, und dieselben vierzehn
+   Zeilen standen in generate-review-reply/index.ts:858. Identisch bis
+   auf einen Zeilenumbruch — kein Driftproblem, ein
+   Vergessensproblem: zwei Schreibpfade hatten gar kein Gate
+   (handleAttributesUpdate, handleActionLinkPost). Siehe
+   src/utils/accessGate.js.
+
+   founding_partner wird von der geteilten Regel ZUERST geprueft.
+   Stuende der Stripe-Zweig vorne — wie bis H1 —, haette ein Founding
+   Partner mit alter, gekuendigter Subscription keinen Zugang. */
+async function requirePaidAccess(userId: string): Promise<void> {
+  let ergebnis;
+  try {
+    ergebnis = await leseAccess(adminClient(), userId);
+  } catch (cause) {
+    throw new GbpError('internal_error', 'Abo-Status nicht ladbar', { cause });
+  }
+  if (!ergebnis.erlaubt) {
     throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
   }
 }
@@ -6925,6 +6935,15 @@ async function handleAttributesAvailable(request: Request): Promise<Response> {
  */
 async function handleAttributesUpdate(request: Request): Promise<Response> {
   const user = await requireUser(request);
+  /* Gate ergaenzt am 13.10.2026 (H1).
+     Dieser Handler schrieb bei Google (client.updateAttributes weiter
+     unten), ohne den Produktzugang zu pruefen — als einziger der
+     sechs Schreibpfade. Die anderen fuenf
+     (handleLocationUpdate, handleMediaCreate, handleReplyUpdate,
+     handleReplyApprove, handleReplyRetract) hatten das Gate von
+     Anfang an. Hier wurde es vergessen, und das Frontend dazu
+     (/dashboard/google ohne ProGate) ebenfalls. */
+  await requirePaidAccess(user.id);
   const body = await readJsonBody<{
     locationId?: string;
     attributes?: { name?: string }[];

@@ -140,12 +140,61 @@ function mapStatusToPlan(status: Stripe.Subscription.Status): string {
   }
 }
 
+/* ── Read before write, und zwar nur wegen plan ──
+   ═══════════════════════════════════════════════
+
+   Diese Funktion war vor H1 ein blindes
+   .update(values).eq('id', userId). Beide Schreibpfade
+   (customer.subscription.created/updated und .deleted) setzen plan
+   bedingungslos — jedes customer.subscription.updated, auch eines,
+   das nur cancel_at_period_end aendert, haette einen Founding
+   Partner auf 'pro' oder 'free' plattgetreten.
+
+   Das ist kein theoretischer Fall: die ersten Founding Partner
+   werden bestehende Nutzer sein, und ein gekuendigtes Abo erzeugt
+   noch Wochen danach Events.
+
+   Was geschuetzt wird, ist ausschliesslich plan. Die Stripe-Felder
+   werden weiter geschrieben — die Buchhaltung soll die Historie
+   behalten, und der Zugang des Founding Partners haengt nicht daran
+   (src/utils/subscription.js prueft founding_partner VOR dem
+   Stripe-Zweig).
+
+   Nicht in mapStatusToPlan geloest, obwohl das naeherliegt: die
+   Funktion kennt den Nutzer nicht, nur den Status. Ein Guard dort
+   haette einen zweiten Datenbankzugriff an einer Stelle gebraucht,
+   die rein rechnet. Hier ist der Engpass, durch den jeder
+   plan-Schreibvorgang laeuft. */
 async function updateProfile(
   supabase: SupabaseClient,
   userId: string,
   values: Record<string, unknown>,
 ): Promise<void> {
-  const { error } = await supabase.from('user_profiles').update(values).eq('id', userId);
+  let zuSchreiben = values;
+
+  if ('plan' in zuSchreiben) {
+    const { data, error: leseFehler } = await supabase
+      .from('user_profiles').select('plan').eq('id', userId).maybeSingle();
+
+    /* Lesefehler: NICHT schreiben. Ein Webhook, der im Zweifel
+       ueberschreibt, nimmt einem Founding Partner den Zugang, und
+       Stripe liefert den Event ohnehin erneut. */
+    if (leseFehler) throw leseFehler;
+
+    if (data?.plan === 'founding_partner') {
+      const { plan: _bleibt, ...ohnePlan } = zuSchreiben;
+      console.log(JSON.stringify({
+        ereignis: 'plan_nicht_ueberschrieben',
+        grund: 'founding_partner',
+        userId,
+        wollte: zuSchreiben.plan,
+      }));
+      zuSchreiben = ohnePlan;
+      if (Object.keys(zuSchreiben).length === 0) return;
+    }
+  }
+
+  const { error } = await supabase.from('user_profiles').update(zuSchreiben).eq('id', userId);
   if (error) throw error;
 }
 
