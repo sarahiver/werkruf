@@ -322,7 +322,39 @@ end $$;
    ═══════════════════════════════════════════════════════════
 
    Gelesen wird aus dem Katalog, nicht aus dem Repo. Begruendung im
-   Kopf dieser Datei. */
+   Kopf dieser Datei.
+
+   ── Was der erste Anlauf falsch gemacht hat ──
+
+   Der erste Entwurf suchte den Einfuegepunkt mit
+
+     substring(definition, E'\n[ \t]*begin[ \t]*\n')
+
+   also: Zeilenumbruch, dann nur Leerraum, dann genau "begin", dann
+   wieder Zeilenumbruch. In der Testdatenbank traf das alle sechs. In
+   Produktion traf es keine einzige, und die Migration brach ab —
+   richtig so, aber eben ohne zu sagen, woran es lag.
+
+   Die Suche war zu eng. Sie verlangte Kleinschreibung, keinen
+   Wagenruecklauf vor dem Umbruch und nichts hinter "begin" — nicht
+   einmal einen Kommentar. Jede dieser drei Annahmen kann in
+   Produktion anders sein, und zwei davon sind wahrscheinlich: die
+   Migrationen gingen bis zum 12.10.2026 von Hand in den SQL-Editor,
+   und was aus einer Zwischenablage dort landet, kann CRLF tragen.
+
+   Jetzt wird zeilenweise gesucht, mit (?in): Gross- und
+   Kleinschreibung gleich, Wagenruecklauf erlaubt, hinter "begin"
+   darf stehen was will. Das trifft
+
+     begin            BEGIN            begin  -- Kommentar
+       begin          begin<CR>        Begin
+
+   und eingefuegt wird hinter dem Zeilenende dieser Zeile, nicht
+   mitten hinein.
+
+   Gesucht wird erst ab dem Rumpfanfang, damit kein "begin" im Kopf
+   erwischt wird. Und bleibt die Suche leer, nennt die Fehlermeldung
+   diesmal die Messwerte, statt nur "nicht gefunden" zu sagen. */
 
 do $$
 declare
@@ -331,9 +363,10 @@ declare
   v_quelle  text;
   v_def     text;
   v_neu     text;
+  v_rest    text;
   v_as      integer;
-  v_begin   integer;
-  v_treffer text;
+  v_pos     integer;
+  v_zeile   text;
   v_handler text;
   v_fehlt   text[] := array[]::text[];
   v_liste   text[] := array[
@@ -366,31 +399,49 @@ begin
     end if;
 
     v_def := pg_catalog.pg_get_functiondef(v_oid);
-    v_treffer := pg_catalog.substring(v_def, E'\n[ \t]*begin[ \t]*\n');
 
-    if v_treffer is null then
-      v_fehlt := v_fehlt || (v_sig || ' — kein toplevel begin gefunden');
-      continue;
-    end if;
+    /* Rumpfanfang. pg_get_functiondef setzt "AS $tag$" auf eine
+       eigene Zeile; der Tag ist meist $function$, kann aber
+       abweichen, wenn der Rumpf ihn selbst enthaelt. Deshalb wird
+       nach "\nAS $" gesucht und nicht nach dem Tag. */
+    v_as := pg_catalog.strpos(v_def, E'\nAS $');
 
-    v_as    := pg_catalog.strpos(v_def, 'AS $function$');
-    v_begin := pg_catalog.strpos(v_def, v_treffer);
-
-    /* Der Einfuegepunkt muss im Rumpf liegen, nicht im Kopf. Ohne
-       diese Pruefung koennte eine kuenftige Katalogdarstellung dazu
-       fuehren, dass die Migration in die Signatur schreibt. */
-    if v_as = 0 or v_begin < v_as then
+    if v_as = 0 then
       v_fehlt := v_fehlt
-        || (v_sig || ' — begin liegt nicht im Rumpf (AS bei '
-            || v_as::text || ', begin bei ' || v_begin::text || ')');
+        || (v_sig || ' — kein Rumpfanfang ("AS $tag$") in der '
+            || 'Katalogdarstellung gefunden');
       continue;
     end if;
+
+    v_rest  := pg_catalog.substr(v_def, v_as);
+    v_zeile := pg_catalog.substring(v_rest, '(?in)^[ \t\r]*begin\M[^\n]*\n');
+
+    if v_zeile is null then
+      /* Messwerte statt Ratespiel: beim naechsten Versuch soll die
+         Meldung selbst sagen, woran es liegt. */
+      v_fehlt := v_fehlt
+        || (v_sig || ' — keine begin-Zeile im Rumpf.'
+            || ' CR im Rumpf: '
+            || (pg_catalog.strpos(v_quelle, pg_catalog.chr(13)) > 0)::text
+            || ' | Rumpfzeichen: ' || pg_catalog.length(v_quelle)::text
+            || ' | Pruefsumme: ' || pg_catalog.md5(v_quelle)
+            || ' | Anfang: '
+            || pg_catalog.replace(
+                 pg_catalog.replace(
+                   pg_catalog.substr(v_quelle, 1, 90),
+                   pg_catalog.chr(13), '<CR>'),
+                 pg_catalog.chr(10), '<LF>'));
+      continue;
+    end if;
+
+    v_pos := v_as - 1 + pg_catalog.strpos(v_rest, v_zeile);
 
     v_neu := pg_catalog.overlay(
                v_def,
-               v_treffer || '  perform public.assert_eigener_zugriff(p_user_id);' || E'\n',
-               v_begin,
-               pg_catalog.length(v_treffer));
+               v_zeile || '  perform public.assert_eigener_zugriff(p_user_id);'
+                       || pg_catalog.chr(10),
+               v_pos,
+               pg_catalog.length(v_zeile));
 
     /* ── Und jetzt der Teil, den der erste Entwurf uebersehen hat ──
 
@@ -410,33 +461,27 @@ begin
 
        Deshalb bekommt ein solcher Handler als erste Zeile ein
        Weiterwerfen der Zugriffsfehler. Alles andere faengt er
-       weiterhin ab — das ist seine Aufgabe. */
+       weiterhin ab — das ist seine Aufgabe.
+
+       Zwei Schreibweisen kommen vor: "exception when others then" in
+       einer Zeile, oder "exception" und darunter "when others then".
+       Beide werden zeilenweise gesucht, mit derselben Toleranz wie
+       oben. */
     v_handler := pg_catalog.substring(
                    v_neu,
-                   E'\nexception[ \t\r\n]*when[ \t]+others[ \t]+then[ \t]*\n');
+                   '(?in)^[ \t\r]*exception[ \t\r]+when[ \t\r]+others[ \t\r]+then[^\n]*\n');
 
-    /* Erkannt wird der Handler am Zeilenanfang, nicht am Wort.
-
-       Der erste Entwurf suchte nach "when others" im ganzen Text und
-       brach bei previous_location_health ab — dort steht der
-       Ausdruck in einem KOMMENTAR ("Bewusst NUR undefined_column:
-       Ein weiter gefasstes `when others` ..."). Dieselbe Falle, vor
-       der G2.2 §29 warnt, diesmal in meiner eigenen Erkennung.
-
-       Bleibt die Suche leer, steht aber trotzdem irgendwo ein
-       Handler am Zeilenanfang, bricht die Migration ab, statt die
-       Pruefung stillschweigend verschlucken zu lassen. */
     if v_handler is null then
-      if v_neu ~ E'(?n)^[ \t]*when[ \t]+others[ \t]+then' then
-        v_fehlt := v_fehlt
-          || (v_sig || ' — hat einen when-others-Handler in einer Form, '
-              || 'die diese Migration nicht kennt');
-        continue;
-      end if;
-    else
+      v_handler := pg_catalog.substring(
+                     v_neu,
+                     '(?in)^[ \t\r]*when[ \t\r]+others[ \t\r]+then[^\n]*\n');
+    end if;
+
+    if v_handler is not null then
       v_neu := pg_catalog.overlay(
                  v_neu,
-                 v_handler || '  if sqlstate = ''42501'' then raise; end if;' || E'\n',
+                 v_handler || '  if sqlstate = ''42501'' then raise; end if;'
+                           || pg_catalog.chr(10),
                  pg_catalog.strpos(v_neu, v_handler),
                  pg_catalog.length(v_handler));
     end if;
@@ -447,12 +492,11 @@ begin
   if pg_catalog.array_length(v_fehlt, 1) is not null then
     raise exception
       E'Ruempfe nicht haertbar:\n  %\n'
-      '  Nichts wurde geaendert. Bitte die betroffene Funktion\n'
-      '  einzeln ansehen, statt die Pruefung zu lockern.',
+      '  Nichts wurde geaendert. Die Messwerte oben gehoeren in die\n'
+      '  naechste Runde — die Pruefung bitte nicht lockern.',
       pg_catalog.array_to_string(v_fehlt, E'\n  ');
   end if;
 end $$;
-
 /* ═══════════════════════════════════════════════════════════
    4 — DIE ZWEI SQL-FUNKTIONEN
    ═══════════════════════════════════════════════════════════
@@ -481,7 +525,18 @@ begin
          '34edbebfe3d9d70fd0fc60756f4c74a2')
       ) as v(sig, pruefsumme)
   loop
-    select pg_catalog.md5(p.prosrc)
+    /* Verglichen wird normalisiert: ohne Wagenruecklauf und ohne
+       Leerraum am Zeilenende. Die Migrationen gingen bis zum
+       12.10.2026 von Hand in den SQL-Editor, und was aus einer
+       Zwischenablage dort landet, kann CRLF tragen. Ein Rumpf, der
+       sich nur darin unterscheidet, ist derselbe Rumpf — ein
+       Abbruch deswegen waere ein Fehlalarm.
+
+       Alles andere bricht weiterhin ab. */
+    select pg_catalog.md5(
+             pg_catalog.regexp_replace(
+               pg_catalog.replace(p.prosrc, pg_catalog.chr(13), ''),
+               '[ \t]+$', '', 'gn'))
       into v_ist
       from pg_catalog.pg_proc p
       join pg_catalog.pg_namespace n on n.oid = p.pronamespace

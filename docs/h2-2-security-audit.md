@@ -601,15 +601,77 @@ und Produktion auseinanderlaufen können. Ein einkopierter Rumpf würde
 so einen Unterschied stillschweigend überschreiben; der Katalog ist
 das, was wirklich läuft.
 
-Abgesichert in beide Richtungen: der Einfügepunkt muss hinter
-`AS $function$` liegen, sonst Abbruch; ohne Toplevel-`begin` Abbruch mit
-Namen; ist die Prüfung schon drin, passiert nichts.
+Abgesichert in beide Richtungen: der Einfügepunkt muss hinter dem
+Rumpfanfang liegen; ohne `begin`-Zeile Abbruch mit Messwerten; ist die
+Prüfung schon drin, passiert nichts.
 
 Die zwei `language sql`-Funktionen haben keinen `begin`-Block. Ihre
 Rümpfe stehen ausgeschrieben, als plpgsql gefasst — die Abfrage ist
-dieselbe, sie steht nur in einem `return`. Davor prüft die Migration die
-Prüfsumme des bestehenden Rumpfes und bricht bei Abweichung ab, statt
-eine abweichende Produktionsfassung zu überschreiben.
+dieselbe, sie steht nur in einem `return`. Davor prüft die Migration
+die Prüfsumme des bestehenden Rumpfes und bricht bei Abweichung ab,
+statt eine abweichende Produktionsfassung zu überschreiben.
+
+### 10.3a Der erste Anlauf ist in Produktion abgebrochen
+
+Am 14.10.2026 brach die Migration in Produktion ab, für alle sechs
+plpgsql-Funktionen:
+
+```text
+ERROR:  P0001: Ruempfe nicht haertbar:
+  build_location_evaluation_context(…) — kein toplevel begin gefunden
+  compute_location_health_score(…) — kein toplevel begin gefunden
+  …
+  Nichts wurde geaendert.
+```
+
+**Nichts wurde geändert** — das war der Zweck des fail-closed-Aufbaus.
+Aber die Meldung sagte nicht, woran es lag, und das war ein Mangel der
+Meldung.
+
+Die Suche war zu eng:
+
+```sql
+substring(definition, E'\n[ \t]*begin[ \t]*\n')
+```
+
+Also: Umbruch, nur Leerraum, genau `begin` in Kleinschreibung, wieder
+Umbruch. Drei Annahmen, von denen jede in Produktion anders sein kann.
+Zwei davon sind wahrscheinlich: die Migrationen gingen bis zum
+12.10.2026 von Hand in den SQL-Editor, und was aus einer Zwischenablage
+dort landet, kann CRLF tragen — dann steht vor dem Umbruch ein
+Wagenrücklauf, und das Muster passt nicht mehr.
+
+Nachgebaut und gemessen statt vermutet: in der Testdatenbank wurden
+`previous_location_health` und `compute_location_health_score` auf
+CRLF **und** `BEGIN` in Großschreibung umgestellt. Ergebnis:
+
+| | alte Suche | neue Suche |
+| --- | --- | --- |
+| LF, `begin` klein | trifft | trifft |
+| CRLF, `BEGIN` groß | **trifft nicht** | trifft |
+
+Damit ist das Produktionssymptom reproduziert, und die neue Fassung
+besteht beide Formen. Gesucht wird jetzt zeilenweise mit `(?in)`:
+Groß- und Kleinschreibung gleich, Wagenrücklauf erlaubt, hinter
+`begin` darf stehen was will. Eingefügt wird hinter dem Zeilenende,
+nicht mitten hinein.
+
+Dasselbe Problem traf den Prüfsummenvergleich der zwei
+`language sql`-Funktionen, nur noch nicht sichtbar — Abschnitt 3 brach
+vorher ab. Mit CRLF gemessen:
+
+```text
+weekly_mail_events: roh=6947c32d…  normalisiert=34edbebf…
+```
+
+Der rohe Wert hätte abgebrochen, der normalisierte passt. Verglichen
+wird deshalb ohne Wagenrücklauf und ohne Leerraum am Zeilenende. Jede
+andere Abweichung bricht weiterhin ab.
+
+Und falls es wieder abbricht, nennt die Meldung jetzt die Messwerte
+selbst: CR im Rumpf ja/nein, Zeichenzahl, Prüfsumme und die ersten 90
+Zeichen des Rumpfes mit sichtbar gemachten Umbrüchen. Dieselben Werte
+liefert `docs/operations/lesezugriff-diagnose.sql` zum Nachsehen.
 
 ### 10.4 Was die Gegenprobe gefunden hat
 
@@ -686,6 +748,8 @@ etwas prüft, und einem, der nur grün ist.
 | nach beiden Migrationen, `definer` + `stable` | gesamt 29, PUBLIC 0, anon 0, authenticated 2, service_role 29 |
 | zweiter Lauf der Lesemigration | Exit 0, genau eine Prüfzeile je Funktion |
 | **Gegenprobe**: Datenbank ohne die Lesemigration | `lesezugriffIsolation.test.sql` rot in Abschnitt B |
+| **Gegenprobe**: Rümpfe auf CRLF + `BEGIN` groß umgestellt | alte Suche trifft nicht, neue Suche trifft, Migration Exit 0, A/B-Test grün |
+| **Gegenprobe**: Prüfsumme gegen CRLF-Rumpf | roh `6947c32d…` (hätte abgebrochen), normalisiert `34edbebf…` (passt) |
 | alle SQL-Tests | 27 Dateien, 27 ausgeführt, 0 rot |
 | Jest | 1048 Tests in 67 Suites grün |
 | `CI=true npm run build` | `Compiled successfully.` |
@@ -697,6 +761,12 @@ etwas prüft, und einem, der nur grün ist.
 Nicht von mir angewandt (§35). **Reihenfolge zählt**: erst die
 Schreibseite, dann die Leseseite. Beide sind wiederholbar, beide
 brechen bei Abweichung ab.
+
+Bitte über den Workflow und nicht über den SQL-Editor: nur so landet
+die Migration in `supabase_migrations.schema_migrations`. Im Editor
+ausgeführt wirkt sie zwar, gilt aber weiter als offen — und genau
+dieser Drift ist der Grund, warum es den Workflow gibt (siehe seinen
+Kopf). Schaden entsteht nicht: beide Migrationen sind wiederholbar.
 
 1. **GitHub → Actions → „Apply Supabase migrations" → Modus
    `vorschau`.** Liest nur. Erwartet: genau
@@ -730,7 +800,7 @@ Falls Schritt 2 abbricht, nennt die Meldung die Ursache:
 | --- | --- |
 | „Noch offen nach dem Setzen: …" | eine Funktion, die nicht in meiner Liste stand. Nicht nachtragen — den Namen schicken, §5 und §7 verlangen vorher die Aufrufer- und Wirkungsprüfung. |
 | „Rumpf weicht von der gelesenen Fassung ab …" | Produktion hat eine andere Fassung von `werkruf_score_location` oder `weekly_mail_events`. Nichts wurde geändert. Bitte den Rumpf schicken, statt die Prüfsumme anzupassen. |
-| „hat einen when-others-Handler in einer Form, die diese Migration nicht kennt" | eine Handler-Schreibweise, die ich nicht geprüft habe. Nichts wurde geändert. |
+| „keine begin-Zeile im Rumpf" | die Meldung nennt CR, Zeichenzahl, Prüfsumme und Rumpfanfang. Diese Werte schicken; `docs/operations/lesezugriff-diagnose.sql` liefert sie für alle acht. |
 | „when-others verschluckt die Zugriffsprüfung: …" | die Prüfzeile ist drin, aber der Handler fängt sie. Siehe 10.4 — diesen Zustand darf es nicht geben. |
 
 Erst wenn Produktion in Schritt 3 vier Nullen beziehungsweise 3 und 2
