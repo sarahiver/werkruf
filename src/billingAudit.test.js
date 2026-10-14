@@ -247,7 +247,28 @@ describe('E / R — der tote trial-Plan', () => {
        ablehnt — und wird von keiner Zeile im Repo aufgerufen.
 
        Diese Zusage fällt, sobald jemand sie benutzt. Dann gehört die
-       Rechtefrage aus dem Bericht (Abschnitt N) zuerst geklärt. */
+       Rechtefrage aus dem Bericht (Abschnitt N) zuerst geklärt.
+
+       ── Korrektur vom 14.10.2026 ──
+
+       Die erste Fassung behauptete im Kommentar "Nur echte Aufrufe,
+       keine Erwähnung im Kommentar" und prüfte den Dateitext
+       unverändert. Aufgefallen ist das, als
+       20261014120000_execute_rechte_kanonisch.sql in ihrem Kopf die
+       Wirkungsprobe aus der Produktionsmessung zitiert:
+
+         select public.update_user_plan('0000…0000'::uuid, 'free');
+
+       Der Test wurde rot und meldete eine Migration als Aufrufer, die
+       die Funktion gerade zumacht. Falschmeldung, aber die richtige
+       Art davon: die Behauptung im Kommentar war schlicht nicht
+       eingelöst. Seitdem werden SQL- und JS-Kommentare vorher
+       entfernt. */
+    const ohneKommentare = (text) => text
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/^[ \t]*--.*$/gm, ' ')
+      .replace(/^[ \t]*\/\/.*$/gm, ' ');
+
     const treffer = [];
     const suche = (verzeichnis) => {
       for (const eintrag of fs.readdirSync(path.join(wurzel, verzeichnis), { withFileTypes: true })) {
@@ -255,8 +276,7 @@ describe('E / R — der tote trial-Plan', () => {
         if (eintrag.isDirectory()) { suche(p); continue; }
         if (!/\.(js|ts|sql)$/.test(eintrag.name)) continue;
         if (p.includes('/schema/') || eintrag.name === 'billingAudit.test.js') continue;
-        const inhalt = lies(p);
-        /* Nur echte Aufrufe, keine Erwähnung im Kommentar. */
+        const inhalt = ohneKommentare(lies(p));
         if (/(rpc\(['"]update_user_plan|perform public\.update_user_plan|select public\.update_user_plan)/.test(inhalt)) {
           treffer.push(p);
         }
