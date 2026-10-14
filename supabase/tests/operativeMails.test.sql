@@ -106,6 +106,31 @@ begin
   end loop;
 end $$;
 
+/* ── Der Zustand jedes neuen Kontos (H2.1, §8) ──
+   handle_new_user setzt trial_started_at und trial_ends_at = now() +
+   30 Tage fuer JEDE Registrierung, aber keinen plan — die
+   Spaltenvorgabe 'free' gilt. Gemessen: Die Trial-Spalten allein
+   geben keinen Zugang. Wer das aendert, aendert damit den Zugang
+   jedes free-Kontos. */
+do $$
+declare v_id uuid := test.benutzer('user_a');
+begin
+  update public.user_profiles
+     set plan = 'free',
+         stripe_subscription_id = null, stripe_subscription_status = null,
+         trial_started_at = pg_catalog.now(),
+         trial_ends_at    = pg_catalog.now() + interval '30 days'
+   where id = v_id;
+
+  assert not public.has_paid_access(v_id),
+    'Ein frisch registriertes Konto hat trotz trial_ends_at keinen Zugang';
+
+  /* Gegenprobe zur Lesbarkeit: der Zugang haengt am Plan, nicht am
+     Datum. */
+  update public.user_profiles set plan = 'pro' where id = v_id;
+  assert public.has_paid_access(v_id), 'Mit plan = pro schon';
+end $$;
+
 /* Ohne Profil: kein Zugang. Wie hasPaidAccess(null). */
 do $$
 begin
