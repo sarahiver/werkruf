@@ -1,0 +1,482 @@
+name: Apply Supabase migrations
+
+# ═══════════════════════════════════════════════════════════════
+# WARUM DIESER WORKFLOW EXISTIERT
+# ═══════════════════════════════════════════════════════════════
+#
+# Bis zum 12.10.2026 wendete kein Workflow Migrationen an. Nachgesehen
+# ueber alle sechs Workflows: "db push" kam in keinem vor. deploy.yml
+# deployt ausschliesslich Edge Functions.
+#
+# Migrationen gingen von Hand in den SQL-Editor. Das ist die Ursache
+# des G2.1-Inventurdiffs: acht Sichten und eine Funktion existieren in
+# Produktion und fehlen im Repo; drei Migrationen lagen im Repo und
+# waren nie in Produktion. Der Drift lief in beide Richtungen, weil
+# nichts ihn schloss.
+#
+# Ab hier gibt es genau einen Weg:
+#
+#   Migration gemerged → CI prueft → manueller Dispatch → Produktion
+#
+# Kein automatischer Lauf bei Push. Produktion wird nur geschrieben,
+# wenn ein Mensch den Knopf drueckt und ein Wort tippt.
+#
+# ═══════════════════════════════════════════════════════════════
+# DIE DREI MODI
+# ═══════════════════════════════════════════════════════════════
+#
+#   vorschau             liest nur. Zeigt, was offen ist. Kein Schreiben.
+#   anwenden             wendet die offenen Migrationen an.
+#   verlauf-nachtragen   markiert Migrationen als angewendet, OHNE sie
+#                        auszufuehren.
+#
+# Der dritte Modus ist der, ohne den dieser Workflow beim ersten Lauf
+# Schaden anrichten koennte. Wenn Supabase keinen Migrationsverlauf
+# hat — weil alles von Hand lief — haelt
+# supabase_migrations.schema_migrations keine der 39 Migrationen, und
+# "anwenden" wuerde versuchen, alle 39 erneut auszufuehren. Bei
+# "create table if not exists" geht das durch; bei einem "create type"
+# oder "alter table add column" nicht.
+#
+# Deshalb: erst "vorschau", dann entscheiden. Steht dort, dass alle 39
+# offen sind, obwohl Produktion sie laengst hat, ist "verlauf-nachtragen"
+# der erste Schritt und nicht "anwenden".
+#
+# ═══════════════════════════════════════════════════════════════
+# WAS DIESER WORKFLOW NIEMALS TUT
+# ═══════════════════════════════════════════════════════════════
+#
+#   supabase db reset            setzt die Datenbank zurueck
+#   drop/create database         dto.
+#   --include-all                wuerde den Verlauf umgehen und alles
+#                                anwenden, was remote nicht steht —
+#                                genau der gefaehrliche Fall oben
+#   automatisches Reconcile      Produktion auf das Repo zwingen
+#
+# Keines dieser Kommandos steht in dieser Datei. Der einzige
+# schreibende Befehl ist "supabase db push" mit festen Flags.
+#
+# ── Und einer, den man nicht erwartet ──
+#
+# "supabase db push --help" sagt:
+#
+#   Vault secrets from config.toml are updated before migrations
+#   unless --skip-vault is set.
+#
+# db push schreibt also ohne weiteres Zutun in den Vault — dort liegen
+# die Produktionsgeheimnisse. supabase/config.toml hat derzeit keine
+# Vault-Eintraege, aber "derzeit" ist keine Zusicherung: ein spaeterer
+# Eintrag wuerde bei der naechsten Migration stillschweigend ein
+# Geheimnis in Produktion ueberschreiben. --skip-vault ist deshalb
+# Pflicht und nicht Vorsicht.
+#
+# ═══════════════════════════════════════════════════════════════
+# ROLLBACK
+# ═══════════════════════════════════════════════════════════════
+#
+# Es gibt keinen. Produktions-Migrationen sind forward-only; ein
+# Fehler wird durch eine neue Korrekturmigration behoben, nicht durch
+# eine Down-Migration. Bei destruktiven Migrationen gilt vorher
+# docs/operations/backup-restore.md.
+#
+# Siehe docs/operations/database-migrations.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modus:
+        description: 'Was passieren soll'
+        required: true
+        default: vorschau
+        type: choice
+        options:
+          - vorschau
+          - anwenden
+          - verlauf-nachtragen
+      bestaetigung:
+        description: 'anwenden → MIGRATE tippen. verlauf-nachtragen → NACHTRAGEN tippen. vorschau → leer lassen.'
+        required: false
+        default: ''
+      versionen:
+        description: 'Nur fuer verlauf-nachtragen: Versionen mit Leerzeichen getrennt. Leer = alle offenen.'
+        required: false
+        default: ''
+
+# Maximal ein Lauf gegen Produktion (§11).
+#
+# cancel-in-progress ist FALSE, nicht true: einen laufenden
+# Migrationslauf mitten im psql abzuschneiden ist schlimmer als zu
+# warten. Ein halb angewendeter Lauf hinterlaesst einen Zustand, den
+# niemand aufgeschrieben hat.
+concurrency:
+  group: produktions-migration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrieren:
+    runs-on: ubuntu-latest
+
+    services:
+      # Fuer die Tests vor dem Produktionsschritt. PostgreSQL 17 wie
+      # Produktion (17.6), gleiche Einrichtung wie im sql-tests-Job
+      # von deploy.yml — keine zweite Testarchitektur.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      # ───────────────────────────────────────────────────────────
+      - name: Modus und Bestaetigung pruefen
+        # Fail closed, als erster Schritt und ohne Netz: ein Tippfehler
+        # im Modus soll den Lauf beenden, bevor irgendetwas eingerichtet
+        # ist.
+        env:
+          MODUS: ${{ inputs.modus }}
+          BESTAETIGUNG: ${{ inputs.bestaetigung }}
+        run: |
+          set -euo pipefail
+          case "$MODUS" in
+            vorschau)
+              echo "Modus: vorschau — es wird nur gelesen."
+              ;;
+            anwenden)
+              if [ "$BESTAETIGUNG" != "MIGRATE" ]; then
+                echo "ABBRUCH: Modus 'anwenden' verlangt die Bestaetigung MIGRATE." >&2
+                echo "Getippt wurde: '${BESTAETIGUNG}'" >&2
+                exit 2
+              fi
+              echo "Modus: anwenden — Produktion wird geschrieben."
+              ;;
+            verlauf-nachtragen)
+              if [ "$BESTAETIGUNG" != "NACHTRAGEN" ]; then
+                echo "ABBRUCH: Modus 'verlauf-nachtragen' verlangt die Bestaetigung NACHTRAGEN." >&2
+                exit 2
+              fi
+              echo "Modus: verlauf-nachtragen — nur die Verlaufstabelle wird geschrieben."
+              ;;
+            *)
+              echo "ABBRUCH: unbekannter Modus '$MODUS'." >&2
+              exit 2
+              ;;
+          esac
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: psql 17 installieren
+        # Dieselbe Quelle wie im Restore-Beweis: Ubuntus Paket ist 16,
+        # Produktion ist 17.6. Ein aelterer Client kennt neuere
+        # Katalogstrukturen nicht.
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - uses: supabase/setup-cli@v1
+        # Feste Version, nicht "latest".
+        #
+        # deploy.yml nimmt latest. Fuer einen Function-Deploy ist das
+        # ein kalkulierbares Risiko; fuer einen Lauf, der das
+        # Produktionsschema schreibt, nicht: ein Versionssprung kann
+        # Flags, Ausgabeformat oder Verhalten der Verlaufstabelle
+        # aendern, und dann wird aus einem gepruefen Pfad ein
+        # ungepruefter. Die Flags unten sind gegen genau diese Version
+        # gelesen (supabase db push --help, 12.10.2026).
+        with:
+          version: 2.120.0
+
+      # ───────────────────────────────────────────────────────────
+      # §12 — vor dem Produktionsschritt muessen die Tests gruen sein.
+      #
+      # Sie laufen HIER und nicht per needs: auf deploy.yml. Zwischen
+      # zwei Workflows gibt es in GitHub Actions keine verlaessliche
+      # Abhaengigkeit — "war neulich gruen" ist keine Zusicherung fuer
+      # den Stand, der jetzt angewendet wird. Was hier laeuft, laeuft
+      # gegen genau diesen Commit.
+      - name: Gate 1 — Sichten in public (security_invoker)
+        run: bash ./scripts/check-view-security.sh
+
+      - name: Gate 2 — SQL-Tests, Migrationen zweimal
+        # setup.sh wendet die Migrationen zweimal an (Zeile 136) —
+        # der zweite Durchgang prueft Wiederholbarkeit. Eine Migration,
+        # die beim zweiten Mal wirft, darf Produktion nicht erreichen.
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash ./scripts/test-db/run.sh
+
+      # ───────────────────────────────────────────────────────────
+      - name: Ziel pruefen
+        # Welche Datenbank wird hier eigentlich geschrieben?
+        #
+        # Das Secret ist eine Verbindungszeichenkette; ob sie auf das
+        # richtige Projekt zeigt, sieht niemand. Die Projektkennung
+        # steht in supabase/config.toml und im Benutzernamen des
+        # Session Poolers (postgres.<ref>). Stimmen sie nicht
+        # ueberein, bricht der Lauf ab — bevor geschrieben wird.
+        #
+        # Ausgegeben wird nur die Kennung aus config.toml. Die ist im
+        # Repo oeffentlich; die Verbindungszeichenkette nicht.
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?SUPABASE_DIRECT_DB_URL fehlt}"
+
+          REF="$(sed -n 's/^project_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+            supabase/config.toml | head -1)"
+          if [ -z "$REF" ]; then
+            echo "ABBRUCH: project_id steht nicht in supabase/config.toml." >&2
+            exit 2
+          fi
+          echo "   Projekt aus config.toml: $REF"
+
+          case "$DATABASE_URL" in
+            *"$REF"*)
+              echo "   Die Verbindung nennt dieses Projekt — in Ordnung."
+              ;;
+            *)
+              echo "ABBRUCH: SUPABASE_DIRECT_DB_URL nennt dieses Projekt nicht." >&2
+              echo "Erwartet wurde die Kennung aus config.toml ($REF)." >&2
+              echo "Der Inhalt des Secrets wird hier nicht ausgegeben." >&2
+              exit 2
+              ;;
+          esac
+
+          SERVER="$(psql "$DATABASE_URL" -Atc \
+            "select current_setting('server_version')")"
+          echo "   Server: PostgreSQL $SERVER"
+
+      # ───────────────────────────────────────────────────────────
+      - name: Vorschau — was ist offen
+        # §9. Zwei unabhaengige Quellen, absichtlich:
+        #
+        #   1. Selbst gerechnet: Dateinamen gegen die Verlaufstabelle.
+        #      Exakt, und es funktioniert auch, wenn die Tabelle fehlt.
+        #   2. supabase db push --dry-run: was die CLI tatsaechlich
+        #      tun wuerde.
+        #
+        # Weichen sie ab, ist das der interessanteste Befund des
+        # ganzen Laufs — dann versteht einer von uns beiden den
+        # Verlauf nicht, und es wird nichts angewendet.
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/mig
+
+          # Lokale Versionen: der Zeitstempel vor dem ersten Unterstrich.
+          for f in supabase/migrations/*.sql; do
+            basename "$f" | sed -E 's/^([0-9]{14}).*/\1/'
+          done | sort > /tmp/mig/lokal.txt
+
+          # Verlaufstabelle — erst fragen, ob sie existiert.
+          VERLAUF_DA="$(psql "$DATABASE_URL" -Atc \
+            "select count(*) from information_schema.tables
+              where table_schema = 'supabase_migrations'
+                and table_name   = 'schema_migrations'")"
+
+          if [ "$VERLAUF_DA" = "0" ]; then
+            : > /tmp/mig/remote.txt
+            echo "   HINWEIS: supabase_migrations.schema_migrations existiert nicht."
+            echo "   Supabase hat fuer dieses Projekt keinen Migrationsverlauf."
+            echo "   Damit gilt JEDE lokale Migration als offen, auch die, die"
+            echo "   Produktion laengst hat. 'anwenden' wuerde sie erneut"
+            echo "   ausfuehren. Der erste Schritt ist dann"
+            echo "   'verlauf-nachtragen', nicht 'anwenden'."
+          else
+            psql "$DATABASE_URL" -Atc \
+              "select version from supabase_migrations.schema_migrations order by version" \
+              | sort > /tmp/mig/remote.txt
+          fi
+
+          comm -23 /tmp/mig/lokal.txt /tmp/mig/remote.txt > /tmp/mig/offen.txt
+          comm -13 /tmp/mig/lokal.txt /tmp/mig/remote.txt > /tmp/mig/nur-remote.txt
+
+          N_LOKAL="$(wc -l < /tmp/mig/lokal.txt | tr -d ' ')"
+          N_REMOTE="$(wc -l < /tmp/mig/remote.txt | tr -d ' ')"
+          N_OFFEN="$(wc -l < /tmp/mig/offen.txt | tr -d ' ')"
+          N_NUR_REMOTE="$(wc -l < /tmp/mig/nur-remote.txt | tr -d ' ')"
+
+          {
+            echo "## Migrationsstand"
+            echo
+            echo '```'
+            echo "Migrationen vorhanden: $N_LOKAL"
+            echo "bereits angewendet:    $N_REMOTE"
+            echo "noch offen:            $N_OFFEN"
+            echo '```'
+            echo
+            if [ "$N_OFFEN" -gt 0 ]; then
+              echo "### Offene Migrationen"
+              echo
+              echo '```'
+              while read -r v; do
+                [ -n "$v" ] || continue
+                basename "$(ls supabase/migrations/${v}_*.sql 2>/dev/null | head -1)" \
+                  2>/dev/null || echo "$v (keine Datei?)"
+              done < /tmp/mig/offen.txt
+              echo '```'
+              echo
+            fi
+            if [ "$N_NUR_REMOTE" -gt 0 ]; then
+              echo "### Nur in Produktion, nicht im Repo"
+              echo
+              echo "Diese Versionen stehen in der Verlaufstabelle, aber es gibt"
+              echo "keine Datei dazu. Entweder wurde eine Migration geloescht"
+              echo "(verboten, Migrationen sind append-only) oder jemand hat"
+              echo "von Hand in den Verlauf geschrieben."
+              echo
+              echo '```'
+              cat /tmp/mig/nur-remote.txt
+              echo '```'
+              echo
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "   vorhanden $N_LOKAL, angewendet $N_REMOTE, offen $N_OFFEN"
+          if [ "$N_OFFEN" -gt 0 ]; then
+            echo "   offen:"
+            sed 's/^/     /' /tmp/mig/offen.txt
+          fi
+
+          # ── Die Gegenprobe durch die CLI selbst ──
+          echo
+          echo "   supabase db push --dry-run:"
+          supabase db push --db-url "$DATABASE_URL" --skip-vault --dry-run \
+            2>&1 | sed 's/^/     /' | tee /tmp/mig/dryrun.txt
+
+          {
+            echo "### Was die CLI tun wuerde (--dry-run)"
+            echo
+            echo '```'
+            cat /tmp/mig/dryrun.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ───────────────────────────────────────────────────────────
+      - name: Anwenden
+        if: ${{ inputs.modus == 'anwenden' }}
+        # Der einzige schreibende Schritt.
+        #
+        # --skip-vault     siehe Kopf dieser Datei: ohne das Flag
+        #                  schreibt db push Vault-Geheimnisse
+        # KEIN --include-all   es wird genau der Verlauf respektiert
+        # KEIN --include-seed  keine Testdaten nach Produktion
+        # KEIN --include-roles supabase/roles.sql gibt es nicht
+        #
+        # Der Exit-Code entscheidet, nicht die Ausgabe. Kein
+        # grep nach ERROR — dieselbe Regel wie in run.sh, und aus
+        # demselben Grund: frueher wurden Fehler uebersehen, weil die
+        # Formulierung sich geaendert hatte.
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+          echo "── Anwenden gegen Produktion"
+          supabase db push --db-url "$DATABASE_URL" --skip-vault \
+            2>&1 | tee /tmp/mig/push.txt
+
+      - name: Verlauf nachtragen
+        if: ${{ inputs.modus == 'verlauf-nachtragen' }}
+        # Markiert Migrationen als angewendet, OHNE sie auszufuehren.
+        #
+        # Fuer genau einen Fall: Produktion hat das Schema laengst,
+        # weil es von Hand eingespielt wurde, aber der Verlauf weiss
+        # nichts davon. Ohne diesen Schritt wuerde "anwenden" alles
+        # erneut ausfuehren.
+        #
+        # Das ist eine Behauptung ueber die Wirklichkeit — "diese
+        # Migration ist drin" — und sie wird hier nicht geprueft.
+        # Deshalb die getippte Bestaetigung oben und deshalb ist die
+        # Versionsliste explizit angebbar: nachtragen soll man
+        # einzeln und nachdem man die Vorschau gelesen hat, nicht
+        # pauschal.
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+          VERSIONEN: ${{ inputs.versionen }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${VERSIONEN// /}" ]; then
+            LISTE="$VERSIONEN"
+            echo "── Nachtragen, angegebene Versionen: $LISTE"
+          else
+            LISTE="$(tr '\n' ' ' < /tmp/mig/offen.txt)"
+            echo "── Nachtragen, alle offenen: $LISTE"
+          fi
+
+          if [ -z "${LISTE// /}" ]; then
+            echo "   nichts offen — nichts zu tun"
+            exit 0
+          fi
+
+          # shellcheck disable=SC2086
+          supabase migration repair --db-url "$DATABASE_URL" \
+            --status applied $LISTE 2>&1 | tee /tmp/mig/repair.txt
+
+      # ───────────────────────────────────────────────────────────
+      - name: Stand danach
+        if: ${{ always() && inputs.modus != 'vorschau' }}
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        run: |
+          set -euo pipefail
+          echo "── Verlauf nach dem Lauf"
+          supabase migration list --db-url "$DATABASE_URL" 2>&1 \
+            | tee /tmp/mig/danach.txt | sed 's/^/   /'
+          {
+            echo
+            echo "## Stand nach dem Lauf"
+            echo
+            echo '```'
+            cat /tmp/mig/danach.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Protokoll
+        if: always()
+        # §13. Kein eigenes Audit-System: wer, wann und mit welchem
+        # Ergebnis steht in der Actions-History. Hier nur, was dort
+        # nicht steht — welcher Modus mit welcher Absicht lief.
+        run: |
+          {
+            echo
+            echo "## Protokoll"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| gestartet von | ${{ github.actor }} |"
+            echo "| Modus | ${{ inputs.modus }} |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Lauf | ${{ github.run_id }} |"
+            echo "| Ergebnis | ${{ job.status }} |"
+            echo
+            echo "Produktions-Migrationen sind forward-only. Ein Fehler wird"
+            echo "durch eine neue Korrekturmigration behoben, nicht durch eine"
+            echo "Down-Migration. Siehe docs/operations/database-migrations.md."
+          } >> "$GITHUB_STEP_SUMMARY"

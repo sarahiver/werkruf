@@ -1,39 +1,173 @@
-name: Export Supabase Schema
+name: Schema exportieren und Restore pruefen
+
+# ═══════════════════════════════════════════════════════════════
+# WAS HIER VORHER SCHIEFGING
+# ═══════════════════════════════════════════════════════════════
+#
+# Der alte Workflow lief ueber SUPABASE_POOLER_DB_URL, dumpte mit
+# --schema=public und prueefte das Ergebnis mit
+#
+#   wc -l schema-export/werkruf-schema.sql
+#   ls -lh schema-export/werkruf-schema.sql
+#
+# Das Ergebnis liegt als supabase/schema/production-baseline-2026-09-22.sql
+# im Repo. Es endet mitten in einer CREATE VIEW und enthaelt keinen
+# einzigen Primaerschluessel, Fremdschluessel, Index, Trigger oder
+# Policy — pg_dump schreibt die alle nach den Sichten.
+#
+# Drei Fehler, die dieser Workflow behebt:
+#
+#   1. Die Pruefung konnte den Fehler nicht finden. Eine
+#      abgeschnittene Datei hat Zeilen und eine Groesse.
+#   2. --schema=public liess 27 auth-Tabellen weg, darunter
+#      auth.users. Ein Restore daraus haette alle Kundendaten und
+#      keine einzige Anmeldung.
+#   3. Der Pooler ist fuer pg_dump der falsche Endpunkt: pg_dump
+#      braucht eine durchgehende Sitzung.
+#
+# ═══════════════════════════════════════════════════════════════
+# WAS DIESER WORKFLOW IST UND WAS NICHT
+# ═══════════════════════════════════════════════════════════════
+#
+# Er erzeugt die LESBARE SCHEMAREFERENZ und beweist, dass sie
+# vollstaendig ist und sich wiederherstellen laesst.
+#
+# Er erzeugt KEIN Backup mit Kundendaten. Ein Dump mit echten
+# Bewertungen, Mailadressen und Profilen gehoert nicht in ein
+# GitHub-Artefakt — jeder mit Leserecht am Repo koennte ihn
+# herunterladen. Das vollstaendige Backup laeuft lokal:
+#
+#   DATABASE_URL='<direkte url>' scripts/backup/dump.sh
+#
+# Siehe docs/operations/backup-restore.md.
 
 on:
   workflow_dispatch:
 
 jobs:
-  dump:
+  export:
     runs-on: ubuntu-latest
+
+    services:
+      # Fuer den Restore-Test. Hauptversion wie Produktion (17.6).
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Export Supabase schema
+      - name: pg_dump 17 installieren
+        # Hauptversion gepinnt, nicht "was Ubuntu gerade mitbringt".
+        # Der alte Lauf nahm pg_dump 17.11 gegen Server 17.6 — das war
+        # in Ordnung, aber niemand hatte es geprueft. Ein aelteres
+        # pg_dump als der Server laesst Objekte weg.
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt \
+            $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          sudo sed -i 's|deb |deb [signed-by=/usr/share/keyrings/pgdg.gpg] |' \
+            /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Versionen pruefen
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_POOLER_DB_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
         run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" || {
+            echo "Secret SUPABASE_DIRECT_DB_URL fehlt."
+            echo "Die DIREKTE Verbindung, nicht der Pooler:"
+            echo "  postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres"
+            exit 1; }
+
+          case "$DATABASE_URL" in
+            *:6543*) echo "Port 6543 ist der Transaction-Pooler. pg_dump braucht eine Sitzung."; exit 1 ;;
+          esac
+
+          pg_dump --version
+          SERVER="$(psql "$DATABASE_URL" -Atc "select current_setting('server_version_num')")"
+          echo "server_version_num=$SERVER"
+          test "$((SERVER / 10000))" -eq 17 || {
+            echo "Server ist nicht 17 — pg_dump-Version in diesem Workflow anpassen."; exit 1; }
+
+      - name: Schema exportieren
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DB_URL }}
+        # Nur public und nur das Schema. Diese Datei ist zum Lesen und
+        # Diffen; die von Supabase verwalteten Schemas gehoeren nicht
+        # zum WERKRUF-Schema und wuerden jeden Diff verrauschen.
+        #
+        # --no-owner: die Eigentuemerrollen von Supabase sind fuer das
+        # Lesen bedeutungslos. --no-privileges NICHT: die Rechte auf
+        # public sind Teil der Sicherheitsarchitektur und sollen im
+        # Diff sichtbar sein.
+        run: |
+          set -euo pipefail
           mkdir -p schema-export
-
-          docker run --rm \
-            -e DATABASE_URL="$DATABASE_URL" \
-            postgres:17 \
-            pg_dump \
-              --dbname="$DATABASE_URL" \
-              --schema-only \
-              --no-owner \
-              --no-privileges \
-              --schema=public \
-            > schema-export/werkruf-schema.sql
-
-      - name: Verify dump
-        run: |
+          pg_dump "$DATABASE_URL" \
+            --schema-only \
+            --schema=public \
+            --no-owner \
+            --file=schema-export/werkruf-schema.sql
+          ( cd schema-export && sha256sum werkruf-schema.sql > werkruf-schema.sql.sha256 )
           wc -l schema-export/werkruf-schema.sql
-          ls -lh schema-export/werkruf-schema.sql
 
-      - name: Upload schema artifact
+      - name: Vollstaendigkeit pruefen
+        # Dasselbe Skript wie lokal. Es prueft unter anderem, ob die
+        # Datei mitten in einem Statement endet und ob PRIMARY KEY,
+        # FOREIGN KEY, CREATE INDEX und CREATE POLICY ueberhaupt
+        # vorkommen — die vier, die im alten Dump fehlten.
+        run: bash scripts/backup/verify.sh schema-export/werkruf-schema.sql
+
+      - name: Restore in eine leere Datenbank
+        # Der Beweis, der dem alten Pfad fehlte: laesst sich aus dieser
+        # Datei ueberhaupt etwas aufbauen?
+        #
+        # Nur das Schema, ohne Daten — ein vollstaendiger Datenrestore
+        # ist der lokale Vorgang aus dem Runbook. Dieser Schritt
+        # beantwortet: ist der Export syntaktisch und strukturell
+        # tragfaehig.
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c "create database schema_probe;"
+          psql -d schema_probe -v ON_ERROR_STOP=1 -c "drop schema public cascade;"
+          psql -d schema_probe -v ON_ERROR_STOP=1 -q -f scripts/test-db/sql/00-rollen.sql
+          psql -d schema_probe -v ON_ERROR_STOP=1 -q -f scripts/test-db/sql/10-supabase-stubs.sql
+          psql -d schema_probe -v ON_ERROR_STOP=1 -q -f schema-export/werkruf-schema.sql
+          echo "── Fingerabdruck"
+          psql -d schema_probe -v ON_ERROR_STOP=1 -Atf scripts/backup/fingerprint.sql \
+            | tee /tmp/abdruck.txt | wc -l
+          test "$(wc -l < /tmp/abdruck.txt)" -gt 100 || {
+            echo "Fingerabdruck fast leer — der Export traegt nichts."; exit 1; }
+          echo "── Kernchecks"
+          psql -d schema_probe -v ON_ERROR_STOP=1 -q -f scripts/backup/restore-kernchecks.sql
+
+      - name: Artefakt hochladen
+        # Erst jetzt. Der alte Workflow lud hoch, bevor irgendetwas
+        # geprueft war — ein gruener Backup-Workflow mit defektem
+        # Artefakt. Schlaegt ein Schritt davor fehl, laeuft dieser
+        # nicht, und es gibt nichts herunterzuladen.
         uses: actions/upload-artifact@v4
         with:
           name: werkruf-supabase-schema
-          path: schema-export/werkruf-schema.sql
+          path: |
+            schema-export/werkruf-schema.sql
+            schema-export/werkruf-schema.sql.sha256
+          retention-days: 14
