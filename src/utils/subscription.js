@@ -107,6 +107,28 @@ export function isFoundingPartner(profile) {
 }
 
 /**
+ * Hat ein Founding Partner parallel noch ein AKTIVES Stripe-Abo?
+ *
+ * Der Unterschied zu "hat irgendwann einmal gezahlt" ist der, auf den
+ * es ankommt. Ein Founding Partner mit stripe_customer_id und
+ * canceled-Abo zahlt nichts mehr; da gibt es nichts zu verwalten und
+ * nichts zu melden. Laeuft dagegen noch eine Subscription, wird ihm
+ * gerade Geld abgebucht, obwohl sein Zugang kostenlos ist.
+ *
+ * H2.2 §16: "Wenn ein aktives Altabo parallel existiert, dokumentiere
+ * den Zustand statt ihn still zu ignorieren." Genau dafuer ist diese
+ * Funktion da — sie entscheidet keinen Zugang und loest keine Zahlung
+ * aus, sie macht den Zustand sichtbar.
+ *
+ * Kein Stripe-Migrationsfeature (§16: ausdruecklich nicht bauen). Die
+ * Kuendigung macht der Kunde im Portal oder wir im Stripe-Dashboard.
+ */
+export function hatAktivesStripeAltabo(profile) {
+  if (!isFoundingPartner(profile)) return false;
+  return PAID_STATUSES.has(profile?.stripe_subscription_status);
+}
+
+/**
  * Laeuft der bezahlte Zugang zum Periodenende aus?
  *
  * Ein Founding Partner kann das nicht: er hat keine Periode. Haette

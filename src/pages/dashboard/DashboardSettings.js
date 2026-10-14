@@ -10,7 +10,11 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
-import { isCancellationScheduled } from '../../utils/subscription';
+import {
+  isCancellationScheduled,
+  isFoundingPartner,
+  hatAktivesStripeAltabo,
+} from '../../utils/subscription';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -58,14 +62,17 @@ const PlanInfo = styled.div``;
 const PlanBadge = styled.span`
   display: inline-flex; align-items: center; gap: 6px;
   background: ${({ $plan }) =>
-    $plan === 'pro'   ? 'rgba(var(--color-accent-rgb),.1)' :
-    $plan === 'trial' ? '#E8F5E9' : 'var(--color-bg)'};
+    $plan === 'pro'              ? 'rgba(var(--color-accent-rgb),.1)' :
+    $plan === 'trial'            ? '#E8F5E9' :
+    $plan === 'founding_partner' ? 'rgba(var(--color-accent-rgb),.12)' : 'var(--color-bg)'};
   color: ${({ $plan }) =>
-    $plan === 'pro'   ? 'var(--color-accent)' :
-    $plan === 'trial' ? '#1E7E34' : 'var(--color-text-muted)'};
+    $plan === 'pro'              ? 'var(--color-accent)' :
+    $plan === 'trial'            ? '#1E7E34' :
+    $plan === 'founding_partner' ? 'var(--color-accent)' : 'var(--color-text-muted)'};
   border: 1px solid ${({ $plan }) =>
-    $plan === 'pro'   ? 'rgba(var(--color-accent-rgb),.3)' :
-    $plan === 'trial' ? '#A5D6A7' : 'var(--color-border)'};
+    $plan === 'pro'              ? 'rgba(var(--color-accent-rgb),.3)' :
+    $plan === 'trial'            ? '#A5D6A7' :
+    $plan === 'founding_partner' ? 'rgba(var(--color-accent-rgb),.35)' : 'var(--color-border)'};
   font-family: var(--font-body); font-weight: 700;
   font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
   padding: 4px 10px; border-radius: var(--radius-button);
@@ -152,8 +159,31 @@ export default function DashboardSettings() {
   } = useCheckout();
   const [portalError,   setPortalError]   = useState('');
 
-  const plan              = profile?.plan || 'free';
-  const isTrial           = profile?.stripe_subscription_status === 'trialing' || plan === 'trial';
+  const plan = profile?.plan || 'free';
+
+  /* ── Founding Partner gewinnt (H2.2 §15) ──
+
+     Vor dieser Aenderung sah ein Founding Partner hier:
+
+       Badge     Free
+       PlanName  founding_partner       (planLabels hatte keinen Eintrag,
+                                         also der rohe Spaltenwert)
+       CTA       Jetzt upgraden
+       Fusszeile 30 Tage kostenlos — danach 49 € / Monat
+
+     Und mit einem stripe_subscription_status 'trialing' aus seiner
+     Zeit als Zahler zusaetzlich die Trial-Fortschrittsleiste samt
+     "x von 30 Tagen uebrig". Alles vier falsch: sein Zugang kostet
+     nichts, laeuft nicht ab und haengt nicht an Stripe.
+
+     Deshalb steht die Abfrage VOR allem, was Stripe liest — genau wie
+     in hasPaidAccess, und aus demselben Grund: die ersten Founding
+     Partner werden bestehende Nutzer sein und tragen Stripe-Spuren. */
+  const foundingPartner  = isFoundingPartner(profile);
+  const stripeAltaboAktiv = hatAktivesStripeAltabo(profile);
+
+  const isTrial = !foundingPartner
+    && (profile?.stripe_subscription_status === 'trialing' || plan === 'trial');
   const hasStripeCustomer = !!profile?.stripe_customer_id;
 
   const trialEndsDate = profile?.trial_ends_at ? new Date(profile.trial_ends_at) : null;
@@ -172,9 +202,14 @@ export default function DashboardSettings() {
     : null;
 
   const planLabels = {
-    free:  'Kostenloser Plan',
-    trial: `${pricing.trialDays} Tage Gratis-Test`,
-    pro:   `${pricing.productName}`,
+    free:              'Kostenloser Plan',
+    trial:             `${pricing.trialDays} Tage Gratis-Test`,
+    pro:               `${pricing.productName}`,
+    /* Nicht "Lifetime free" und nicht "Für immer kostenlos" (§14).
+       Das Programm kann enden; ein Versprechen, das wir nicht halten
+       koennen, waere genau die Art falscher Zusage, die H2.2
+       schliessen soll. */
+    founding_partner:  'Founding Partner',
   };
 
   /* ── Delete Account (GDPR Right to be Forgotten) ── */
@@ -229,7 +264,11 @@ export default function DashboardSettings() {
       {/* ── PLAN & BILLING ── */}
       <Card $d="0s" style={{ borderTop: '4px solid var(--color-accent)' }}>
         <CardTitle>Abo & Abrechnung</CardTitle>
-        <CardSub>Verwalte dein Abo, ändere den Tarif oder kündige jederzeit.</CardSub>
+        <CardSub>
+          {foundingPartner
+            ? 'Dein Zugang im Founding-Partner-Programm.'
+            : 'Verwalte dein Abo, ändere den Tarif oder kündige jederzeit.'}
+        </CardSub>
 
         {isTrial && daysLeft !== null && (
           <div style={{ marginBottom: 16 }}>
@@ -259,12 +298,20 @@ export default function DashboardSettings() {
         <PlanRow>
           <PlanInfo>
             <PlanBadge $plan={isTrial ? 'trial' : plan}>
-              {plan === 'pro' && <CheckCircle size={11} />}
-              {plan === 'trial' && <CheckCircle size={11} />}
+              {(plan === 'pro' || plan === 'trial' || foundingPartner) && <CheckCircle size={11} />}
               {plan === 'free' && <AlertTriangle size={11} />}
-              {isTrial ? 'Test-Phase' : plan === 'pro' ? 'Aktiv' : 'Free'}
+              {foundingPartner
+                ? 'Founding Partner'
+                : isTrial ? 'Test-Phase' : plan === 'pro' ? 'Aktiv' : 'Free'}
             </PlanBadge>
-            <PlanName>{isTrial ? `${pricing.trialDays} Tage Gratis-Test` : (planLabels[plan] || plan)}</PlanName>
+            <PlanName>
+              {isTrial ? `${pricing.trialDays} Tage Gratis-Test` : (planLabels[plan] || plan)}
+            </PlanName>
+            {foundingPartner && (
+              <PlanDetail>
+                Kostenlos, solange du Teil des Founding-Partner-Programms bist.
+              </PlanDetail>
+            )}
             {isTrial && trialEnds && (
               <PlanDetail style={{ color: trialUrgent ? '#D93025' : undefined }}>
                 {daysLeft === 0
@@ -289,7 +336,44 @@ export default function DashboardSettings() {
           </PlanInfo>
 
           <div>
-            {hasStripeCustomer ? (
+            {/* ── Founding Partner: kein Upgrade, kein Preis, kein Druck ──
+
+                §16 ist eine Produktentscheidung, nicht eine
+                Darstellungsfrage: Founding Partner sollen nicht zum
+                Portal oder zum Upgrade gedraengt werden. Ein Knopf
+                "Abo & Zahlungen verwalten" bei jemandem, der kein Abo
+                hat, ist genau dieser Druck — und er fuehrt zu einem
+                Portal, in dem es nichts zu verwalten gibt.
+
+                Eine Ausnahme, und die ist der Grund, warum hier nicht
+                einfach nichts steht: laeuft parallel noch ein aktives
+                Altabo, wird gerade Geld abgebucht fuer einen Zugang,
+                der kostenlos ist. Das wird benannt und verlinkt, statt
+                es stillschweigend zu uebergehen. */}
+            {foundingPartner ? (
+              stripeAltaboAktiv ? (
+                <>
+                  <PlanDetail style={{ color: '#D48A00', fontWeight: 700, marginTop: 0 }}>
+                    Bei Stripe läuft noch ein Abo (Status:{' '}
+                    {profile?.stripe_subscription_status}).
+                  </PlanDetail>
+                  <PlanDetail>
+                    Dein Zugang ist als Founding Partner kostenlos — dieses Abo
+                    brauchst du dafür nicht.
+                  </PlanDetail>
+                  <PortalBtn
+                    onClick={handlePortal}
+                    disabled={portalLoading}
+                    style={{ marginTop: 8 }}
+                  >
+                    {portalLoading
+                      ? <><Loader size={15} className="spin" />Wird geöffnet…</>
+                      : <><CreditCard size={15} />Altes Abo bei Stripe prüfen <ExternalLink size={13} /></>
+                    }
+                  </PortalBtn>
+                </>
+              ) : null
+            ) : hasStripeCustomer ? (
               <>
                 <PortalBtn onClick={handlePortal} disabled={portalLoading}>
                   {portalLoading

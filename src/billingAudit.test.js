@@ -309,22 +309,55 @@ describe('L — was die Oberfläche verspricht', () => {
     expect(CHECKOUT).not.toMatch(/payment_method_collection/);
   });
 
-  it('zeigt einem Betrieb ohne Stripe-Kunden den Upgrade-Knopf — Befund', () => {
-    /* Trifft heute auch Founding Partner: Sie haben keinen
-       stripe_customer_id, bekommen also „Jetzt upgraden" samt
-       „30 Tage kostenlos — danach 49 €". Siehe Bericht L. */
+  it('zeigt einem Betrieb ohne Stripe-Kunden den Upgrade-Knopf', () => {
+    /* Das gilt weiter — fuer free. Dass es auch Founding Partner traf,
+       war der Befund aus Bericht L; geschlossen in H2.2 C. */
     expect(SETTINGS).toMatch(/hasStripeCustomer \? \(/);
     expect(SETTINGS).toMatch(/Jetzt upgraden/);
-    expect(SETTINGS).not.toMatch(/isFoundingPartner|founding_partner/);
   });
 
-  it('kennt kein Etikett für founding_partner', () => {
-    /* Folge: PlanName zeigt den Rohwert „founding_partner". */
+  it('kennt inzwischen ein Etikett für founding_partner — Befund geschlossen', () => {
+    /* ── Umgedreht am 14.10.2026 ──
+
+       Diese beiden Zusagen hielten den H2.1-Befund fest: die
+       Einstellungsseite kannte founding_partner nicht, zeigte deshalb
+       den Rohwert als Plannamen und den Upgrade-Knopf samt Preis.
+
+       H2.2 C hat das geschlossen. Die alte Fassung pruefte
+
+         expect(SETTINGS).not.toMatch(/isFoundingPartner|founding_partner/)
+
+       und wurde durch die Korrektur rot — richtig so: ein Test, der
+       einen Befund festhaelt, MUSS fallen, wenn der Befund behoben
+       ist. Sonst wuerde er die Behebung verhindern.
+
+       Was die Darstellung wirklich tut, prueft nicht dieser Test,
+       sondern src/pages/dashboard/foundingPartnerSettings.test.js an
+       der gerenderten Seite. Hier steht nur, dass die Datei den Fall
+       ueberhaupt kennt. */
+    expect(SETTINGS).toMatch(/isFoundingPartner/);
+
     const etiketten = SETTINGS.slice(SETTINGS.indexOf('const planLabels'),
                                      SETTINGS.indexOf('};', SETTINGS.indexOf('const planLabels')));
     expect(etiketten).toMatch(/free:/);
     expect(etiketten).toMatch(/pro:/);
-    expect(etiketten).not.toMatch(/founding_partner/);
+    expect(etiketten).toMatch(/founding_partner:\s+'Founding Partner'/);
+
+    /* ── Hier stand kurz eine Zusage zu viel ──
+
+       Der erste Entwurf dieser Korrektur prueefte zusaetzlich
+
+         expect(SETTINGS).not.toMatch(/Lifetime|Für immer kostenlos/i)
+
+       und wurde rot: die Datei enthaelt diese Worte, naemlich in dem
+       Kommentar, der erklaert, warum sie NICHT verwendet werden.
+
+       Ein Quelltext-Muster kann Kommentar und Ausgabe nicht
+       unterscheiden. Die Zusage steht deshalb dort, wo sie
+       hingehoert: in foundingPartnerSettings.test.js, gegen die
+       gerenderte Seite. Dasselbe gilt in dieser Datei fuer alles,
+       was der Nutzer am Ende sehen soll — hier wird nur belegt, was
+       im Code VORHANDEN ist, nie was er anzeigt. */
   });
 });
 
