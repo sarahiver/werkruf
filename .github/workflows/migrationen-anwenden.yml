@@ -196,13 +196,17 @@ jobs:
       - uses: supabase/setup-cli@v1
         # Feste Version, nicht "latest".
         #
-        # deploy.yml nimmt latest. Fuer einen Function-Deploy ist das
-        # ein kalkulierbares Risiko; fuer einen Lauf, der das
-        # Produktionsschema schreibt, nicht: ein Versionssprung kann
-        # Flags, Ausgabeformat oder Verhalten der Verlaufstabelle
-        # aendern, und dann wird aus einem gepruefen Pfad ein
-        # ungepruefter. Die Flags unten sind gegen genau diese Version
-        # gelesen (supabase db push --help, 12.10.2026).
+        # Ein Versionssprung kann Flags, Ausgabeformat oder Verhalten
+        # der Verlaufstabelle aendern, und dann wird aus einem
+        # gepruefen Pfad ein ungepruefter. Die Flags unten sind gegen
+        # genau diese Version gelesen (supabase db push --help,
+        # 12.10.2026).
+        #
+        # deploy.yml nahm bis zum 14.10.2026 "latest" und brach dann ab
+        # mit "Failed to resolve latest Supabase CLI release: rate limit
+        # exceeded" — die Action fragt dafuer bei jedem Lauf die
+        # GitHub-API ohne Token. Seitdem pinnt deploy.yml dieselbe
+        # Version.
         with:
           version: 2.120.0
 

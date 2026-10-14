@@ -62,17 +62,104 @@ jobs:
             echo "Keine Tests gefunden — uebersprungen"
           fi
 
+  # ── SQL-Tests ─────────────────────────────────────────────────────
+  # Diese Tests liefen bisher nirgends. Der Schritt "Tests" oben sucht
+  # supabase/tests/*.test.ts — davon gibt es keine einzige, also stand
+  # dort jedes Mal "Keine Tests gefunden". Die achtzehn .test.sql
+  # liefen nur lokal, gegen eine handgebaute Datenbank, die von
+  # Produktion abwich: google_locations.account_id und
+  # google_accounts.provider_account_id waren dort nullable, in
+  # Produktion sind sie NOT NULL. Dreizehn Tests waren deshalb gruen
+  # und erzeugten Daten, die Produktion nicht zulaesst.
+  #
+  # Ab hier baut die CI die Testdatenbank mit demselben Skript wie
+  # lokal: scripts/test-db/setup.sh, aus Baseline und Migrationen.
+  # Lokal und CI pflegen nicht zwei Testdatenbanken.
+  sql-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      # PostgreSQL 17, wie Produktion (17.6). Lokal steht oft nur 16
+      # zur Verfuegung; das Setup gibt die Version aus, damit der
+      # Unterschied sichtbar ist.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sichten in public — security_invoker
+        # Braucht keine Datenbank, laeuft deshalb zuerst: wenn eine
+        # Migration eine Sicht ohne security_invoker anlegt, muss das
+        # auffallen, bevor zehn Minuten Tests laufen.
+        #
+        # WARUM ALS QUELLTEXT-PRUEFUNG UND NICHT ALS SQL-TEST
+        #
+        # Die Testdatenbank setzt Supabases Vorgaberechte auf public
+        # nicht (alter default privileges ... grant all on tables to
+        # anon, authenticated). Ein SQL-Test, der nachsieht, ob anon
+        # eine Sicht lesen darf, wuerde dort nie etwas finden und
+        # waere dauerhaft falsch gruen — dieselbe Falle wie beim alten
+        # Baseline-Dump. Das Skript sagt das in seinem Kopf nochmal.
+        run: bash ./scripts/check-view-security.sh
+
+      - name: psql installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Testdatenbank aufbauen und SQL-Tests laufen lassen
+        # Exit-Code entscheidet. Kein Durchsuchen der Ausgabe.
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        # Mit bash, nicht direkt: unabhaengig vom Ausfuehrungsrecht.
+        run: bash ./scripts/test-db/run.sh
+
   # ── Deployen ──────────────────────────────────────────────────────
   deploy-functions:
-    needs: [lint-and-build, check-functions]
+    needs: [lint-and-build, check-functions, sql-tests]
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: supabase/setup-cli@v1
+        # Feste Version, nicht "latest".
+        #
+        # Gemessen am 14.10.2026: der Lauf brach ab mit
+        #
+        #   Error: Failed to resolve latest Supabase CLI release:
+        #          rate limit exceeded
+        #
+        # "latest" laesst die Action bei jedem Lauf die GitHub-API nach
+        # dem neuesten Release fragen, ohne Token. Dieses Kontingent
+        # teilen sich alle Laeufe, die von derselben Runner-Adresse
+        # kommen — es ist also nicht deines, und du kannst es nicht
+        # vergroessern. Ein Deploy, der an fremder Last scheitert, ist
+        # kein Deploy.
+        #
+        # Eine feste Version stellt die Frage gar nicht erst. Dieselbe
+        # Version wie in migrationen-anwenden.yml: eine CLI fuer beide
+        # Wege, damit ein Versionssprung nicht an einer Stelle auffaellt
+        # und an der anderen nicht.
         with:
-          version: latest
+          version: 2.120.0
 
       - name: Functions deployen
         env:
