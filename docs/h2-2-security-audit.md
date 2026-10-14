@@ -2,12 +2,14 @@
 
 Stand: 14.10.2026.
 
-**A ist gemessen, der P0 ist in Produktion bestätigt, B ist gebaut und
-nicht angewandt.** C–F sind nicht begonnen (§2).
+**A ist gemessen, der P0 ist in Produktion bestätigt. B (Schreibseite)
+und die Leseseite sind gebaut und nicht angewandt.** C–F sind nicht
+begonnen (§2).
 
 Ablauf: Abschnitt 1 ist die Abfrage, die in Produktion gelaufen ist.
 Abschnitt 3 ist ihr Ergebnis. Abschnitt 4 bis 7 ist die Klassifikation,
-auf der B beruht. Abschnitt 9 ist B selbst.
+auf der alles Weitere beruht. Abschnitt 9 ist die Schreibseite,
+Abschnitt 10 die Leseseite, Abschnitt 11 das Anwenden.
 
 ---
 
@@ -405,8 +407,8 @@ ist ein kleiner Eingriff in zwei Funktionsrümpfe, kein Umbau.
 Probe 3 aus Abschnitt 3.1 belegt es in Produktion: `anon` ruft
 `compute_health_score` mit fremder UUID und bekommt eine Antwort.
 
-Drei Wege, und ich baue keinen davon ohne deine Entscheidung. B in
-diesem Paket ist Weg 1; 2 und 3 wären eine zweite Migration:
+Drei Wege standen zur Wahl. **Entschieden wurde Weg 3**, umgesetzt in
+Abschnitt 10:
 
 1. nur den §3-Umfang (volatile) schließen, Leseseite als eigenes
    Paket — saubere Auftragstreue, Leseleck bleibt offen
@@ -417,10 +419,9 @@ diesem Paket ist Weg 1; 2 und 3 wären eine zweite Migration:
    `werkruf_score_location`, `compute_location_health_score`,
    `previous_location_health`, `read_location_impact_metric`
 
-Meine Empfehlung: **2**. Die 14 anon-Grants sind reine Vorgabe-Artefakte
-ohne Aufrufer; sie zu schließen kann nichts brechen. Weg 3 verändert
-Funktionsrümpfe, die das Frontend benutzt, und gehört in ein eigenes
-Paket mit eigenen Gegenproben.
+Meine Empfehlung war 2, entschieden wurde 3 — und das war richtig: die
+Gegenprobe zu Weg 3 hat einen Fehler gefunden, den ein reiner
+Grant-Entzug nie gezeigt hätte (Abschnitt 10.4).
 
 ---
 
@@ -539,52 +540,230 @@ den Test weiterhin rot.
 
 ---
 
-## 10. Anwenden — was du tun musst
+## 10. Leseseite — was gebaut ist
 
-Nicht von mir angewandt (§35).
+`supabase/migrations/20261014130000_lesezugriff_eigentumspruefung.sql`
+und `supabase/tests/lesezugriffIsolation.test.sql`.
+
+### 10.1 Zwei Mittel, nicht eines
+
+| Mittel | wofür | Umfang |
+| --- | --- | --- |
+| Grant entzogen | alles ohne Client-Aufrufer | 14 `PUBLIC`-offene + `has_paid_access` + 6 Lesefunktionen ohne Frontend-Aufrufer |
+| Eigentumsprüfung im Rumpf | alles, was ein Client erreicht oder erreichen könnte | 8 Funktionen mit `p_user_id` |
+
+Aus dem Browser gerufen werden von allen 23 genau zwei:
+`events_feed` (`src/hooks/useEvents.js`) und `werkruf_score_location`
+(`src/hooks/useHealthScore.js`), beide mit `p_user_id: user.id`. Im
+ganzen Frontend gibt es keine Stelle, die ein `p_user_id` übergibt, das
+nicht die eigene Sitzung ist — nachgesehen über alle `src/**`.
+
+Die sechs inneren Funktionen bekommen beides: kein Grant mehr **und**
+die Prüfung. Sie laufen nur innerhalb der beiden Client-RPCs, dort als
+Eigentümer; die Prüfung ist die zweite Reihe, falls jemand später ein
+Grant vergibt oder eine fremde ID durchreicht.
+
+### 10.2 Warum nicht `current_user`
+
+Die Falle, gemessen statt vermutet. In einer `SECURITY DEFINER`-Funktion
+ist `current_user` der **Eigentümer**, nicht der Aufrufer. Gemessen am
+14.10.2026 unter `set local role authenticated`:
+
+```text
+current_user=postgres  session_user=postgres  guc_role=authenticated
+```
+
+Eine Prüfung `if current_user = 'authenticated'` wäre also immer falsch
+— Sicherheit, die nur im Text steht. Was überlebt, ist die Rollen-GUC:
+PostgREST setzt je Anfrage `set local role <Rolle aus dem JWT>`.
+
+`public.assert_eigener_zugriff(p_user_id)` prüft deshalb zweierlei:
+
+1. Ist eine Sitzung da (`auth.uid()` nicht null), muss sie zur
+   angefragten `p_user_id` passen — unabhängig von der Rolle.
+2. Ruft eine Clientrolle (`authenticated`/`anon`), **muss** eine
+   Sitzung da sein. Ein JWT mit `role`, aber ohne `sub`, kommt damit
+   nicht durch.
+
+Serverpfade haben weder Sitzung noch Clientrolle: Cron läuft mit role
+`none`, die Edge Functions mit `service_role`. Beide kommen durch — das
+ist Absicht, sie arbeiten für alle Nutzer.
+
+### 10.3 Wie die Rümpfe geändert werden, ohne sie zu kopieren
+
+Sechs der acht sind plpgsql. Für sie liest die Migration die bestehende
+Definition mit `pg_get_functiondef` aus dem Katalog, setzt eine Zeile
+hinter das Toplevel-`begin` und führt das Ergebnis aus.
+
+Das ist Absicht, nicht Bequemlichkeit: ein einkopierter Rumpf wäre der
+Rumpf, den **das Repo** für richtig hält. G2.1 hat gemessen, dass Repo
+und Produktion auseinanderlaufen können. Ein einkopierter Rumpf würde
+so einen Unterschied stillschweigend überschreiben; der Katalog ist
+das, was wirklich läuft.
+
+Abgesichert in beide Richtungen: der Einfügepunkt muss hinter
+`AS $function$` liegen, sonst Abbruch; ohne Toplevel-`begin` Abbruch mit
+Namen; ist die Prüfung schon drin, passiert nichts.
+
+Die zwei `language sql`-Funktionen haben keinen `begin`-Block. Ihre
+Rümpfe stehen ausgeschrieben, als plpgsql gefasst — die Abfrage ist
+dieselbe, sie steht nur in einem `return`. Davor prüft die Migration die
+Prüfsumme des bestehenden Rumpfes und bricht bei Abweichung ab, statt
+eine abweichende Produktionsfassung zu überschreiben.
+
+### 10.4 Was die Gegenprobe gefunden hat
+
+Der Grund, warum Weg 3 die richtige Entscheidung war.
+
+Nach dem ersten Lauf waren alle acht Prüfzeilen im Rumpf, die
+Selbstprüfung grün — und der A/B-Test meldete trotzdem, dass A die
+Daten von B lesen kann, bei `compute_location_health_score` und
+`build_location_evaluation_context`.
+
+Der Grund: beide enden mit
+
+```sql
+exception when others then
+  return jsonb_build_object('score', null, 'grund', 'fehler',
+                            'error', sqlerrm, 'scoreVersion', 1);
+```
+
+`when others` fängt auch `42501`. Die Prüfung lief, warf — und der
+Handler machte daraus ein freundliches JSON. Bei
+`compute_location_health_score` stand die Fehlermeldung sogar im
+Ergebnis. Eine Härtung, die aussieht wie eine Härtung und keine ist.
+
+Die Migration setzt deshalb in einen solchen Handler als erste Zeile
+`if sqlstate = '42501' then raise; end if;`. Alles andere fängt er
+weiterhin ab — das ist seine Aufgabe.
+
+**Zweiter Fehler, in meiner eigenen Erkennung:** der erste Entwurf
+suchte im ganzen Funktionstext nach `when others` und brach bei
+`previous_location_health` ab — dort steht der Ausdruck in einem
+**Kommentar** („Bewusst NUR undefined_column: Ein weiter gefasstes
+`when others` …"). Genau die Textmuster-Falle, vor der G2.2 §29 warnt,
+diesmal in meiner Prüflogik. Erkannt wird der Handler jetzt am
+Zeilenanfang, nicht am Wort.
+
+Was offen bleibt und nicht hierher gehört: der Handler von
+`compute_location_health_score` gibt weiterhin `sqlerrm` an den
+Aufrufer zurück. Für `42501` nicht mehr, für andere Fehler schon. Das
+ist ein eigener Befund, kein P0, und keine Zeile dieses Pakets.
+
+### 10.5 Die A/B-Gegenproben
+
+`lesezugriffIsolation.test.sql`, zwei echte Nutzer mit je einem
+Betrieb, echter Rollenwechsel und echtes `request.jwt.claim.sub` wie
+bei PostgREST. Die Produktionsfassung von `auth.uid()` wird in der
+Transaktion installiert — gegen den Stub (liefert immer null) wäre
+jede Eigentumsprüfung grün, ohne etwas geprüft zu haben.
+
+| Abschnitt | prüft |
+| --- | --- |
+| A | A liest seine eigenen Daten über beide Client-RPCs, mit echtem Ergebnis |
+| A2 | die sechs inneren Funktionen laufen mit eigener ID durch |
+| B | alle acht weisen eine fremde `user_id` ab — mit `42501` **und** dem Text der Eigentumsprüfung |
+| B2 | dasselbe für die zwei Client-RPCs unter `role authenticated` |
+| C | Clientrolle ohne Sitzung bekommt `42501` |
+| D | Serverpfad (`role none`, keine Sitzung) liest weiterhin alles |
+| E | ohne Grant kommt der Aufruf gar nicht erst an (`permission denied`) |
+| F | **Gegenprobe**: ohne die Prüfzeile liest A den Betrieb von B |
+| G | Policy über alle 29 `definer`+`stable`: nur die zwei Client-RPCs erreichbar |
+| H | **Gegenprobe zu G**: `grant execute … to anon` wird gefunden |
+
+Abschnitt B läuft bewusst mit `role none` und gesetzter Sitzung. Mit
+`authenticated` wäre er auch dann grün, wenn es gar keine
+Eigentumsprüfung gäbe — die sechs inneren hätten ohnehin `permission
+denied` geworfen, mit demselben SQLSTATE. Deshalb prüft B zusätzlich
+den Meldungstext. Das ist der Unterschied zwischen einem Test, der
+etwas prüft, und einem, der nur grün ist.
+
+### 10.6 Belege
+
+| Beweis | Ergebnis |
+| --- | --- |
+| nach beiden Migrationen, `definer` + `volatile` | gesamt 82, PUBLIC 0, anon 0, authenticated 3, service_role 82 |
+| nach beiden Migrationen, `definer` + `stable` | gesamt 29, PUBLIC 0, anon 0, authenticated 2, service_role 29 |
+| zweiter Lauf der Lesemigration | Exit 0, genau eine Prüfzeile je Funktion |
+| **Gegenprobe**: Datenbank ohne die Lesemigration | `lesezugriffIsolation.test.sql` rot in Abschnitt B |
+| alle SQL-Tests | 27 Dateien, 27 ausgeführt, 0 rot |
+| Jest | 1048 Tests in 67 Suites grün |
+| `CI=true npm run build` | `Compiled successfully.` |
+
+---
+
+## 11. Anwenden — was du tun musst
+
+Nicht von mir angewandt (§35). **Reihenfolge zählt**: erst die
+Schreibseite, dann die Leseseite. Beide sind wiederholbar, beide
+brechen bei Abweichung ab.
 
 1. **GitHub → Actions → „Apply Supabase migrations" → Modus
    `vorschau`.** Liest nur. Erwartet: genau
-   `20261014120000_execute_rechte_kanonisch.sql` steht als offen.
-   Stehen dort plötzlich alle Migrationen, ist `verlauf-nachtragen`
-   der erste Schritt und nicht `anwenden` — siehe der Kopf des
-   Workflows.
+   `20261014120000_execute_rechte_kanonisch.sql` und
+   `20261014130000_lesezugriff_eigentumspruefung.sql` stehen als
+   offen, in dieser Reihenfolge. Stehen dort plötzlich alle
+   Migrationen, ist `verlauf-nachtragen` der erste Schritt und nicht
+   `anwenden` — siehe der Kopf des Workflows.
 2. **Derselbe Workflow, Modus `anwenden`.** Der Workflow lässt vorher
-   die SQL-Tests laufen; `securityDefinerPrivileges.test.sql` ist
-   dabei.
+   die SQL-Tests laufen; `securityDefinerPrivileges.test.sql` und
+   `lesezugriffIsolation.test.sql` sind dabei.
 3. **Danach die Messabfrage aus Abschnitt 1 erneut ausführen.** Soll:
-   `davon PUBLIC offen: 0`, `davon nur authenticated: 3`.
-4. **Und die Wirkungsprobe 1 aus 1.1.** Soll:
-   `ERROR: permission denied for function update_user_plan`.
 
-Falls Schritt 2 abbricht: die Fehlermeldung nennt die Funktion, die
-nicht in meiner Liste stand. Dann nicht nachtragen, sondern den Namen
-schicken — §5 und §7 verlangen vorher die Aufrufer- und
-Wirkungsprüfung.
+   ```text
+   davon PUBLIC offen: 0
+   davon nur authenticated: 3
+   definer+stable PUBLIC offen: 0
+   definer+stable nur auth: 2
+   ```
 
-Erst wenn Produktion in Schritt 3 null zeigt, ist der P0 geschlossen.
+4. **Und die drei Wirkungsproben aus 1.1.** Soll: Probe 1 und 2
+   `ERROR: permission denied for function update_user_plan`, Probe 3
+   `ERROR: permission denied for function compute_health_score`.
+5. **Dashboard einmal öffnen.** Score und Aufgabenliste müssen
+   erscheinen — sie laufen über die zwei Funktionen, die
+   `authenticated` behalten haben.
+
+Falls Schritt 2 abbricht, nennt die Meldung die Ursache:
+
+| Meldung | Bedeutung |
+| --- | --- |
+| „Noch offen nach dem Setzen: …" | eine Funktion, die nicht in meiner Liste stand. Nicht nachtragen — den Namen schicken, §5 und §7 verlangen vorher die Aufrufer- und Wirkungsprüfung. |
+| „Rumpf weicht von der gelesenen Fassung ab …" | Produktion hat eine andere Fassung von `werkruf_score_location` oder `weekly_mail_events`. Nichts wurde geändert. Bitte den Rumpf schicken, statt die Prüfsumme anzupassen. |
+| „hat einen when-others-Handler in einer Form, die diese Migration nicht kennt" | eine Handler-Schreibweise, die ich nicht geprüft habe. Nichts wurde geändert. |
+| „when-others verschluckt die Zugriffsprüfung: …" | die Prüfzeile ist drin, aber der Handler fängt sie. Siehe 10.4 — diesen Zustand darf es nicht geben. |
+
+Erst wenn Produktion in Schritt 3 vier Nullen beziehungsweise 3 und 2
+zeigt, sind beide Befunde geschlossen.
 
 ---
 
-## 11. Offen und entscheidungsbedürftig
+## 12. Offen und entscheidungsbedürftig
 
-1. **Der Lesebefund aus Abschnitt 7.** 14 `STABLE`-Funktionen für
-   `anon`, neun für `authenticated`, darunter `events_feed` und
-   `werkruf_score_location` mit freier `user_id` und ohne
-   `auth.uid()`-Prüfung. Weg 1, 2 oder 3 — Empfehlung 2.
-2. **Die zwei toten `sync_events`-Überladungen**: geschlossen bleiben
-   oder löschen.
-3. **C–F** sind nicht begonnen.
+1. **Beide Migrationen sind nicht angewandt.** Reihenfolge zählt:
+   erst `20261014120000`, dann `20261014130000`.
+2. **C–F** sind nicht begonnen. C ist der nächste Schritt.
+3. Kein P0, aber notiert: `compute_location_health_score` gibt im
+   `when others`-Handler weiterhin `sqlerrm` an den Aufrufer zurück
+   (Abschnitt 10.4).
+
+Entschieden und umgesetzt: die zwei toten
+`sync_events`-Überladungen bleiben geschlossen und werden nicht
+gelöscht.
 
 ---
 
-## 12. Was in diesem Paket nicht passiert ist
+## 13. Was in diesem Paket nicht passiert ist
 
 - keine Migration angewandt, kein Deploy
 - keine Stripe-Konfiguration angefasst, kein Webhook ausgelöst
 - keine Mail verschickt
 - kein fremder Nutzer verändert
 - keine bestehende Migration editiert
-- kein Funktionsrumpf verändert, kein Schema, keine Daten
-- C–F nicht begonnen (§2)
-- die `STABLE`-Lesefunktionen nicht angefasst (§3-Umfang, §7)
+- keine Daten, keine Tabellen, keine Policies, keine Signatur, kein
+  Rückgabetyp geändert
+- keine fachliche Logik geändert: die acht Rümpfe haben eine Zeile
+  davor bekommen, zwei zusätzlich eine im Fehlerzweig
+- die zwei toten `sync_events`-Überladungen nur geschlossen, nicht
+  gelöscht
+- C–F nicht begonnen
