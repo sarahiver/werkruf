@@ -99,18 +99,30 @@ serve(async (req) => {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) return json({ error: 'Nicht angemeldet' }, 401);
 
-  let authUser: { id: string; app_metadata?: Record<string, unknown> } | null = null;
+  /* Eigener Typ statt `typeof authUser`: der erste Entwurf schrieb
+     `data.user as typeof authUser`, und weil die Variable zu diesem
+     Zeitpunkt noch `null` ist, hiess das "wandle User in null um".
+     deno check in CI hat das als TS2352 gemeldet, und die Folge war
+     eine Kette von `never`-Fehlern. */
+  interface Aufrufer {
+    id: string;
+    app_metadata?: { role?: string } & Record<string, unknown>;
+  }
+
+  let aufrufer: Aufrufer | null = null;
   try {
     const caller = createClient(url, umgebung('SUPABASE_ANON_KEY'), {
       global: { headers: { Authorization: authHeader } },
     });
     const { data, error } = await caller.auth.getUser();
     if (error || !data?.user) return json({ error: 'Nicht angemeldet' }, 401);
-    authUser = data.user as typeof authUser;
+    aufrufer = { id: data.user.id, app_metadata: data.user.app_metadata };
   } catch (err) {
     log('auth_fehler', { message: String(err) });
     return json({ error: 'Nicht angemeldet' }, 401);
   }
+
+  if (!aufrufer) return json({ error: 'Nicht angemeldet' }, 401);
 
   /* ── 2. Darf er das ──
 
@@ -131,7 +143,7 @@ serve(async (req) => {
     : 'list_customers';
 
   const urteil = pruefeAnfrage({
-    authUser,
+    authUser: aufrufer,
     aktion,
     parameter: (body.params as Record<string, unknown>) ?? body,
   });
@@ -140,7 +152,7 @@ serve(async (req) => {
     log('abgewiesen', {
       status: urteil.status,
       aktion,
-      adminId: authUser?.id ?? null,
+      adminId: aufrufer.id,
       grund: urteil.fehler,
     });
     return json({ error: urteil.fehler }, urteil.status);
@@ -150,8 +162,14 @@ serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { parameter } = urteil;
-  const adminId = authUser!.id;
+  /* Nach `if (!urteil.erlaubt) return` ist parameter gesetzt — aber
+     der Rueckgabetyp kommt aus einer JS-Datei, und TypeScript kann
+     die Union dort nicht am Feld `erlaubt` unterscheiden. Deshalb
+     hier ausdruecklich und nicht mit `!`: ein leeres Objekt ist der
+     richtige Fallback, weil jede Aktion ihre Parameter selbst prueft
+     und `pruefeAnfrage` sie bereits reduziert hat. */
+  const parameter: Record<string, unknown> = urteil.parameter ?? {};
+  const adminId = aufrufer.id;
 
   try {
     switch (urteil.aktion) {
@@ -193,11 +211,14 @@ function fehlerCode(err: unknown): string {
    LISTE
    ═════════════════════════════════════════════ */
 
-const LISTEN_SPALTEN = [
-  'id', 'company_name', 'plan', 'created_at',
-  'stripe_subscription_status', 'founding_partner_since',
-  'accepted_terms_at',
-].join(',');
+/* Als ein Zeichenketten-Literal und nicht als join() ueber ein Array:
+   postgrest-js leitet den Zeilentyp aus dem select-Text ab. Ist der
+   Text zur Uebersetzungszeit unbekannt, faellt der Typ auf
+   GenericStringError zurueck, und jeder Feldzugriff darauf ist ein
+   Fehler. Gefunden hat das `deno check` in CI — zehn Meldungen aus
+   dieser einen Zeile. */
+const LISTEN_SPALTEN =
+  'id,company_name,plan,created_at,stripe_subscription_status,founding_partner_since,accepted_terms_at';
 
 /**
  * Kundensuche (§5, §42).

@@ -193,7 +193,24 @@ export function istAdmin(authUser) {
  * 403 vor 400: ein Nicht-Admin soll nicht über Fehlermeldungen
  * herausfinden, welche Aktionen es gibt.
  */
-export function pruefeAnfrage({ authUser, aktion, parameter = {} }) {
+/**
+ * @typedef {object} Urteil
+ * @property {boolean} erlaubt
+ * @property {number} status
+ * @property {string} [fehler]
+ * @property {string} [aktion]
+ * @property {Zeile} [regel]
+ * @property {Record<string, any>} [parameter]
+ */
+
+/**
+ * @param {object} eingabe
+ * @param {Zeile|null} [eingabe.authUser]
+ * @param {string} [eingabe.aktion]
+ * @param {Record<string, any>} [eingabe.parameter]
+ * @returns {Urteil}
+ */
+export function pruefeAnfrage({ authUser = null, aktion = '', parameter = {} }) {
   if (!authUser?.id) {
     return { erlaubt: false, status: 401, fehler: 'Nicht angemeldet' };
   }
@@ -353,8 +370,26 @@ export function leiteImportZustandAb(importJobs = [], anzahlStandorte = 0) {
  * nötig; `stripe_customer_id` nur als ja/nein plus die ID, weil man
  * sie im Stripe-Dashboard braucht.
  */
+/**
+ * @typedef {Record<string, any>} Zeile
+ *   Eine Datenbankzeile, wie PostgREST sie liefert. Absichtlich lose:
+ *   diese Funktion liest Felder und erfindet keine Struktur.
+ */
+
+/**
+ * @param {object} eingabe
+ * @param {Zeile|null} [eingabe.profil]
+ * @param {string|null} [eingabe.authEmail]
+ * @param {Zeile|null} [eingabe.konto]
+ * @param {Zeile[]} [eingabe.standorte]
+ * @param {Zeile[]} [eingabe.jobs]
+ * @param {Zeile[]} [eingabe.mails]
+ * @param {Zeile[]} [eingabe.events]
+ * @param {Date} [eingabe.jetzt]
+ * @returns {Zeile|null}
+ */
 export function baueSupportSnapshot({
-  profil,
+  profil = null,
   authEmail = null,
   konto = null,
   standorte = [],
@@ -583,6 +618,16 @@ export function supportAmpel(snapshot) {
  *
  * `ergebnis` gehört mit hinein, auch bei Fehlschlag: ein Audit, das
  * nur Erfolge kennt, verschweigt die interessanten Fälle.
+ */
+/**
+ * @param {object} eingabe
+ * @param {string} eingabe.aktion
+ * @param {string|null} eingabe.adminId
+ * @param {string|null} eingabe.userId
+ * @param {boolean} eingabe.erfolg
+ * @param {unknown} [eingabe.ergebnis]
+ * @param {unknown} [eingabe.fehler]
+ * @returns {Zeile}
  */
 export function baueAuditEintrag({ aktion, adminId, userId, erfolg, ergebnis = null, fehler = null }) {
   const regel = ADMIN_AKTIONEN[aktion];

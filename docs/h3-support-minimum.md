@@ -394,8 +394,8 @@ Wo die Prüfungen liegen und warum:
 
 Dass die Regeln in `src/utils/adminOps.js` stehen und nicht in der
 Edge Function, ist der Grund, warum die erste Spalte echte Prüfungen
-enthält: `deno check` läuft in dieser Umgebung nicht, und ein Test
-könnte die Function nur als Text lesen. In H2.2 hat genau diese Art
+enthält: die Function selbst lässt sich hier nicht ausführen, und ein
+Test könnte sie nur als Text lesen. In H2.2 hat genau diese Art
 Prüfung dreimal einen Kommentar getroffen statt Code — einmal mit dem
 Ergebnis, dass ein behobener Befund unbemerkt blieb. Die
 Strukturprüfungen entfernen deshalb vorher die Kommentare.
@@ -415,6 +415,40 @@ in den Aktionen. Der Test behauptete also einen Schutz, den er nicht
 prüfte — die unangenehmste Art von Lücke. Jetzt wird jeder Zweig
 geprüft, der mit einer `user_id` arbeitet, und beide Varianten des
 Eingriffs werden rot.
+
+### Was `deno check` in CI gefunden hat — und wie ich es künftig vorher sehe
+
+Die erste Fassung der Function hatte **28 Typfehler**, gemeldet von
+`deno check` in CI. Ich hatte im Bericht geschrieben, dass ich das hier
+nicht prüfen kann (`deno` erreicht `deno.land` und `esm.sh` über den
+Proxy nicht — nachgeprüft: „unsuccessful tunnel"). Das stimmt, war
+aber die falsche Schlussfolgerung: **prüfen kann ich trotzdem, nur
+anders.**
+
+`npx tsc` liegt im Projekt, und die echten supabase-js-Typen liegen in
+`node_modules`. Mit einer `tsconfig`, die die Remote-URLs über `paths`
+auf das lokale Paket und auf kleine Stubs für `serve` und `Stripe`
+zeigt, meldet `tsc` dieselben Fehler mit denselben Codes in denselben
+Zeilen. Damit war die Rückmeldung von CI reproduzierbar — und die
+Korrektur prüfbar statt geraten: 28 → 17 → 0.
+
+Die vier Ursachen, weil sie sich wiederholen werden:
+
+| Ursache | Wirkung |
+| --- | --- |
+| `data.user as typeof authUser`, während die Variable noch `null` ist | TS2352 „Conversion of type 'User' to type 'null'", danach eine Kette von `never`-Fehlern |
+| `select(KONSTANTE)` statt eines Zeichenketten-Literals | postgrest-js kann den Zeilentyp nicht ableiten → `GenericStringError`, **zehn** Meldungen aus einer Zeile |
+| Standardwerte `= null` in einer JS-Funktion ohne JSDoc | TypeScript leitet den Parametertyp als `null` ab, und jeder echte Wert ist „not assignable to type 'null \| undefined'" |
+| Rückgabe-Union aus einer JS-Datei | kein Narrowing über `if (!urteil.erlaubt)`, also `parameter` dauerhaft „possibly undefined" |
+
+Behoben durch: eine eigene `Aufrufer`-Schnittstelle statt des Casts,
+das Literal im `select`, JSDoc-Typen in `adminOps.js` und einen
+ausdrücklichen Fallback für `parameter`. Keine `any`, kein
+`@ts-ignore`, kein `!` an der kritischen Stelle.
+
+Gegengeprüft nach der Korrektur: beide geänderten Functions
+(`admin-ops` und `stripe-webhook`) melden 0 Fehler, und die vier
+§50-Gegenproben greifen weiterhin.
 
 ### Zwei Fehler, die die Tests gefunden haben
 
