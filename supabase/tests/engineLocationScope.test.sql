@@ -13,24 +13,64 @@ insert into t_ids values
   ('user',    '11111111-1111-1111-1111-111111111111'),
   ('fremder', '22222222-2222-2222-2222-222222222222'),
   ('si',      '33333333-3333-3333-3333-333333333333'),
-  ('werkruf', '44444444-4444-4444-4444-444444444444');
+  ('werkruf', '44444444-4444-4444-4444-444444444444'),
+  ('konto',   '55555555-5555-5555-5555-555555555555');
 
-insert into public.google_locations (id, user_id, title, primary_phone, website_uri, locality, primary_category, google_media, selected_at)
-values
-  ((select id from t_ids where name='si'), (select id from t_ids where name='user'),
-   'S&I.', '+49 40 1', 'https://si.example', 'Hamburg', 'gcid:web_designer',
-   (select jsonb_agg(jsonb_build_object('name','m'||g)) from generate_series(1,8) g), now()),
-  ((select id from t_ids where name='werkruf'), (select id from t_ids where name='user'),
-   'WERKRUF', null, null, 'Hamburg', 'gcid:plumber',
-   (select jsonb_agg(jsonb_build_object('name','m'||g)) from generate_series(1,2) g), null);
+/* ═══════════════════════════════════════════════════════
+   GRUNDGERUEST — ueber die Fixture-Schicht, nicht von Hand
+   ═══════════════════════════════════════════════════════
 
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered)
-select (select id from t_ids where name='user'), (select id from t_ids where name='si'), 5, true
-from generate_series(1,4);
+   Dieser Test stammt aus der Zeit, in der die Testdatenbank mehrere
+   Pflichtspalten nullable liess. Er war gruen, obwohl er Zeilen
+   erzeugte, die Produktion nie zugelassen haette — genau die Falle,
+   vor der der Kopf von setup.sh warnt.
 
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered)
-select (select id from t_ids where name='user'), (select id from t_ids where name='werkruf'), 3, false
-from generate_series(1,2);
+   Betroffen waren, der Reihe nach beim Haerten aufgetaucht:
+
+     google_accounts.provider_account_id      NOT NULL
+     google_accounts.user_id                  FK auf auth.users
+     google_locations.account_id              NOT NULL
+     google_locations.account_resource_name   NOT NULL
+     google_locations.location_resource_name  NOT NULL
+
+   Jede einzeln nachzutragen legt die naechste frei. Deshalb hier die
+   Helfer aus scripts/test-db/sql/80-fixtures.sql: sie halten dieses
+   Wissen an EINER Stelle und liefern dieselben Kennungen, die t_ids
+   fuehrt — kein zweiter Satz UUIDs.
+
+   Die fachlichen Felder setzt der Test danach selbst. Sie sind sein
+   Gegenstand: Abschnitt 5 misst profile.completeness daran. */
+
+select test.benutzer('user_a');
+select test.konto('konto_a', 'user_a');
+select test.standort('standort_si',      'user_a', 'konto_a', 'S&I.',    true);
+select test.standort('standort_werkruf', 'user_a', 'konto_a', 'WERKRUF', false);
+
+update public.google_locations set
+  primary_phone    = '+49 40 1',
+  website_uri      = 'https://si.example',
+  locality         = 'Hamburg',
+  primary_category = 'gcid:web_designer',
+  google_media     = (select jsonb_agg(jsonb_build_object('name','m'||g))
+                        from generate_series(1,8) g)
+ where id = (select id from t_ids where name='si');
+
+update public.google_locations set
+  primary_phone    = null,
+  website_uri      = null,
+  locality         = 'Hamburg',
+  primary_category = 'gcid:plumber',
+  google_media     = (select jsonb_agg(jsonb_build_object('name','m'||g))
+                        from generate_series(1,2) g)
+ where id = (select id from t_ids where name='werkruf');
+
+/* google_reviews hat fuenf Pflichtspalten — location_id, account_id,
+   user_id, review_resource_name, google_created_at. test.bewertungen()
+   fuellt sie und liest Nutzer und Konto aus dem Standort, damit sie
+   nicht auseinanderlaufen. Fachlich setzt der Test nur, was er prueft:
+   Anzahl, Sterne, Antwortstand. */
+select test.bewertungen('standort_si',      4, 5, true);
+select test.bewertungen('standort_werkruf', 2, 3, false);
 
 /* ═══════════════════════════════════════════════════════
    1 — Dieselbe Regel darf fuer beide Betriebe bestehen

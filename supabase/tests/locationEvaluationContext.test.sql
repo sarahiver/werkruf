@@ -16,31 +16,66 @@ insert into t values
   ('si',      '33333333-3333-3333-3333-333333333333'),
   ('werkruf', '44444444-4444-4444-4444-444444444444');
 
-insert into public.google_accounts (id, user_id, status, provider_email)
-values ((select id from t where name='konto'), (select id from t where name='user'),
-        'active', 'ivergentz@gmail.com');
+/* ═══════════════════════════════════════════════════════
+   GRUNDGERUEST — ueber die Fixture-Schicht, nicht von Hand
+   ═══════════════════════════════════════════════════════
 
-insert into public.google_locations
-  (id, user_id, account_id, title, primary_phone, website_uri, locality, primary_category, google_media, selected_at)
-values
-  ((select id from t where name='si'), (select id from t where name='user'),
-   (select id from t where name='konto'),
-   'S&I.', '+49 40 1', 'https://si.example', 'Hamburg', 'gcid:web_designer',
-   (select jsonb_agg(jsonb_build_object('name','m'||g)) from generate_series(1,8) g), now()),
-  ((select id from t where name='werkruf'), (select id from t where name='user'),
-   (select id from t where name='konto'),
-   'WERKRUF', null, null, 'Hamburg', 'gcid:plumber',
-   (select jsonb_agg(jsonb_build_object('name','m'||g)) from generate_series(1,2) g), null);
+   Dieser Test stammt aus der Zeit, in der die Testdatenbank mehrere
+   Pflichtspalten nullable liess. Er war gruen, obwohl er Zeilen
+   erzeugte, die Produktion nie zugelassen haette — genau die Falle,
+   vor der der Kopf von setup.sh warnt.
+
+   Betroffen: provider_account_id, der Fremdschluessel auf auth.users
+   sowie account_resource_name und location_resource_name. Jede Spalte
+   einzeln nachzutragen legt die naechste frei; die Helfer aus
+   scripts/test-db/sql/80-fixtures.sql halten das Wissen an EINER
+   Stelle und liefern dieselben Kennungen, die t fuehrt.
+
+   Die fachlichen Felder setzt der Test danach selbst — sie sind sein
+   Gegenstand. */
+
+select test.benutzer('user_a');
+select test.konto('konto_a', 'user_a');
+select test.standort('standort_si',      'user_a', 'konto_a', 'S&I.',    true);
+select test.standort('standort_werkruf', 'user_a', 'konto_a', 'WERKRUF', false);
+
+/* provider_email setzt der Helfer nicht. Abschnitt 7 prueft nur den
+   status; die Mail bleibt trotzdem stehen, damit der Test weiter
+   beschreibt, was er nachstellt. */
+update public.google_accounts set provider_email = 'ivergentz@gmail.com'
+ where id = (select id from t where name='konto');
+
+update public.google_locations set
+  primary_phone    = '+49 40 1',
+  website_uri      = 'https://si.example',
+  locality         = 'Hamburg',
+  primary_category = 'gcid:web_designer',
+  google_media     = (select jsonb_agg(jsonb_build_object('name','m'||g))
+                        from generate_series(1,8) g)
+ where id = (select id from t where name='si');
+
+update public.google_locations set
+  primary_phone    = null,
+  website_uri      = null,
+  locality         = 'Hamburg',
+  primary_category = 'gcid:plumber',
+  google_media     = (select jsonb_agg(jsonb_build_object('name','m'||g))
+                        from generate_series(1,2) g)
+ where id = (select id from t where name='werkruf');
 
 /* S&I: vier Bewertungen, alle beantwortet, 5 Sterne */
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, google_created_at)
-select (select id from t where name='user'), (select id from t where name='si'), 5, true, now() - interval '3 days'
-from generate_series(1,4);
+/* google_reviews hat fuenf Pflichtspalten — location_id, account_id,
+   user_id, review_resource_name, google_created_at. test.bewertungen()
+   fuellt sie und liest Nutzer und Konto aus dem Standort. */
+select test.bewertungen('standort_si', 4, 5, true, interval '3 days');
 
 /* WERKRUF: zwei unbeantwortete Ein-Stern-Bewertungen */
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, reviewer_display_name, google_created_at)
-select (select id from t where name='user'), (select id from t where name='werkruf'), 1, false, 'Unzufrieden', now() - interval '2 days'
-from generate_series(1,2);
+select test.bewertungen('standort_werkruf', 2, 1, false, interval '2 days');
+
+/* Der Name steht nicht in den Zusicherungen, beschreibt aber, was der
+   Test nachstellt: eine unzufriedene Kundschaft bei WERKRUF. */
+update public.google_reviews set reviewer_display_name = 'Unzufrieden'
+ where location_id = (select id from t where name='werkruf');
 
 /* ═══════════════════════════════════════════════════════
    1 — Bewertungen gehoeren zum richtigen Betrieb
@@ -120,8 +155,14 @@ begin
   select id into v_review from public.google_reviews
    where location_id = (select id from t where name='werkruf') limit 1;
 
-  insert into public.review_replies (user_id, review_id, status)
-  values ((select id from t where name='user'), v_review, 'draft');
+  /* location_id ist in Produktion NOT NULL. Der Wert wird aus der
+     Bewertung gelesen und nicht gesetzt — genau das ist die Aussage
+     dieses Abschnitts: der Standortbezug einer Antwort entsteht ueber
+     die Bewertung, nicht ueber den Nutzer. */
+  insert into public.review_replies (user_id, review_id, location_id, body, status)
+  values ((select id from t where name='user'), v_review,
+          (select location_id from public.google_reviews where id = v_review),
+          'Danke fuer die Rueckmeldung.', 'draft');
 
   v_si := public.build_location_evaluation_context(
     (select id from t where name='user'), (select id from t where name='si'));
@@ -141,9 +182,12 @@ end $$;
 do $$
 declare v_si jsonb; v_wr jsonb;
 begin
-  insert into public.sync_jobs (user_id, location_id, status, finished_at)
+  /* job_type ist NOT NULL und per Check auf die bekannten Arten
+     begrenzt. Welche es ist, prueft dieser Abschnitt nicht — er prueft
+     den Fehlerzustand je Betrieb. */
+  insert into public.sync_jobs (user_id, location_id, job_type, status, finished_at)
   values ((select id from t where name='user'), (select id from t where name='werkruf'),
-          'failed', now() - interval '1 hour');
+          'sync_reviews', 'failed', now() - interval '1 hour');
 
   v_si := public.build_location_evaluation_context(
     (select id from t where name='user'), (select id from t where name='si'));

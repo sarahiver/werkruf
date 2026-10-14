@@ -19,28 +19,47 @@ values ((select id from t where name='user'), 'ivergentz@example.com');
 insert into public.user_profiles (id, company_name, full_name, industry_key)
 values ((select id from t where name='user'), 'Firma Rolf Müller', 'Iver', 'handwerk');
 
-insert into public.google_accounts (id, user_id, status)
-values ((select id from t where name='konto'), (select id from t where name='user'), 'active');
+/* ═══════════════════════════════════════════════════════
+   GRUNDGERUEST — ueber die Fixture-Schicht, nicht von Hand
+   ═══════════════════════════════════════════════════════
 
-insert into public.google_locations (id, user_id, account_id, title, selected_at) values
-  ((select id from t where name='si'), (select id from t where name='user'),
-   (select id from t where name='konto'), 'S&I.', now()),
-  ((select id from t where name='werkruf'), (select id from t where name='user'),
-   (select id from t where name='konto'), 'WERKRUF', null);
+   Dieser Test stammt aus der Zeit, in der die Testdatenbank mehrere
+   Pflichtspalten nullable liess. Er war gruen, obwohl er Zeilen
+   erzeugte, die Produktion nie zugelassen haette — genau die Falle,
+   vor der der Kopf von setup.sh warnt.
+
+   Betroffen: google_accounts.provider_account_id sowie
+   google_locations.account_resource_name und
+   .location_resource_name. Jede Spalte einzeln nachzutragen legt die
+   naechste frei; die Helfer aus scripts/test-db/sql/80-fixtures.sql
+   halten das Wissen an EINER Stelle und liefern dieselben Kennungen
+   und Titel, die t fuehrt.
+
+   auth.users und user_profiles legt der Test oben weiter selbst an:
+   company_name und full_name sind sein Gegenstand, nicht Beiwerk. */
+
+select test.konto('konto_a', 'user_a');
+select test.standort('standort_si',      'user_a', 'konto_a', 'S&I.',    true);
+select test.standort('standort_werkruf', 'user_a', 'konto_a', 'WERKRUF', false);
 
 /* S&I: keine Bewertungen.
    WERKRUF: zehn, davon drei in der VORWOCHE — genau dem Zeitraum, den
    reviewsNew zaehlt. Laegen sie in der laufenden Woche, traefe der
    Test den nutzerweiten Pfad gar nicht und bestuende aus dem falschen
    Grund. */
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, google_created_at)
-select (select id from t where name='user'), (select id from t where name='werkruf'),
-       2, true, (date_trunc('week', now()) - interval '4 days')
-from generate_series(1, 3);
-insert into public.google_reviews (user_id, location_id, star_rating, is_answered, google_created_at)
-select (select id from t where name='user'), (select id from t where name='werkruf'),
-       5, true, now() - interval '60 days'
-from generate_series(1, 7);
+/* google_reviews hat fuenf Pflichtspalten — location_id, account_id,
+   user_id, review_resource_name, google_created_at. test.bewertungen()
+   fuellt sie; das Alter setzt der Test danach selbst, weil der genaue
+   Zeitpunkt hier der Gegenstand ist und nicht als Intervall ab jetzt
+   ausgedrueckt werden kann. */
+select test.bewertungen('standort_werkruf', 3, 2, true);
+select test.bewertungen('standort_werkruf', 7, 5, true, interval '60 days');
+
+update public.google_reviews
+   set google_created_at = date_trunc('week', now()) - interval '4 days',
+       answered_at       = date_trunc('week', now()) - interval '4 days'
+ where location_id = (select id from t where name='werkruf')
+   and star_rating = 2;
 
 /* Je ein Engine-Event pro Betrieb, plus eines fuers Konto. */
 insert into public.events
@@ -108,8 +127,14 @@ begin
   select id into v_review from public.google_reviews
    where location_id = (select id from t where name='werkruf') limit 1;
 
-  insert into public.review_replies (user_id, review_id, status, published_at)
-  values ((select id from t where name='user'), v_review, 'published',
+  /* location_id ist in Produktion NOT NULL. Der Wert wird aus der
+     Bewertung gelesen und nicht gesetzt — genau das ist die Aussage
+     dieses Abschnitts: der Standortbezug einer Antwort entsteht ueber
+     die Bewertung. */
+  insert into public.review_replies (user_id, review_id, location_id, body, status, published_at)
+  values ((select id from t where name='user'), v_review,
+          (select location_id from public.google_reviews where id = v_review),
+          'Danke fuer die Rueckmeldung.', 'published',
           (date_trunc('week', now()) - interval '3 days'));
 
   delete from public.email_queue;
@@ -243,7 +268,11 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  create or replace function public.wants_notification(p_user uuid, p_kind text)
+  /* Die Parameternamen muessen denen der echten Funktion entsprechen:
+     create or replace kann sie nicht umbenennen, sonst
+     "cannot change name of input parameter". Die echte Fassung heisst
+     wants_notification(p_user_id uuid, p_kind text). */
+  create or replace function public.wants_notification(p_user_id uuid, p_kind text)
   returns boolean language sql as $f$ select false $f$;
 
   delete from public.email_queue;
@@ -259,7 +288,7 @@ begin
              and week_start = date_trunc('week', now())::date) = 1,
     'Der Snapshot wird trotzdem geschrieben';
 
-  create or replace function public.wants_notification(p_user uuid, p_kind text)
+  create or replace function public.wants_notification(p_user_id uuid, p_kind text)
   returns boolean language sql as $f$ select true $f$;
 end $$;
 
