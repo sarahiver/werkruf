@@ -133,3 +133,172 @@ wo sie hingehört: gegen die gerenderte Seite.
 - `GhostSetupModal`, `PathAPricingModal` und die zweite Preisseite
   nicht angefasst (§32)
 - D bis F sind nicht begonnen
+
+---
+
+# H2.2 D — `payment_failed` für Founding Partner
+
+## 8. Ist-Zustand
+
+`invoice.payment_failed` im Stripe-Webhook reihte die Mail ein, sobald
+ein Profil zur `stripe_customer_id` gefunden wurde — ohne jede
+Planprüfung. Ein Founding Partner mit einem Altabo aus seiner
+Zahlerzeit konnte damit eine Zahlungsaufforderung für einen Zugang
+bekommen, der kostenlos ist.
+
+## 9. Was geändert ist
+
+Gegated wird **die Mail, nicht das Event** — in dieser Reihenfolge:
+
+```text
+Profil holen (jetzt mit plan)
+  ↓
+updateProfile(stripe_subscription_status: 'past_due')   ← bleibt
+  ↓
+if (!darfZahlungsmahnung(profile)) { log; break; }      ← neu
+  ↓
+enqueue_email('payment_failed')
+```
+
+Warum nicht das Event überspringen: der Zustand bei Stripe bleibt
+wahr, auch wenn wir nicht mahnen. Ein übersprungenes Event hieße
+`stripe_subscription_status` auf dem alten Wert, eine Lücke in der
+Historie — und wenn der Founding-Partner-Status später endet, stünde
+in der Datenbank ein Zustand, den Stripe längst widerlegt hat.
+
+Falsch ist nicht die Verarbeitung, sondern die Zahlungsaufforderung.
+
+`src/utils/subscription.js`: neu `darfZahlungsmahnung(profile)`. Eigene
+Funktion und nicht `!isFoundingPartner()` an der Aufrufstelle, damit
+die Produktentscheidung an einer Stelle steht und einzeln prüfbar ist.
+Der Webhook importiert sie aus `src/utils/` — wie `google-business` und
+`generate-review-reply` es mit `accessGate.js` tun. Kein viertes
+`=== 'founding_partner'`; genau so ist die Zugangsregel vor H1 viermal
+entstanden.
+
+Der Dedupe-Key bleibt unberührt. Wird dasselbe Event nach einem
+Planwechsel erneut geliefert, greift die Prüfung nicht mehr und die
+Mail geht raus — richtig so, denn dann ist der Nutzer kein Founding
+Partner mehr.
+
+## 10. Gegenproben
+
+`src/paymentFailedFoundingPartner.test.js`, 14 Fälle.
+
+| Profil | darf gemahnt werden |
+| --- | --- |
+| `pro` + `sub_...` + `past_due` | ja |
+| `free` + `sub_...` + `past_due` | ja |
+| `founding_partner` + `past_due` | **nein** |
+| `founding_partner` ohne Stripe-Spur | **nein** |
+| `founding_partner` × jeder Stripe-Status | **nein** |
+| `pro` × jeder Stripe-Status | ja |
+| kein Profil / leeres Profil | ja |
+
+Die Zeile „hängt nur am Plan, nicht am Stripe-Status" ist die
+Gegenprobe gegen eine naheliegende Fehlimplementierung: ein Gate über
+den Stripe-Status (`canceled` → nicht mahnen) würde den zahlenden
+Kunden in `past_due` treffen und den Founding Partner in `active`
+durchlassen — also genau verkehrt.
+
+Dass `free` gemahnt wird, ist Absicht und nicht dieselbe Frage wie bei
+den operativen Mails: dort ist `free` gesperrt (H1 P0 #4), weil die
+Handlungsaufforderungen hinter ProGate zeigen. Eine
+Zahlungsaufforderung zeigt nirgendwohin, sie informiert.
+
+Zur Stelle im Webhook prüft der Test die Reihenfolge, mit belegten
+Schnittgrenzen: jeder Index wird einzeln auf `> -1` geprüft, damit kein
+leerer Abschnitt als grün durchgeht. Genau dieser Fehler hat in H2.1
+einen Test grün gelassen, der nichts gelesen hat.
+
+**Gegenproben zur Platzierung:**
+
+| Eingriff | Ergebnis |
+| --- | --- |
+| Gate **vor** `updateProfile` | 2 Fälle rot |
+| Gate ganz entfernt | 2 Fälle rot |
+
+---
+
+# H2.2 E — die Kreditkarten-Zusage
+
+## 11. Ist-Zustand
+
+Die aktive Preisseite versprach, für die Testphase sei keine Karte
+nötig. Stripe Checkout im Modus `subscription` verlangt eine
+Zahlungsmethode, solange `payment_method_collection` nicht auf
+`if_required` steht — und `create-checkout-session` setzt das nicht
+(gemessen am 13.10.2026). Der Kunde klickte auf eine Zusage und landete
+eine Seite später bei der Kartenabfrage.
+
+## 12. Was geändert ist
+
+`src/pages/Pricing.js`, eine Zeile:
+
+```text
+Zahlungsdaten werden beim Start hinterlegt — in den ersten
+{pricing.trialDays} Tagen wird nichts abgebucht.
+```
+
+Die Alternative wäre gewesen, `payment_method_collection: 'if_required'`
+zu setzen und die Zusage zu halten. Das ist eine Produktentscheidung
+mit Folgen — ohne Karte endet der Trial ohne Zahlung und ohne Übergang
+— und §26 schließt Stripe-Umbauten in diesem Paket aus. Korrigiert wird
+die Aussage, nicht das Verhalten.
+
+Die übrigen Trial-Zusagen bleiben: „30 Tage kostenlos" ist wahr,
+`trial_period_days: 30` steht in der Checkout-Function.
+
+`src/Pricing.js` enthält denselben Satz und ist **nicht verdrahtet**
+(`App.js` bindet `src/pages/Pricing.js` ein). §32 stellt die Doppelung
+ausdrücklich auf die Nicht-anfassen-Liste; der Test hält fest, dass es
+toter Code ist.
+
+## 13. Der unangenehmste Fund dieses Pakets
+
+Die erste Fassung der Korrektur zitierte den alten Satz wörtlich in dem
+Kommentar, der erklärt, warum er weg ist. Folge: der H2.1-Audit-Test,
+der genau diesen Satz als Befund festhielt, blieb **grün nach der
+Behebung**.
+
+Das ist die unangenehmste Richtung, in die ein Test irren kann — nicht
+ein Fehlalarm, sondern ein Schweigen. Hätte ich nur den vollen Lauf
+angesehen, wäre der Widerspruch „Befund behoben, Befund-Test grün" nie
+aufgefallen.
+
+Zwei Konsequenzen, beide umgesetzt:
+
+- die Preisseite zitiert den Satz nicht mehr, sondern beschreibt ihn
+- die Prüfung in `billingAudit.test.js` entfernt Kommentare, bevor sie
+  Textzusagen prüft, und ist auf den behobenen Zustand gedreht
+
+Dasselbe Muster — ein Textmuster trifft einen Kommentar — ist in diesem
+Paket vier Mal aufgetreten: in der Erkennung des `when others`-Handlers,
+in `billingAudit` bei „Lifetime", hier, und einmal als Fehlalarm bei
+`update_user_plan`. Es ist kein Zufall, sondern die Grenze der Methode:
+Quelltextmuster können Kommentar und Ausgabe nicht unterscheiden. Wo es
+um das geht, was der Nutzer sieht, prüfen die neuen Tests die
+gerenderte Ausgabe.
+
+## 14. Belege D und E
+
+| | |
+| --- | --- |
+| Jest | 1079 Tests in 70 Suites grün |
+| Gegenprobe D (Gate verschoben / entfernt) | je 2 Fälle rot |
+| Gegenprobe E (alte Zusage zurück) | 4 Fälle rot, in beiden Dateien |
+| SQL-Tests | 27 Dateien, 0 rot |
+| `CI=true npm run build` | `Compiled successfully.` |
+
+`deno check` läuft hier nicht (esm.sh ist über den Proxy nicht
+erreichbar); das macht CI mit Deno v1.
+
+## 15. Was in D und E nicht passiert ist
+
+- kein Stripe-Aufruf, keine Stripe-Konfiguration, kein Webhook
+  ausgelöst, keine Mail verschickt
+- `payment_method_collection` **nicht** gesetzt (§26)
+- keine Migration, keine Datenänderung
+- `src/Pricing.js`, `GhostSetupModal`, `PathAPricingModal` nicht
+  angefasst (§32)
+- F ist nicht begonnen

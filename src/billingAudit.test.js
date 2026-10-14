@@ -188,16 +188,28 @@ describe('F — Webhook: Event → Wirkung', () => {
     expect(WEBHOOK).toMatch(/p_dedupe_key: `payment_failed:\$\{event\.id\}`/);
   });
 
-  it('prüft vor der payment_failed-Mail keinen Plan', () => {
-    /* Befund (§17): Die Mail hängt am Stripe-Kunden, nicht am Plan.
-       Ein Founding Partner mit laufendem Altabo kann sie bekommen. */
+  it('prüft vor der payment_failed-Mail den Plan — Befund geschlossen', () => {
+    /* ── Umgedreht am 14.10.2026 ──
+
+       Der H2.1-Befund (§17) war: die Mail hängt am Stripe-Kunden,
+       nicht am Plan, und ein Founding Partner mit laufendem Altabo
+       kann sie bekommen. Geschlossen in H2.2 D.
+
+       Die alte Fassung prüfte
+         expect(zweig).not.toMatch(/…|plan/)
+       und wurde durch die Korrektur rot — richtig so.
+
+       Was wirklich entschieden wird und an welcher Stelle, prüft
+       src/paymentFailedFoundingPartner.test.js. Hier steht nur, dass
+       der Zweig den Plan überhaupt kennt. */
     /* indexOf ohne Startpunkt fand das `default:` aus
        mapStatusToPlan weiter oben und schnitt einen leeren Abschnitt
        aus — der Test war damit gruen, ohne etwas zu lesen. */
     const anfang = WEBHOOK.indexOf("case 'invoice.payment_failed'");
+    expect(anfang).toBeGreaterThan(-1);
     const zweig = WEBHOOK.slice(anfang, WEBHOOK.indexOf('default:', anfang));
     expect(zweig).toMatch(/enqueue_email/);
-    expect(zweig).not.toMatch(/has_paid_access|wants_operational_mail|plan/);
+    expect(zweig).toMatch(/darfZahlungsmahnung/);
   });
 });
 
@@ -299,13 +311,35 @@ describe('L — was die Oberfläche verspricht', () => {
     expect(PRICING).toMatch(/\{pricing\.trialDays\} Tage kostenlos/);
   });
 
-  it('verspricht auf der Preisseite „keine Kreditkarte" — Befund', () => {
-    /* Diese Zusage schreibt einen WIDERSPRUCH fest, damit er nicht
-       stillschweigend verschwindet oder stillschweigend bleibt:
-       Stripe Checkout im Modus 'subscription' verlangt ohne
-       payment_method_collection: 'if_required' eine Zahlungsmethode,
-       und die Function setzt das nicht. Siehe Bericht B. */
-    expect(PRICING).toMatch(/Keine Kreditkarte für die Testphase erforderlich/);
+  it('verspricht auf der Preisseite keine kartenfreie Testphase mehr — Befund geschlossen', () => {
+    /* ── Umgedreht am 14.10.2026, und zwar zweimal ──
+
+       Der H2.1-Befund war ein Widerspruch: die Preisseite sagte, für
+       die Testphase sei keine Karte nötig, und Stripe Checkout im
+       Modus 'subscription' verlangt ohne
+       payment_method_collection: 'if_required' eine Zahlungsmethode.
+       Geschlossen in H2.2 E — der Satz ist korrigiert, der Checkout
+       absichtlich nicht angefasst (§26).
+
+       Die erste Korrektur dieser Zusage war selbst falsch: sie
+       prüfte den ROHEN Dateitext, und die korrigierte Preisseite
+       zitierte den alten Satz in einem Kommentar. Der Test blieb
+       deshalb grün, obwohl der Befund behoben war — die
+       unangenehmste Richtung, in die ein Test irren kann. Jetzt
+       werden Kommentare vorher entfernt, und die Preisseite zitiert
+       den Satz nicht mehr.
+
+       Was die Seite stattdessen sagt, prüft
+       src/kreditkartenZusage.test.js. */
+    const ausgabe = PRICING
+      .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ');
+
+    expect(ausgabe).not.toMatch(/keine Kreditkarte/i);
+    expect(ausgabe).toMatch(/wird nichts abgebucht/);
+
+    /* Die Ursache bleibt, als Befund: ändert sich das, ist die alte
+       Zusage wieder wahr und diese Prüfung anzupassen. */
     expect(CHECKOUT).not.toMatch(/payment_method_collection/);
   });
 

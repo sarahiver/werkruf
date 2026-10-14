@@ -475,7 +475,36 @@ export default function Pricing() {
                 fontFamily: 'var(--font-body)', fontSize: '.73rem',
                 color: 'rgba(255,255,255,.3)', textAlign: 'center', marginTop: 12,
               }}>
-                Keine Kreditkarte für die Testphase erforderlich.
+                {/* Hier stand bis zum 14.10.2026 die Zusage, für die
+                    Testphase sei keine Karte nötig. Der Satz ist
+                    absichtlich nicht zitiert: er stand kurz in diesem
+                    Kommentar, und damit fand ihn der Audit-Test aus
+                    H2.1 weiter im Dateitext — der Test blieb grün,
+                    obwohl der Befund behoben war. Ein Kommentar, der
+                    eine falsche Aussage wörtlich aufbewahrt, macht
+                    jede Textprüfung darauf blind.
+
+                    Falsch war die Zusage messbar: Stripe Checkout
+                    im Modus 'subscription' verlangt eine
+                    Zahlungsmethode, solange
+                    payment_method_collection nicht auf 'if_required'
+                    steht — und create-checkout-session setzt das
+                    nicht (geprüft am 13.10.2026, H2.1 Bericht B).
+                    Der Kunde klickte also auf eine Zusage und landete
+                    eine Seite später bei der Kartenabfrage.
+
+                    Die Alternative wäre gewesen,
+                    payment_method_collection: 'if_required' zu setzen
+                    und die Zusage zu halten. Das ist eine
+                    Produktentscheidung mit Folgen — ohne Karte endet
+                    der Trial ohne Zahlung und ohne Übergang —, und
+                    H2.2 §26 schliesst Stripe-Umbauten in diesem
+                    Paket aus. Also wird hier die Aussage korrigiert,
+                    nicht das Verhalten.
+
+                    Was bleibt, ist wahr: 30 Tage ohne Abbuchung. */}
+                Zahlungsdaten werden beim Start hinterlegt — in den ersten{' '}
+                {pricing.trialDays} Tagen wird nichts abgebucht.
               </p>
             </ProCard>
           </CardsGrid>

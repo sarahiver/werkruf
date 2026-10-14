@@ -52,6 +52,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14?target=deno';
+/* Dieselbe Regel wie im Frontend und in den anderen Functions. Kein
+   eigenes "=== 'founding_partner'" an einer vierten Stelle: genau so
+   ist die Zugangsregel vor H1 viermal entstanden. */
+import { darfZahlungsmahnung } from '../../../src/utils/subscription.js';
 
 /* ═════════════════════════════════════════════
    HILFSFUNKTIONEN
@@ -397,9 +401,14 @@ serve(async (req) => {
 
         // Eine Abfrage statt zwei — die Vorfassung holte dasselbe Profil
         // zweimal, einmal fuer das Update und einmal fuer die Mail.
+        //
+        // plan kommt mit, weil der Mailversand ihn braucht (siehe
+        // unten). Nicht ueber leseAccess(): das Profil liegt hier
+        // schon vor, und ein zweiter Lesezugriff auf dieselbe Zeile
+        // waere Arbeit ohne Erkenntnis.
         const { data: profile } = await supabase
           .from('user_profiles')
-          .select('id, company_name')
+          .select('id, company_name, plan')
           .eq('stripe_customer_id', customerId)
           .maybeSingle();
 
@@ -412,6 +421,42 @@ serve(async (req) => {
         await updateProfile(supabase, profile.id, { stripe_subscription_status: 'past_due' });
 
         console.log(`⚠ Zahlung fehlgeschlagen: User ${profile.id}, customer ${customerId}`);
+
+        /* ── Die Mail, nicht das Event (H2.2 D) ──
+
+           Gegated wird genau hier: nach dem Schreiben der
+           Stripe-Spalten, vor dem Einreihen der Mail.
+
+           Warum nicht das Event ueberspringen? Weil der Zustand bei
+           Stripe wahr bleibt, auch wenn wir nicht mahnen. Ein
+           uebersprungenes Event hiesse:
+
+             - stripe_subscription_status bleibt auf dem alten Wert
+             - der Buchhaltung fehlt die Historie
+             - und wenn der Founding-Partner-Status spaeter endet,
+               steht in der Datenbank ein Zustand, den Stripe
+               laengst widerlegt hat
+
+           Was falsch ist, ist nicht die Verarbeitung, sondern die
+           Zahlungsaufforderung: ein Founding Partner soll fuer
+           WERKRUF nichts zahlen. Ihn zu mahnen, weil eine alte
+           Subscription scheitert, ist die Zusage gebrochen — und
+           ausgerechnet gegenueber den ersten Kunden.
+
+           Der dedupe_key bleibt unberuehrt. Wird derselbe Event nach
+           einem Planwechsel erneut geliefert, greift die Pruefung
+           dann nicht mehr und die Mail geht raus; das ist richtig so,
+           denn dann ist der Nutzer kein Founding Partner mehr. */
+        if (!darfZahlungsmahnung(profile)) {
+          console.log(JSON.stringify({
+            ereignis: 'mail_nicht_eingereiht',
+            vorlage: 'payment_failed',
+            grund: 'founding_partner',
+            userId: profile.id,
+            stripeEventId: event.id,
+          }));
+          break;
+        }
 
         try {
           const { data: authUser } = await supabase.auth.admin.getUserById(profile.id);

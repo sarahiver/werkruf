@@ -107,6 +107,32 @@ export function isFoundingPartner(profile) {
 }
 
 /**
+ * Darf dieser Nutzer eine Zahlungsaufforderung bekommen?
+ *
+ * Gemeint ist die WERKRUF-Mail zu invoice.payment_failed, nicht die
+ * Mahnung von Stripe (die konfiguriert Stripe selbst).
+ *
+ * Ein Founding Partner zahlt fuer WERKRUF nichts. Scheitert bei ihm
+ * eine Abbuchung, dann fuer ein Abo, das er fuer seinen Zugang nicht
+ * braucht — ihn deswegen zu mahnen, bricht die Zusage, und zwar
+ * gegenueber den ersten Kunden.
+ *
+ * Eigene Funktion und nicht !isFoundingPartner() an der Aufrufstelle:
+ * so steht die Produktentscheidung an einer Stelle, mit ihrer
+ * Begruendung, und ist einzeln pruefbar. "Ist Founding Partner" und
+ * "darf gemahnt werden" haben heute dieselbe Antwort und koennen
+ * morgen auseinandergehen — etwa wenn ein Founding Partner zusaetzlich
+ * ein bezahltes Zusatzprodukt bucht.
+ *
+ * Nicht der Ort, um das Stripe-Event zu verwerfen: der Zustand bei
+ * Stripe bleibt wahr, auch wenn wir nicht mahnen. Gegated wird die
+ * Mail, verarbeitet wird das Event (H2.2 D).
+ */
+export function darfZahlungsmahnung(profile) {
+  return !isFoundingPartner(profile);
+}
+
+/**
  * Hat ein Founding Partner parallel noch ein AKTIVES Stripe-Abo?
  *
  * Der Unterschied zu "hat irgendwann einmal gezahlt" ist der, auf den
