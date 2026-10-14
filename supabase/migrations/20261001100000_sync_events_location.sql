@@ -31,6 +31,10 @@ create or replace function public.sync_events(
   p_events         jsonb,
   p_engine_version text,
   p_location_id    uuid
+  /* KEIN Vorgabewert fuer p_location_id: Sonst waeren beide
+     Signaturen bei drei Argumenten mehrdeutig, und Postgres koennte
+     den Aufruf nicht aufloesen. Der Standort muss ausdruecklich
+     genannt werden — auch wenn er null ist. */
 )
 returns jsonb
 language plpgsql
@@ -163,10 +167,14 @@ comment on function public.sync_events(uuid, jsonb, text, uuid) is
  * dazu, dass zu WENIG bewertet wird, nicht dass Betriebe vermischt
  * werden.
  */
+/* Der Vorgabewert 'unknown' stammt aus der Bestandsfassung und muss
+   erhalten bleiben: Postgres laesst sich Vorgabewerte per
+   "create or replace" nicht entfernen — der Versuch scheitert mit
+   "cannot remove parameter defaults from existing function". */
 create or replace function public.sync_events(
   p_user_id        uuid,
   p_events         jsonb,
-  p_engine_version text
+  p_engine_version text default 'unknown'::text
 )
 returns jsonb
 language sql
