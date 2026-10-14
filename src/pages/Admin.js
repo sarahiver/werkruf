@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { Users, AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
+import { Users, AlertTriangle, RefreshCw, LogOut, Search, X } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
-import { formatAdminDate, getCustomerProblem, getSubscriptionLabel } from '../utils/adminOps';
+import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -149,38 +149,121 @@ const Reason = styled.div`
 const SpinIcon = styled(RefreshCw)`animation: ${spin} .8s linear infinite;`;
 
 /* ─────────────────────────────────────────────
+   H3-ERGAENZUNGEN
+───────────────────────────────────────────── */
+
+const SearchRow = styled.form`
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+`;
+
+const SearchInput = styled.input`
+  flex: 1 1 280px; padding: 10px 12px;
+  font-family: var(--font-body); font-size: .88rem;
+  border: 1px solid var(--color-border); border-radius: var(--radius-button);
+  background: var(--color-white); color: var(--color-text);
+`;
+
+const Btn = styled.button`
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 14px; cursor: pointer;
+  font-family: var(--font-body); font-weight: 700; font-size: .8rem;
+  border-radius: var(--radius-button);
+  border: 1px solid ${({ $gefahr }) => ($gefahr ? '#D93025' : 'var(--color-border)')};
+  background: ${({ $haupt, $gefahr }) =>
+    $gefahr ? '#FDECEC' : $haupt ? 'var(--color-accent)' : 'var(--color-white)'};
+  color: ${({ $haupt, $gefahr }) =>
+    $gefahr ? '#B42318' : $haupt ? 'var(--color-white)' : 'var(--color-text)'};
+  &:disabled { opacity: .55; cursor: default; }
+`;
+
+const Ampel = styled.span`
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-weight: 700; font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: ${({ $stufe }) =>
+    $stufe === 'blockiert' ? '#B42318' : $stufe === 'aufmerksamkeit' ? '#8A5A00' : '#1E7E34'};
+`;
+
+const Bloecke = styled.div`
+  display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+`;
+
+const Block = styled.div`
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  padding: 14px; background: var(--color-white);
+`;
+
+const BlockTitel = styled.h3`
+  font-family: var(--font-body); font-weight: 700; font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--color-text-muted); margin: 0 0 8px;
+`;
+
+const Zeile = styled.div`
+  display: flex; justify-content: space-between; gap: 10px;
+  font-family: var(--font-body); font-size: .82rem;
+  padding: 3px 0; color: var(--color-text);
+  span:first-child { color: var(--color-text-muted); }
+  span:last-child { font-weight: 700; text-align: right; word-break: break-word; }
+`;
+
+const Bestaetigung = styled.div`
+  border: 2px solid #D93025; border-radius: var(--radius-card);
+  background: #FDECEC; padding: 16px; margin-top: 12px;
+  font-family: var(--font-body); font-size: .85rem; color: var(--color-text);
+`;
+
+/* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
 export default function Admin() {
   const { isAdmin, signOut, loading: authLoading } = useAuthContext();
-  const navigate          = useNavigate();
+  const navigate = useNavigate();
+
   const [customers, setCustomers] = useState([]);
-  const [leads,    setLeads]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
+  const [leads, setLeads] = useState([]);
+  const [suche, setSuche] = useState('');
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  /* Detailansicht. Ein Kunde, gezielt geladen — §43: die Liste bleibt
+     billig, die Details kosten erst beim Hinsehen. */
+  const [offenerKunde, setOffenerKunde] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
+  const [snapshotLaedt, setSnapshotLaedt] = useState(false);
+  const [snapshotFehler, setSnapshotFehler] = useState('');
 
-  const loadData = async () => {
+  const [bestaetigung, setBestaetigung] = useState(null);
+  const [aktionLaeuft, setAktionLaeuft] = useState(false);
+  const [aktionsErgebnis, setAktionsErgebnis] = useState(null);
+
+  /* Ein Weg zum Server, eine Stelle fuer Fehler. Jede Aktion geht
+     ueber admin-ops; das Frontend kennt keine Tabelle und keine RPC. */
+  const rufeAdminOps = async (action, params = {}) => {
+    const { data, error } = await supabase.functions.invoke('admin-ops', {
+      body: { action, params },
+    });
+    if (error) throw new Error(error.message || 'Aufruf fehlgeschlagen');
+    if (data?.error) throw new Error(data.error);
+    return data;
+  };
+
+  const ladeListe = async (begriff = suche) => {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [opsResult, leadsResult] = await Promise.all([
-        supabase.functions.invoke('admin-ops', { body: {} }),
+      const [ops, leadsResult] = await Promise.all([
+        rufeAdminOps('list_customers', { suche: begriff, limit: 50 }),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
       ]);
-      if (opsResult.error) throw opsResult.error;
       if (leadsResult.error) throw leadsResult.error;
-      setCustomers(opsResult.data?.customers || []);
+      setCustomers(ops?.customers || []);
       setLeads(leadsResult.data || []);
     } catch (err) {
-      console.error('Admin load error:', err);
-      setLoadError('Die Admin-Daten konnten nicht geladen werden. Bitte versuche es erneut.');
+      /* §24: brauchbar, aber ohne interne Details. Der Code steht im
+         Function-Log. */
+      setLoadError(`Die Admin-Daten konnten nicht geladen werden: ${err.message}`);
       setCustomers([]);
       setLeads([]);
     } finally {
@@ -189,20 +272,73 @@ export default function Admin() {
     }
   };
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    ladeListe('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  /* Nur laden. Getrennt von oeffneKunde, weil nach einer Aktion neu
+     geladen wird — und dabei darf die Rueckmeldung zur Aktion nicht
+     verschwinden.
+
+     Der erste Entwurf hatte beides in einer Funktion: oeffneKunde
+     setzte aktionsErgebnis auf null, und fuehreAus rief es danach
+     auf. Ergebnis: "Job eingereiht, Job-ID ..." war eine
+     Millisekunde sichtbar. Aufgefallen ist das nicht beim Lesen,
+     sondern in adminSupport.test.js. */
+  const ladeSnapshot = async (kunde) => {
+    setSnapshot(null);
+    setSnapshotFehler('');
+    setSnapshotLaedt(true);
+    try {
+      const daten = await rufeAdminOps('get_customer_support_state', { userId: kunde.id });
+      if (!daten?.snapshot) throw new Error(daten?.error || 'Kein Snapshot');
+      setSnapshot(daten.snapshot);
+    } catch (err) {
+      setSnapshotFehler(err.message);
+    } finally {
+      setSnapshotLaedt(false);
+    }
+  };
+
+  const oeffneKunde = async (kunde) => {
+    setOffenerKunde(kunde);
+    setBestaetigung(null);
+    setAktionsErgebnis(null);
+    await ladeSnapshot(kunde);
+  };
+
+  const fuehreAus = async (action, params) => {
+    setAktionLaeuft(true);
+    setAktionsErgebnis(null);
+    try {
+      const daten = await rufeAdminOps(action, params);
+      setAktionsErgebnis({ ok: daten?.ok !== false, action, daten });
+      /* Nach einer schreibenden Aktion ist der Snapshot veraltet.
+         Neu laden statt im Browser nachrechnen — der Server ist die
+         Wahrheit. */
+      if (offenerKunde) await ladeSnapshot(offenerKunde);
+      await ladeListe();
+    } catch (err) {
+      setAktionsErgebnis({ ok: false, action, fehler: err.message });
+    } finally {
+      setAktionLaeuft(false);
+      setBestaetigung(null);
+    }
+  };
+
   if (authLoading || !isAdmin) return null;
 
-  // Stats
-  const total      = customers.length;
-  const proUsers   = customers.filter(p => p.plan === 'pro').length;
-  const trialUsers = customers.filter(p => p.trialEndsAt && new Date(p.trialEndsAt) > new Date()).length;
-  const mrr        = proUsers * 49;
-  const withBiz    = customers.filter(p => p.googleStatus === 'active').length;
-  const avgScore   = customers.filter(p => p.healthScore !== null).length
-    ? Math.round(customers.filter(p => p.healthScore !== null).reduce((s, p) => s + p.healthScore, 0) / customers.filter(p => p.healthScore !== null).length)
-    : 0;
-  const setupLeads = leads.filter(l => l.needs_manual_setup && l.status === 'new').length;
-
   const fmt = (d) => formatAdminDate(d);
+  const fmtZ = (d) => formatAdminDate(d, true);
+
+  const gesamt = customers.length;
+  const proUsers = customers.filter((p) => p.plan === 'pro').length;
+  const foundingUsers = customers.filter((p) => p.plan === 'founding_partner').length;
+  const mitGoogle = customers.filter((p) => p.googleStatus === 'active').length;
+  const ohneConsent = customers.filter((p) => !p.consentVorhanden).length;
+  const setupLeads = leads.filter((l) => l.needs_manual_setup && l.status === 'new').length;
 
   return (
     <Page>
@@ -218,109 +354,415 @@ export default function Admin() {
 
       <Inner>
         {loadError && <Empty>{loadError}</Empty>}
-        {/* Stats */}
+
         <StatsGrid>
           <StatCard $color="var(--color-accent)" $d="0s">
-            <StatNum>{total}</StatNum>
-            <StatLabel>Registrierte User</StatLabel>
+            <StatNum>{gesamt}</StatNum>
+            <StatLabel>{suche ? 'Treffer' : 'Kunden (neueste 50)'}</StatLabel>
           </StatCard>
           <StatCard $color="#1E7E34" $d=".05s">
             <StatNum $c="#1E7E34">{proUsers}</StatNum>
-            <StatLabel>PRO User</StatLabel>
+            <StatLabel>Pro</StatLabel>
           </StatCard>
-          <StatCard $color="#D48A00" $d=".1s">
-            <StatNum $c="#D48A00">{trialUsers}</StatNum>
-            <StatLabel>Trial User</StatLabel>
+          <StatCard $color="var(--color-accent)" $d=".1s">
+            <StatNum>{foundingUsers}</StatNum>
+            <StatLabel>Founding Partner</StatLabel>
           </StatCard>
           <StatCard $color="var(--color-primary)" $d=".15s">
-            <StatNum>{mrr}€</StatNum>
-            <StatLabel>MRR (geschätzt)</StatLabel>
+            <StatNum>{mitGoogle}</StatNum>
+            <StatLabel>Google aktiv</StatLabel>
           </StatCard>
-          <StatCard $color="var(--color-accent)" $d=".2s">
-            <StatNum>{withBiz}</StatNum>
-            <StatLabel>Mit GMB verknüpft</StatLabel>
-          </StatCard>
-          <StatCard $color={avgScore >= 70 ? '#1E7E34' : '#D93025'} $d=".25s">
-            <StatNum $c={avgScore >= 70 ? '#1E7E34' : '#D93025'}>{avgScore}</StatNum>
-            <StatLabel>Ø Score</StatLabel>
-          </StatCard>
+          {ohneConsent > 0 && (
+            <StatCard $color="#D48A00" $d=".2s">
+              <StatNum $c="#D48A00">{ohneConsent}</StatNum>
+              <StatLabel>Ohne Zustimmung</StatLabel>
+            </StatCard>
+          )}
           {setupLeads > 0 && (
-            <StatCard $color="#D93025" $d=".3s">
+            <StatCard $color="#D93025" $d=".25s">
               <StatNum $c="#D93025">{setupLeads}</StatNum>
               <StatLabel>Offene Setup-Aufträge</StatLabel>
             </StatCard>
           )}
         </StatsGrid>
 
-        {/* Users Table */}
+        {/* ── SUCHE (§5) ── */}
         <Section>
           <SectionHead>
             <SectionTitle>
               <Users size={15} style={{ display: 'inline', marginRight: 8, verticalAlign: 'middle' }} />
-              User ({total})
+              Kunde finden
             </SectionTitle>
-            <RefreshBtn onClick={loadData} disabled={refreshing}>
+            <RefreshBtn onClick={() => ladeListe()} disabled={refreshing}>
               {refreshing ? <SpinIcon size={13} /> : <RefreshCw size={13} />}
               Aktualisieren
             </RefreshBtn>
           </SectionHead>
 
+          <div style={{ padding: '0 16px 16px' }}>
+            <SearchRow
+              onSubmit={(e) => { e.preventDefault(); ladeListe(suche); }}
+            >
+              <SearchInput
+                aria-label="Suche nach E-Mail, Unternehmen, User-ID oder Standort"
+                placeholder="E-Mail, Unternehmen, User-ID oder Standortname"
+                value={suche}
+                onChange={(e) => setSuche(e.target.value)}
+              />
+              <Btn type="submit" $haupt disabled={refreshing}>
+                <Search size={14} /> Suchen
+              </Btn>
+              {suche && (
+                <Btn type="button" onClick={() => { setSuche(''); ladeListe(''); }}>
+                  Zurücksetzen
+                </Btn>
+              )}
+            </SearchRow>
+          </div>
+
           {loading ? (
             <Empty><SpinIcon size={20} style={{ margin: '0 auto', display: 'block' }} /></Empty>
           ) : customers.length === 0 ? (
-            <Empty>Keine User gefunden.</Empty>
+            <Empty>{suche ? `Kein Kunde zu „${suche}" gefunden.` : 'Keine Kunden gefunden.'}</Empty>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <Table>
                 <thead>
                   <tr>
                     <Th>Betrieb</Th>
-                    <Th>Plan / Abo</Th>
-                    <Th>Google / Sync</Th>
-                    <Th>Health</Th>
-                    <Th>Reviews / Actions</Th>
-                    <Th>Letzte Mail</Th>
-                    <Th>Diagnose</Th>
+                    <Th>Plan</Th>
+                    <Th>Google</Th>
+                    <Th>Zustimmung</Th>
+                    <Th>Registriert</Th>
+                    <Th> </Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map(p => {
-                    const problem = getCustomerProblem(p);
-                    const healthy = problem === 'Kein akutes Problem erkannt';
-                    return (
-                      <Tr key={p.id}>
-                        <Td>
-                          <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
-                            {p.companyName || '—'}
-                          </div>
-                          <div style={{ fontSize: '.75rem', color: 'var(--color-text-muted)' }}>
-                            {p.email || 'Keine E-Mail'} · seit {fmt(p.createdAt)}
-                          </div>
-                        </Td>
-                        <Td>
-                          <PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge>
-                          <div style={{ marginTop: 5, fontSize: '.75rem' }}>{getSubscriptionLabel(p)}</div>
-                          {p.trialEndsAt && <div style={{ fontSize: '.7rem', color: 'var(--color-text-muted)' }}>Trial bis {fmt(p.trialEndsAt)}</div>}
-                        </Td>
-                        <Td>
-                          <Status $ok={p.googleStatus === 'active'}>{p.googleStatus === 'active' ? 'Aktiv' : p.googleStatus.replaceAll('_', ' ')}</Status>
-                          <div style={{ marginTop: 5, fontSize: '.7rem', color: 'var(--color-text-muted)' }}>Sync: {formatAdminDate(p.lastGoogleSyncAt, true)}</div>
-                        </Td>
-                        <Td>{p.healthScore !== null ? <><ScoreDot $s={p.healthScore} />{p.healthScore}</> : '—'}</Td>
-                        <Td><strong>{p.reviewCount}</strong> Reviews<br /><span style={{ fontSize: '.75rem' }}>{p.openActions} offen</span></Td>
-                        <Td>{p.lastMail ? <><Status $ok={p.lastMail.status === 'sent'}>{p.lastMail.status}</Status><div style={{ marginTop: 5, fontSize: '.7rem' }}>{p.lastMail.template}<br />{formatAdminDate(p.lastMail.sent_at || p.lastMail.updated_at, true)}</div></> : '—'}</Td>
-                        <Td><Reason $ok={healthy}>{problem}{p.lastSyncError?.at && <><br />{formatAdminDate(p.lastSyncError.at, true)}</>}</Reason></Td>
-                      </Tr>
-                    );
-                  })}
+                  {customers.map((p) => (
+                    <Tr key={p.id}>
+                      <Td>
+                        <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                          {p.unternehmen || '—'}
+                        </div>
+                        <div style={{ fontSize: '.75rem', color: 'var(--color-text-muted)' }}>
+                          {p.email || 'Keine E-Mail'}
+                        </div>
+                      </Td>
+                      <Td>
+                        <PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge>
+                        <div style={{ marginTop: 5, fontSize: '.75rem' }}>{getSubscriptionLabel(p)}</div>
+                      </Td>
+                      <Td>
+                        <Status $ok={p.googleStatus === 'active'}>
+                          {p.googleStatus === 'active' ? 'Aktiv' : String(p.googleStatus).replaceAll('_', ' ')}
+                        </Status>
+                      </Td>
+                      <Td>
+                        <Status $ok={p.consentVorhanden}>
+                          {p.consentVorhanden ? 'liegt vor' : 'fehlt'}
+                        </Status>
+                      </Td>
+                      <Td>{fmt(p.registriertAm)}</Td>
+                      <Td>
+                        <Btn type="button" onClick={() => oeffneKunde(p)}>
+                          Support-Ansicht
+                        </Btn>
+                      </Td>
+                    </Tr>
+                  ))}
                 </tbody>
               </Table>
             </div>
           )}
         </Section>
 
-        {/* Setup Leads */}
-        {leads.filter(l => l.needs_manual_setup && l.status === 'new').length > 0 && (
+        {/* ── SUPPORT-ANSICHT (§4, §6, §30) ── */}
+        {offenerKunde && (
+          <Section>
+            <SectionHead>
+              <SectionTitle>
+                {offenerKunde.unternehmen || offenerKunde.email || offenerKunde.id}
+                {snapshot && (
+                  <Ampel $stufe={snapshot.ampel.stufe} style={{ marginLeft: 12 }}>
+                    <ScoreDot $s={snapshot.ampel.stufe === 'ok' ? 100 : snapshot.ampel.stufe === 'aufmerksamkeit' ? 50 : 10} />
+                    {snapshot.ampel.stufe}
+                  </Ampel>
+                )}
+              </SectionTitle>
+              <Btn type="button" onClick={() => { setOffenerKunde(null); setSnapshot(null); }}>
+                <X size={14} /> Schließen
+              </Btn>
+            </SectionHead>
+
+            <div style={{ padding: 16 }}>
+              {snapshotLaedt && <Empty><SpinIcon size={18} /></Empty>}
+              {snapshotFehler && <Reason>Support-Zustand nicht ladbar: {snapshotFehler}</Reason>}
+
+              {snapshot && (
+                <>
+                  {snapshot.ampel.gruende.length > 0 && (
+                    <Reason $ok={false} style={{ maxWidth: 'none', marginBottom: 14 }}>
+                      {snapshot.ampel.gruende.map((g) => `${g.stufe}: ${g.grund}`).join(' · ')}
+                    </Reason>
+                  )}
+
+                  <Bloecke>
+                    <Block>
+                      <BlockTitel>Identität</BlockTitel>
+                      <Zeile><span>E-Mail</span><span>{snapshot.user.email || '—'}</span></Zeile>
+                      <Zeile><span>Name</span><span>{snapshot.user.name || '—'}</span></Zeile>
+                      <Zeile><span>Unternehmen</span><span>{snapshot.user.unternehmen || '—'}</span></Zeile>
+                      <Zeile><span>Branche</span><span>{snapshot.user.branche || '—'}</span></Zeile>
+                      <Zeile><span>User-ID</span><span style={{ fontSize: '.7rem' }}>{snapshot.user.id}</span></Zeile>
+                      <Zeile><span>Registriert</span><span>{fmt(snapshot.user.registriertAm)}</span></Zeile>
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Entitlement</BlockTitel>
+                      <Zeile><span>Plan</span><span>{snapshot.entitlement.plan}</span></Zeile>
+                      <Zeile><span>Zugang aktuell</span><span>{snapshot.entitlement.zugangAktuell ? 'ja' : 'nein'}</span></Zeile>
+                      <Zeile><span>Operative Mails</span><span>{snapshot.entitlement.operativeMailBerechtigt ? 'ja' : 'nein'}</span></Zeile>
+                      {snapshot.entitlement.foundingPartner && (
+                        <>
+                          <Zeile><span>Founding Partner seit</span><span>{fmt(snapshot.entitlement.foundingPartnerSeit)}</span></Zeile>
+                          {snapshot.entitlement.foundingPartnerNotiz && (
+                            <Zeile><span>Notiz</span><span>{snapshot.entitlement.foundingPartnerNotiz}</span></Zeile>
+                          )}
+                        </>
+                      )}
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Zustimmung</BlockTitel>
+                      <Zeile><span>Liegt vor</span><span>{snapshot.consent.liegtVor ? 'ja' : 'nein'}</span></Zeile>
+                      <Zeile><span>Fassung</span><span>{snapshot.consent.fassung || '—'}</span></Zeile>
+                      <Zeile><span>Zugestimmt am</span><span>{fmtZ(snapshot.consent.zugestimmtAm)}</span></Zeile>
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Google-Verbindung</BlockTitel>
+                      <Zeile><span>Status</span><span>{snapshot.googleAccount.status}</span></Zeile>
+                      {snapshot.googleAccount.vorhanden && (
+                        <>
+                          <Zeile><span>Verbunden seit</span><span>{fmt(snapshot.googleAccount.verbundenSeit)}</span></Zeile>
+                          <Zeile><span>Standorte aktiv</span><span>{snapshot.googleAccount.standorteAktiv}</span></Zeile>
+                          {snapshot.googleAccount.standorteGeloescht > 0 && (
+                            <Zeile><span>Gelöscht</span><span>{snapshot.googleAccount.standorteGeloescht}</span></Zeile>
+                          )}
+                          {snapshot.googleAccount.letzterFehlerCode && (
+                            <Zeile>
+                              <span>Letzter Fehler</span>
+                              <span>{snapshot.googleAccount.letzterFehlerCode} · {fmtZ(snapshot.googleAccount.letzterFehlerAm)}</span>
+                            </Zeile>
+                          )}
+                        </>
+                      )}
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Datenstand / Sync</BlockTitel>
+                      <Zeile>
+                        <span>Letzter Erfolg</span>
+                        <span>{snapshot.sync.datenstandBekannt ? fmtZ(snapshot.sync.letzterErfolg) : 'noch kein erfolgreicher Datenstand'}</span>
+                      </Zeile>
+                      <Zeile><span>Letzter Job</span><span>{snapshot.sync.letzterJobStatus || '—'} · {fmtZ(snapshot.sync.letzterJob)}</span></Zeile>
+                      <Zeile><span>Laufend</span><span>{snapshot.sync.laufendeJobs}</span></Zeile>
+                      <Zeile><span>Fehlgeschlagen</span><span>{snapshot.sync.fehlgeschlageneJobs}</span></Zeile>
+                      {snapshot.sync.letzterFehler && (
+                        <Zeile>
+                          <span>Fehlercode</span>
+                          <span>{snapshot.sync.letzterFehler.code} · {snapshot.sync.letzterFehler.art} · {fmtZ(snapshot.sync.letzterFehler.am)}</span>
+                        </Zeile>
+                      )}
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Engine</BlockTitel>
+                      <Zeile><span>Offene Events</span><span>{snapshot.engine.offeneEvents}</span></Zeile>
+                      {snapshot.engine.events.slice(0, 6).map((e) => (
+                        <Zeile key={e.id}>
+                          <span>{e.typ}</span>
+                          <span>P{e.priority ?? '—'} · {e.lifecycle}{e.klasse ? ` · ${e.klasse}` : ''}</span>
+                        </Zeile>
+                      ))}
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Kommunikation</BlockTitel>
+                      <Zeile><span>In Queue</span><span>{snapshot.communications.offeneInQueue}</span></Zeile>
+                      <Zeile><span>Fehlgeschlagen</span><span>{snapshot.communications.fehlgeschlagen}</span></Zeile>
+                      {Object.entries(snapshot.communications.letzteNachVorlage).map(([vorlage, info]) => (
+                        <Zeile key={vorlage}>
+                          <span>{vorlage}</span>
+                          <span>
+                            {info
+                              ? `${info.status}${info.gesendetAm ? ` · ${fmtZ(info.gesendetAm)}` : ''}${info.fehlerCode ? ` · ${info.fehlerCode}` : ''}`
+                              : 'nie'}
+                          </span>
+                        </Zeile>
+                      ))}
+                    </Block>
+
+                    <Block>
+                      <BlockTitel>Billing (nur lesend)</BlockTitel>
+                      <Zeile><span>Stripe-Kunde</span><span>{snapshot.billing.stripeKunde ? 'ja' : 'nein'}</span></Zeile>
+                      <Zeile><span>Status</span><span>{snapshot.billing.stripeStatus || '—'}</span></Zeile>
+                      <Zeile><span>Kündigung geplant</span><span>{snapshot.billing.kuendigungGeplant ? 'ja' : 'nein'}</span></Zeile>
+                      <Zeile><span>Periode endet</span><span>{fmt(snapshot.billing.periodeEndet)}</span></Zeile>
+                      {snapshot.billing.stripeCustomerId && (
+                        <Zeile><span>Customer-ID</span><span style={{ fontSize: '.7rem' }}>{snapshot.billing.stripeCustomerId}</span></Zeile>
+                      )}
+                    </Block>
+                  </Bloecke>
+
+                  {/* ── STANDORTE (§8, §9, §37) ── */}
+                  <Block style={{ marginTop: 14 }}>
+                    <BlockTitel>Standorte</BlockTitel>
+                    {snapshot.zeroLocations ? (
+                      <Reason $ok={false} style={{ maxWidth: 'none' }}>
+                        {snapshot.zeroLocations.hinweis}
+                        <br />
+                        Import: {snapshot.zeroLocations.importStatus}
+                        {snapshot.zeroLocations.letzterVersuch && ` · letzter Versuch ${fmtZ(snapshot.zeroLocations.letzterVersuch)}`}
+                        {snapshot.zeroLocations.letzterFehler && ` · Fehler ${snapshot.zeroLocations.letzterFehler}`}
+                      </Reason>
+                    ) : snapshot.locations.length === 0 ? (
+                      <Reason>Keine Standorte — Google ist nicht aktiv verbunden.</Reason>
+                    ) : (
+                      <Table>
+                        <thead>
+                          <tr>
+                            <Th>Name</Th><Th>Ort</Th><Th>Place-ID</Th>
+                            <Th>Gewählt</Th><Th>Primär</Th>
+                            <Th>Letzter Sync</Th><Th>Bewertungen</Th><Th>Rating</Th><Th>Fotos</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {snapshot.locations.map((l) => (
+                            <Tr key={l.id}>
+                              <Td>{l.titel || '—'}</Td>
+                              <Td>{l.locality || '—'}</Td>
+                              <Td style={{ fontSize: '.7rem' }}>{l.placeId || '—'}</Td>
+                              <Td>{l.gewaehlt ? <Status $ok>gewählt</Status> : '—'}</Td>
+                              <Td>{l.primaer ? 'ja' : '—'}</Td>
+                              <Td>{fmtZ(l.letzterSync)}</Td>
+                              <Td>{l.bewertungen ?? '—'}</Td>
+                              <Td>{l.rating ?? '—'}</Td>
+                              <Td>{l.fotos ?? '—'}</Td>
+                            </Tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    )}
+                  </Block>
+
+                  {/* ── AKTIONEN (§11, §19, §20, §21) ── */}
+                  <Block style={{ marginTop: 14 }}>
+                    <BlockTitel>Sichere Aktionen</BlockTitel>
+
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <Btn
+                        type="button"
+                        disabled={aktionLaeuft}
+                        onClick={() => fuehreAus('trigger_customer_sync', {
+                          userId: snapshot.user.id,
+                          locationId: snapshot.engine.gewaehlterStandort,
+                        })}
+                      >
+                        <RefreshCw size={14} /> Jetzt synchronisieren
+                      </Btn>
+
+                      {snapshot.entitlement.foundingPartner ? (
+                        <Btn
+                          type="button"
+                          $gefahr
+                          disabled={aktionLaeuft}
+                          onClick={() => setBestaetigung({ aktion: 'clear_founding_partner' })}
+                        >
+                          Founding Partner entziehen
+                        </Btn>
+                      ) : (
+                        <Btn
+                          type="button"
+                          $haupt
+                          disabled={aktionLaeuft}
+                          onClick={() => setBestaetigung({ aktion: 'set_founding_partner' })}
+                        >
+                          Als Founding Partner freischalten
+                        </Btn>
+                      )}
+                    </div>
+
+                    {/* §20/§21: nicht Ein-Klick. Wer, welcher Plan, welche Folge. */}
+                    {bestaetigung && (
+                      <Bestaetigung>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                          {snapshot.user.name || snapshot.user.unternehmen || 'Unbekannter Name'}
+                        </div>
+                        <div>{snapshot.user.email || 'Keine E-Mail'}</div>
+                        <div style={{ margin: '8px 0' }}>
+                          Aktuell: <strong>{snapshot.entitlement.plan}</strong>
+                        </div>
+
+                        {bestaetigung.aktion === 'set_founding_partner' ? (
+                          <div>
+                            → Als Founding Partner freischalten. Der Zugang wird kostenlos
+                            und hängt nicht mehr an Stripe.
+                          </div>
+                        ) : (
+                          <div>
+                            → Auf <strong>free</strong> zurücksetzen. Folgen:
+                            <ul style={{ margin: '6px 0 0 18px' }}>
+                              <li>operative Mails hören auf (Weekly, Critical Alerts)</li>
+                              <li>Pro-Aktionen werden gesperrt</li>
+                            </ul>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                          <Btn
+                            type="button"
+                            $gefahr={bestaetigung.aktion === 'clear_founding_partner'}
+                            $haupt={bestaetigung.aktion === 'set_founding_partner'}
+                            disabled={aktionLaeuft}
+                            onClick={() => fuehreAus(bestaetigung.aktion, { userId: snapshot.user.id })}
+                          >
+                            Ja, ausführen
+                          </Btn>
+                          <Btn type="button" onClick={() => setBestaetigung(null)}>Abbrechen</Btn>
+                        </div>
+                      </Bestaetigung>
+                    )}
+
+                    {aktionsErgebnis && (
+                      <div style={{ marginTop: 12 }}>
+                        <Status $ok={aktionsErgebnis.ok}>
+                          {aktionsErgebnis.ok ? 'ausgeführt' : 'nicht ausgeführt'}
+                        </Status>
+                        <Reason style={{ maxWidth: 'none', marginTop: 6 }}>
+                          {aktionsErgebnis.fehler
+                            || aktionsErgebnis.daten?.code
+                            || (aktionsErgebnis.daten?.jobId
+                              ? `Job eingereiht · ${aktionsErgebnis.daten.jobArt} · Job-ID ${aktionsErgebnis.daten.jobId}`
+                              : 'Fertig.')}
+                        </Reason>
+                      </div>
+                    )}
+
+                    <Reason style={{ maxWidth: 'none', marginTop: 10 }}>
+                      Jede dieser Aktionen wird in audit_logs protokolliert. Google- und
+                      Stripe-Änderungen sind hier nicht möglich — dafür bleibt der
+                      Produktpfad beziehungsweise das Stripe-Dashboard.
+                    </Reason>
+                  </Block>
+                </>
+              )}
+            </div>
+          </Section>
+        )}
+
+        {/* ── SETUP-LEADS ── */}
+        {setupLeads > 0 && (
           <Section>
             <SectionHead>
               <SectionTitle>
@@ -339,7 +781,7 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.filter(l => l.needs_manual_setup && l.status === 'new').map(l => (
+                  {leads.filter((l) => l.needs_manual_setup && l.status === 'new').map((l) => (
                     <Tr key={l.id}>
                       <Td style={{ fontWeight: 700, color: '#D93025' }}>{l.company_name}</Td>
                       <Td>{l.email || '—'}</Td>

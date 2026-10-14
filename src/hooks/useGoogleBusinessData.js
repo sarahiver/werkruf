@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
+import { leiteImportZustandAb } from '../utils/adminOps';
 
 /* Nur fuer den Fall, dass die Antwort keinen lesbaren Text enthaelt —
    etwa bei einem Netzwerkabbruch oder einer Antwort ohne JSON. */
@@ -363,19 +364,13 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
      'succeeded' durchgelaufen — auch dann, wenn Google null Betriebe
                  zurueckgab. Das ist ein Ergebnis, kein fehlender Lauf.
      'failed'    endgueltig gescheitert */
+  /* Die vier Zustaende stehen seit H3 in src/utils/adminOps.js und
+     nicht mehr hier: der Admin-Support-Snapshot braucht dieselbe
+     Antwort, und eine zweite nachgebaute Fassung waere genau der
+     Fehler, der in H1 bei der Zugangsregel vier Kopien erzeugt hat.
+     Die Ableitung selbst ist unveraendert. */
   const importJobs = syncJobs.filter((j) => j.job_type === 'sync_locations');
-  const letzterImport = importJobs[0] ?? null;
-
-  const locationImport = {
-    job: letzterImport,
-    status: !letzterImport ? 'none'
-      : (letzterImport.status === 'queued' || letzterImport.status === 'running') ? 'running'
-      : letzterImport.status === 'succeeded' ? 'succeeded'
-      : 'failed',
-    /* Erfolgreich gelaufen, aber Google kennt keine verwaltbaren
-       Betriebe. Eigener Zustand, kein Anlass fuer einen neuen Versuch. */
-    keineBetriebe: letzterImport?.status === 'succeeded' && locations.length === 0,
-  };
+  const locationImport = leiteImportZustandAb(importJobs, locations.length);
 
   /* Aeltere offene Jobs bleiben fuer die Diagnose sichtbar, ohne den
      Zustand zu bestimmen. Ein dauerhaft wachsender Wert hier heisst:
