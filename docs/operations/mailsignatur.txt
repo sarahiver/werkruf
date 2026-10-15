@@ -1,0 +1,166 @@
+E-MAIL-SIGNATUR FÜR info@werkruf.com
+Stand 15.10.2026
+
+Zum Einfügen in den Mailclient. Die HTML-Fassung für Clients mit
+formatierter Signatur liegt daneben: mailsignatur.html
+
+
+════════════════════════════════════════════════════════════════
+WAS HINEIN GEHÖRT — UND WAS PFLICHT IST
+════════════════════════════════════════════════════════════════
+
+Die Pflichtangaben für Geschäftsbriefe nach § 37a HGB gelten für
+Kaufleute, also für im Handelsregister eingetragene Unternehmen. Für
+ein nicht eingetragenes Einzelunternehmen greifen sie nicht.
+
+Trotzdem gehören Name, Anschrift und Kontaktweg in die Signatur:
+
+  - Die Dienstleistungs-Informationspflichten-Verordnung (DL-InfoV)
+    verlangt, dass ein Dienstleister diese Angaben leicht zugänglich
+    macht. Eine Signatur ist der einfachste Weg.
+
+  - Ein Handwerksbetrieb, der 49 € im Monat binden soll, prüft, mit
+    wem er es zu tun hat. Eine Mail ohne Absenderangabe wirkt wie ein
+    Massenversand.
+
+Die Angaben müssen mit Impressum und AGB übereinstimmen. Weicht der
+Name ab, steht in der Mail ein anderer Anbieter als auf der Website.
+
+Das ist keine Rechtsberatung. Wenn die AGB ohnehin anwaltlich geprüft
+werden, nimm die Signatur mit in die Prüfung.
+
+
+════════════════════════════════════════════════════════════════
+VARIANTE A — SUPPORT-ANTWORT (empfohlen)
+════════════════════════════════════════════════════════════════
+
+Für Antworten an Kunden und Interessenten. Duzend, wie das Produkt.
+
+----------------------------------------------------------------
+Beste Grüße
+Iver
+
+--
+Iver Bohnes
+WERKRUF — Digitaler Rückenwind für echtes Handwerk
+
+info@werkruf.com · werkruf.com
+Hilfe und häufige Fragen: werkruf.com/hilfe
+
+Iver Bohnes (geb. Gentz)
+Große Freiheit 82, 22767 Hamburg
+----------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════
+VARIANTE B — GESCHÄFTLICH UND FÖRMLICH
+════════════════════════════════════════════════════════════════
+
+Für Steuerberater, Behörden, Partner, Rechnungsfragen. Siezend.
+
+----------------------------------------------------------------
+Mit freundlichen Grüßen
+Iver Bohnes
+
+--
+WERKRUF
+Iver Bohnes (geb. Gentz)
+Große Freiheit 82
+22767 Hamburg
+Deutschland
+
+Telefon: +49 176 66631237
+E-Mail: info@werkruf.com
+Web: werkruf.com
+
+Gemäß § 19 Abs. 1 UStG wird keine Umsatzsteuer berechnet.
+----------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════
+VARIANTE C — KURZ, FÜR DEN LAUFENDEN SCHRIFTWECHSEL
+════════════════════════════════════════════════════════════════
+
+Ab der zweiten, dritten Antwort im selben Vorgang. Die vollständige
+Signatur unter jede Zeile zu setzen wirkt automatisiert.
+
+----------------------------------------------------------------
+Beste Grüße
+Iver
+
+--
+Iver Bohnes · WERKRUF · info@werkruf.com · werkruf.com
+----------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════
+DREI ENTSCHEIDUNGEN, DIE DU TREFFEN MUSST
+════════════════════════════════════════════════════════════════
+
+1  "Iver" ODER "Dein WERKRUF-Team"?
+
+   Die Produktmails signieren mit "Dein WERKRUF-Team"
+   (industryConfig, comms.emailSignature). Für eine persönliche
+   Antwort aus dem Postfach würde ich den Namen nehmen.
+
+   Grund: Bei einem Ein-Personen-Unternehmen ist "Team" eine kleine
+   Unwahrheit, und ein Handwerksbetrieb merkt das. Dass ein echter
+   Mensch antwortet, ist dein Vorteil gegenüber den großen Anbietern
+   — nicht etwas, das du verstecken solltest.
+
+   Wenn du bei "Team" bleiben willst, ersetz in Variante A und C
+   "Iver" durch "Dein WERKRUF-Team" und streich die Zeile mit dem
+   Vornamen.
+
+2  TELEFONNUMMER JA ODER NEIN?
+
+   +49 176 66631237 steht im Impressum und ist damit ohnehin
+   öffentlich. In Variante A steht sie bewusst NICHT: Eine Mobilnummer
+   in jeder Support-Antwort lädt zu Anrufen ein, und ein Anruf um
+   halb acht auf der Baustelle ist schwer zu ignorieren.
+
+   In Variante B steht sie, weil dort Geschäftspartner schreiben.
+
+3  § 19-HINWEIS IN DER SIGNATUR?
+
+   Nur in Variante B. Pflicht ist er auf der Rechnung, nicht in jeder
+   Mail. In einer Support-Antwort wirkt er deplatziert.
+
+
+════════════════════════════════════════════════════════════════
+WO EINTRAGEN
+════════════════════════════════════════════════════════════════
+
+Im Mailclient, nicht im Code. Die Signatur gilt für das, was du
+selbst schreibst — die automatischen WERKRUF-Mails haben ihre eigene
+Fußzeile aus dem Code (comms.emailSignature) und Stripes Mails ihre
+Angaben aus den Branding-Einstellungen.
+
+Drei Stellen, die davon unberührt bleiben und trotzdem stimmen
+müssen:
+
+  - industryConfig: comms.emailSignature für Produktmails
+  - Stripe: Settings → Business → Public details
+  - Impressum und AGB auf der Website
+
+Wenn sich der Name oder die Anschrift ändert, ändert er sich an
+allen vier Stellen. Eine davon zu vergessen ist genau der Fehler, der
+heute beim Impressum aufgefallen ist.
+
+
+════════════════════════════════════════════════════════════════
+WAS NICHT IN DIE SIGNATUR GEHÖRT
+════════════════════════════════════════════════════════════════
+
+  - Vertraulichkeitshinweise ("Diese E-Mail ist vertraulich …").
+    Sie haben keine Rechtswirkung gegenüber einem Empfänger, der
+    nichts unterschrieben hat, und verlängern jede Mail um fünf
+    Zeilen.
+
+  - "Bitte denken Sie an die Umwelt, bevor Sie diese Mail drucken."
+
+  - Social-Media-Icons, solange es keine gepflegten Profile gibt.
+
+  - Ein Logo als eingebettetes Bild. Viele Clients blockieren es,
+    dann steht dort ein leerer Rahmen oder ein Anhang-Symbol, und die
+    Mail sieht nach Werbung aus.
