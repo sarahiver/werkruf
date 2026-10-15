@@ -35,6 +35,8 @@ import DashboardFotos          from './pages/dashboard/DashboardFotos';
 import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung';
 import ProGate                 from './components/dashboard/ProGate';
 import Impressum            from './pages/Impressum';
+import AGB                  from './pages/AGB';
+import Hilfe                from './pages/Hilfe';
 import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
 import Admin                from './pages/Admin';
@@ -88,6 +90,12 @@ function App() {
             } />
             <Route path="/datenschutz" element={
               <PublicLayout><Datenschutz /></PublicLayout>
+            } />
+            <Route path="/agb" element={
+              <PublicLayout><AGB /></PublicLayout>
+            } />
+            <Route path="/hilfe" element={
+              <PublicLayout><Hilfe /></PublicLayout>
             } />
 
             {/* ── PROTECTED DASHBOARD ── */}

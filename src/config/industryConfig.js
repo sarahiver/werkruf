@@ -153,9 +153,10 @@ export const INDUSTRIES = {
         tagline: 'Digitaler Rückenwind für echtes Handwerk',
         email:   'info@werkruf.com',
         links: [
+          { label: 'AGB',         href: '/agb'        },
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
-          { label: 'Kontakt',     href: 'mailto:info@werkruf.com' },
+          { label: 'Hilfe',       href: '/hilfe'      },
         ],
       },
     },

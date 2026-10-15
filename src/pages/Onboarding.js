@@ -294,10 +294,14 @@ export default function Onboarding() {
                 />
                 <span>
                   Ich habe die{' '}
+                  <a href="/agb" target="_blank" rel="noopener noreferrer">
+                    Allgemeinen Geschäftsbedingungen
+                  </a>{' '}
+                  und die{' '}
                   <a href="/datenschutz" target="_blank" rel="noopener noreferrer">
                     Datenschutzerklärung
                   </a>{' '}
-                  gelesen und stimme ihr zu. Das{' '}
+                  gelesen und stimme ihnen zu. Das{' '}
                   <a href="/impressum" target="_blank" rel="noopener noreferrer">
                     Impressum
                   </a>{' '}
