@@ -261,44 +261,28 @@ begin
 end $$;
 
 /* ═══════════════════════════════════════════════════════════════
-   5 — TABELLEN, DIE BASELINE-FUNKTIONEN BRAUCHEN, ABER NICHT GIBT
-   ═══════════════════════════════════════════════════════════════ */
+   5 — rate_limits UND sync_locks: ERLEDIGT, NICHT MEHR HIER
+   ═══════════════════════════════════════════════════════════════
 
-/*
- * BEFUND, NICHT BEHEBUNG.
- *
- * Zwei Funktionen der Baseline greifen auf Tabellen zu, die in der
- * Baseline nicht vorkommen:
- *
- *   public.rate_limits    — Baseline Zeilen 216-225, 1875
- *   public.sync_locks     — Baseline Zeilen 2233, 2330
- *
- * Weil pg_dump mit check_function_bodies = false laedt, fiel das nie
- * auf. In Produktion gilt eines von beidem: die Tabellen existieren und
- * fehlen im Dump — dann ist der Dump unvollstaendiger als gedacht. Oder
- * sie existieren nicht — dann werfen prune_rate_limits() und die
- * Sperrenbereinigung zur Laufzeit.
- *
- * Beides ist ein Produktionsbefund und gehoert nicht in einen
- * Testaufbau. Hier entstehen deshalb nur die leeren Tabellen, damit die
- * Funktionen ueberhaupt aufrufbar sind — klar benannt, mit dem Hinweis
- * im Kommentar.
- */
-create table if not exists public.rate_limits (
-  key           text primary key,
-  window_start  timestamptz not null default pg_catalog.now(),
-  request_count integer     not null default 0,
-  updated_at    timestamptz not null default pg_catalog.now()
-);
+   Hier standen bis zum 12.10.2026 zwei selbst gebaute Tabellen.
+   public.rate_limits und public.sync_locks kommen in der Baseline
+   nicht vor, wohl aber die Funktionen, die darauf zugreifen — und
+   weil pg_dump mit check_function_bodies = false laedt, fiel das
+   nie auf.
 
-comment on table public.rate_limits is
-  '[TESTAUFBAU] Nicht aus der Baseline. Von public.check_rate_limit() und prune_rate_limits() vorausgesetzt, dort aber nicht definiert — siehe docs/testing/baseline-luecken.md.';
+   Ich hatte sie deshalb hier nachgebaut: Spalten aus den
+   Funktionsruempfen erschlossen, Typen und Defaults erfunden. Als
+   Testkruecke ging das durch, und an einer Stelle war es falsch —
+   sync_locks fehlte locked_by, eine NOT-NULL-Spalte ohne Default,
+   auf die release_lock() vergleicht.
 
-create table if not exists public.sync_locks (
-  name       text primary key,
-  locked_at  timestamptz not null default pg_catalog.now(),
-  expires_at timestamptz not null
-);
+   Inzwischen ist belegt (G2.1, Abfrage an Produktion): beide
+   Tabellen existieren dort, von Hand angelegt. Ihre echten
+   Definitionen stehen jetzt in
 
-comment on table public.sync_locks is
-  '[TESTAUFBAU] Nicht aus der Baseline. Von der Sperrenbereinigung vorausgesetzt, dort aber nicht definiert — siehe docs/testing/baseline-luecken.md.';
+     supabase/migrations/20261012110000_fehlende_objekte.sql
+
+   und werden von dort angewendet, nach dieser Datei. Deshalb steht
+   hier nichts mehr: zwei Wahrheiten ueber dieselbe Tabelle waeren
+   eine zu viel, und die erfundene wuerde gewinnen —
+   create table if not exists ueberschreibt nicht. */

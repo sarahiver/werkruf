@@ -67,7 +67,55 @@ update public.events e
    and e.location_id is null;
 
 /* ═══════════════════════════════════════════════════════════════
-   2 — EINDEUTIGKEIT MIT STANDORT
+   2 — ALTBESTAND BEREINIGEN
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * Ohne eindeutigen Index konnte das "on conflict" in sync_events nie
+ * greifen: Jeder Engine-Lauf legte eine NEUE Zeile an, statt die
+ * vorhandene zu aktualisieren.
+ *
+ * Im Bestand stehen dadurch Dutzende identischer Empfehlungen —
+ * gleicher Typ, gleiches Subject, gleicher Titel, gleiche data, nur
+ * verschiedene created_at. Sie sind kein Standortunterschied, sondern
+ * Wiederholungen derselben Aussage.
+ *
+ * Behandlung: Die AELTESTE offene Zeile je Schluessel bleibt — sie
+ * traegt den Zeitpunkt, an dem das Problem erstmals auftrat, und
+ * genau das haette ein funktionierendes Upsert erhalten. Die uebrigen
+ * werden auf 'resolved' gesetzt.
+ *
+ * Nichts geht verloren, was die Engine nicht wiederherstellen koennte:
+ * Besteht der Zustand fort, legt der naechste Lauf die Empfehlung neu
+ * an — dann korrekt als eine einzige Zeile.
+ */
+do $$
+declare v_anzahl integer;
+begin
+  with rang as (
+    select id,
+           row_number() over (
+             partition by user_id, location_id, type, subject_id
+             order by created_at
+           ) as nr
+    from public.events
+    where lifecycle in ('new', 'seen', 'opened')
+  )
+  update public.events e
+     set lifecycle = 'resolved',
+         resolved_at = pg_catalog.now()
+    from rang
+   where e.id = rang.id and rang.nr > 1;
+
+  get diagnostics v_anzahl = row_count;
+
+  if v_anzahl > 0 then
+    raise notice 'Dubletten bereinigt: % Zeilen auf resolved gesetzt. Ursache: fehlender eindeutiger Index, dadurch legte jeder Engine-Lauf eine neue Zeile an.', v_anzahl;
+  end if;
+end $$;
+
+/* ═══════════════════════════════════════════════════════════════
+   3 — EINDEUTIGKEIT MIT STANDORT
    ═══════════════════════════════════════════════════════════════ */
 
 /*
@@ -80,25 +128,36 @@ update public.events e
  * ist: Ohne den zweiten waeren beliebig viele Events ohne subject_id
  * moeglich.
  */
+/*
+ * Die Indizes gelten nur fuer OFFENE Events.
+ *
+ * Eine abgeschlossene Empfehlung darf mehrfach in der Historie stehen —
+ * dasselbe Problem kann im Maerz und im Juni auftreten. Nur offen darf
+ * es jeweils einmal sein.
+ *
+ * Ohne diese Einschraenkung waere ausserdem die Bereinigung oben
+ * wirkungslos: Die aufgeloesten Dubletten stuenden dem Index weiter im
+ * Weg.
+ */
 create unique index if not exists events_identitaet_mit_subject_idx
   on public.events (user_id, location_id, type, subject_id)
-  where subject_id is not null and location_id is not null;
+  where lifecycle in ('new','seen','opened') and subject_id is not null and location_id is not null;
 
 create unique index if not exists events_identitaet_ohne_subject_idx
   on public.events (user_id, location_id, type)
-  where subject_id is null and location_id is not null;
+  where lifecycle in ('new','seen','opened') and subject_id is null and location_id is not null;
 
 /* Konto-/Verbindungsereignisse ohne Standort. */
 create unique index if not exists events_identitaet_konto_idx
   on public.events (user_id, type, subject_id)
-  where location_id is null and subject_id is not null;
+  where lifecycle in ('new','seen','opened') and location_id is null and subject_id is not null;
 
 create unique index if not exists events_identitaet_konto_ohne_subject_idx
   on public.events (user_id, type)
-  where location_id is null and subject_id is null;
+  where lifecycle in ('new','seen','opened') and location_id is null and subject_id is null;
 
 /* ═══════════════════════════════════════════════════════════════
-   3 — AUFLOESUNG IM RICHTIGEN UMFANG
+   4 — AUFLOESUNG IM RICHTIGEN UMFANG
    ═══════════════════════════════════════════════════════════════ */
 
 /*
@@ -147,7 +206,7 @@ comment on function public.resolve_stale_events is
   'Loest veraltete Events NUR im ausgewerteten Umfang auf. Ohne diese Begrenzung markierte eine S&I-Auswertung offene WERKRUF-Empfehlungen als geloest.';
 
 /* ═══════════════════════════════════════════════════════════════
-   4 — IMPACT-METRIKEN JE STANDORT
+   5 — IMPACT-METRIKEN JE STANDORT
    ═══════════════════════════════════════════════════════════════ */
 
 /*
@@ -239,7 +298,7 @@ comment on function public.read_location_impact_metric is
   'Impact-Metrik fuer GENAU EINEN Standort. Ohne sie maesse man die Wirkung einer S&I-Empfehlung an WERKRUF-Daten mit.';
 
 /* ═══════════════════════════════════════════════════════════════
-   5 — SNAPSHOTS MIT STANDORT UND SCORE-FASSUNG
+   6 — SNAPSHOTS MIT STANDORT UND SCORE-FASSUNG
    ═══════════════════════════════════════════════════════════════ */
 
 do $$
@@ -323,7 +382,7 @@ comment on function public.previous_location_health is
   'Vorwochenwert desselben Standorts und derselben Score-Fassung. NULL, wenn nicht vergleichbar — dann feuert health.declined nicht.';
 
 /* ═══════════════════════════════════════════════════════════════
-   6 — TRACKING UEBERNIMMT DEN STANDORT
+   7 — TRACKING UEBERNIMMT DEN STANDORT
    ═══════════════════════════════════════════════════════════════ */
 
 do $$
@@ -367,7 +426,7 @@ begin
 end $$;
 
 /* ═══════════════════════════════════════════════════════════════
-   7 — RECHTE
+   8 — RECHTE
    ═══════════════════════════════════════════════════════════════ */
 
 revoke all on function public.resolve_stale_events(uuid, jsonb, uuid) from public, anon;
