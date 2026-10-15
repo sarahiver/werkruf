@@ -75,7 +75,7 @@ export default function Impressum() {
         <H2>Kontakt</H2>
         <P>
           Telefon: <A href="tel:+4917666631237">+49 176 66631237</A><br />
-          E-Mail: <A href="mailto:hallo@werkruf.de">hallo@werkruf.de</A>
+          E-Mail: <A href="mailto:info@werkruf.com">info@werkruf.com</A>
         </P>
       </Section>
 

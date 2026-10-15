@@ -449,7 +449,7 @@ function empfaenger(): string {
   const modus = (Deno.env.get('EMAIL_DELIVERY_MODE') ?? 'production').toLowerCase();
   if (modus === 'test') return requireEnv('EMAIL_TEST_RECIPIENT');
   if (modus !== 'production') throw new Error('EMAIL_DELIVERY_MODE muss production oder test sein');
-  return Deno.env.get('ADMIN_EMAIL') || 'hallo@werkruf.com';
+  return Deno.env.get('ADMIN_EMAIL') || 'info@werkruf.com';
 }
 
 async function sendeAlarm(meldungen: Record<string, unknown>[]): Promise<boolean> {
@@ -461,7 +461,7 @@ async function sendeAlarm(meldungen: Record<string, unknown>[]): Promise<boolean
       method: 'POST',
       headers: { 'api-key': requireEnv('BREVO_API_KEY'), 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        sender: { name: 'WERKRUF BETRIEB', email: Deno.env.get('BREVO_SENDER_EMAIL') || 'hallo@werkruf.com' },
+        sender: { name: 'WERKRUF BETRIEB', email: Deno.env.get('BREVO_SENDER_EMAIL') || 'info@werkruf.com' },
         to: [{ email: ziel }],
         subject: betreff, htmlContent: html, textContent: text,
         tags: ['gbp_api_monitor'],

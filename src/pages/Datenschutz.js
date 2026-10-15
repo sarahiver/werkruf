@@ -93,7 +93,7 @@ export default function Datenschutz() {
         <P>
           <strong>Wer ist verantwortlich für die Datenerfassung auf dieser Website?</strong><br />
           Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber:
-          Iver Gentz, Große Freiheit 82, 22767 Hamburg, E-Mail: hallo@werkruf.de
+          Iver Gentz, Große Freiheit 82, 22767 Hamburg, E-Mail: info@werkruf.com
         </P>
         <P>
           <strong>Wie erfassen wir Ihre Daten?</strong><br />
@@ -146,7 +146,7 @@ export default function Datenschutz() {
             Iver Gentz<br />
             Große Freiheit 82, 22767 Hamburg<br />
             Telefon: +49 176 66631237<br />
-            E-Mail: <A href="mailto:hallo@werkruf.de">hallo@werkruf.de</A>
+            E-Mail: <A href="mailto:info@werkruf.com">info@werkruf.com</A>
           </P>
         </InfoBox>
 

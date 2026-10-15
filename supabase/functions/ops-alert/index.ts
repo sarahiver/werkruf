@@ -27,7 +27,7 @@
    Benoetigte Secrets:
      GBP_WORKER_SECRET
      BREVO_API_KEY
-     ADMIN_EMAIL          Empfaenger, Standard hallo@werkruf.com
+     ADMIN_EMAIL          Empfaenger, Standard info@werkruf.com
      SITE_URL             fuer Links in der Mail
 
    VORAUSSETZUNG: Migration 020_ops_alerts.sql ist eingespielt.
@@ -177,8 +177,8 @@ async function sendAlertMail(alerts: Alert[]): Promise<boolean> {
   }
   const empfaenger = mode === 'test'
     ? requireEnv('EMAIL_TEST_RECIPIENT')
-    : (Deno.env.get('ADMIN_EMAIL') || 'hallo@werkruf.com');
-  const absender   = Deno.env.get('BREVO_SENDER_EMAIL') || 'hallo@werkruf.com';
+    : (Deno.env.get('ADMIN_EMAIL') || 'info@werkruf.com');
+  const absender   = Deno.env.get('BREVO_SENDER_EMAIL') || 'info@werkruf.com';
   const siteUrl    = Deno.env.get('SITE_URL') || 'https://werkruf.com';
 
   const kritisch = alerts.filter((a) => a.severity === 'critical').length;

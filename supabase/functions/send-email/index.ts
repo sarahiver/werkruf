@@ -88,7 +88,7 @@ const BRANDS: Record<string, Brand> = {
     name: 'WERKRUF',
     accent: '#F28C28',
     primary: '#0B2545',
-    senderEmail: 'hallo@werkruf.com',
+    senderEmail: 'info@werkruf.com',
     appUrl: 'https://werkruf.com',
     productName: 'WERKRUF PRO',
   },

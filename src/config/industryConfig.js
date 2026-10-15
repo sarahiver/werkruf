@@ -151,11 +151,11 @@ export const INDUSTRIES = {
       ],
       footer: {
         tagline: 'Digitaler Rückenwind für echtes Handwerk',
-        email:   'hallo@werkruf.com',
+        email:   'info@werkruf.com',
         links: [
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
-          { label: 'Kontakt',     href: 'mailto:hallo@werkruf.com' },
+          { label: 'Kontakt',     href: 'mailto:info@werkruf.com' },
         ],
       },
     },
@@ -164,7 +164,7 @@ export const INDUSTRIES = {
     comms: {
       expertTitle:   'Handwerk-Experte',
       greeting:      'Moin',
-      emailFrom:     'hallo@werkruf.com',
+      emailFrom:     'info@werkruf.com',
       emailSignature:'Dein WERKRUF-Team',
       fahrplanTitle: 'Dein Profil-Befund',  // Dateiname und Deckblatt
 
