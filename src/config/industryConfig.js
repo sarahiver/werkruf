@@ -210,7 +210,7 @@ export const INDUSTRIES = {
       currency:        '€',
       trialDays:       30,
       productName:     'WERKRUF PRO',
-      priceLabel:      '/ Monat (netto)',
+      priceLabel:      '/ Monat',
       trialCTA:        'Jetzt 30 Tage gratis testen',
 
       /* EIN Preis, kein Pfad.
@@ -442,7 +442,7 @@ export const INDUSTRIES = {
       monthlyPrice:    89,
       annualPrice:     890,
       trialDays:       30,
-      priceLabel:      '/ Monat (netto)',
+      priceLabel:      '/ Monat',
       trialCTA:        'Jetzt 30 Tage gratis starten',
       productName:     'GASTRORUF PRO',
       roi: {
@@ -582,7 +582,7 @@ export const INDUSTRIES = {
       monthlyPrice:    69,
       annualPrice:     690,
       trialDays:       30,
-      priceLabel:      '/ Monat (netto)',
+      priceLabel:      '/ Monat',
       trialCTA:        'Jetzt 30 Tage gratis starten',
       productName:     'BEAUTYRUF PRO',
       roi: {

@@ -1,0 +1,127 @@
+RECHNUNGSFUSSZEILE FÜR STRIPE
+Stand 15.10.2026 · Kleinunternehmer nach § 19 UStG
+
+Einfügen unter: Settings → Billing → Invoices → Rechnungsvorlage,
+Feld "Fußzeile" (englisch: "Footer").
+
+Die Fußzeile erscheint auf jeder Rechnung und jedem Beleg, den Stripe
+im Namen von WERKRUF verschickt. Sie wird NICHT automatisch auch im
+Kundenportal angezeigt — dort zählen die Angaben aus
+Settings → Business → Public details.
+
+
+════════════════════════════════════════════════════════════════
+WAS STRIPE SCHON SELBST SETZT — NICHT DOPPELT EINTRAGEN
+════════════════════════════════════════════════════════════════
+
+Rechnungsnummer, Rechnungsdatum, Leistungszeitraum, Bezeichnung der
+Leistung und Betrag kommen aus Stripe. In die Fußzeile gehört nur,
+was Stripe nicht kennt.
+
+
+════════════════════════════════════════════════════════════════
+ZUM EINFÜGEN
+════════════════════════════════════════════════════════════════
+
+Nur noch die Bankverbindung ersetzen, der Rest steht:
+
+----------------------------------------------------------------
+Iver Bohnes (geb. Gentz)
+Große Freiheit 82, 22767 Hamburg, Deutschland
+
+Steuernummer: ⟨Steuernummer vom Finanzamt⟩
+
+Gemäß § 19 Abs. 1 UStG wird keine Umsatzsteuer berechnet.
+
+Bankverbindung: ⟨Name der Bank⟩
+IBAN ⟨DE00 0000 0000 0000 0000 00⟩ · BIC ⟨XXXXXXXXXXX⟩
+
+Zahlung erfolgt automatisch über das hinterlegte Zahlungsmittel.
+Fragen zur Rechnung: info@werkruf.com
+----------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════
+WAS DARAUS FÜR STRIPE FOLGT — ZWINGEND
+════════════════════════════════════════════════════════════════
+
+Die Kleinunternehmerregelung ist keine reine Textfrage. Zwei
+Einstellungen müssen dazu passen, sonst widersprechen sich Rechnung
+und Fußzeile:
+
+1  STRIPE TAX MUSS AUS SEIN
+
+   Settings → Tax. Ist Stripe Tax an, berechnet Stripe Umsatzsteuer
+   und weist sie auf der Rechnung aus — während die Fußzeile sagt,
+   dass keine berechnet wird. Die Rechnung wäre in sich falsch.
+
+2  DER PREIS IST DER ENDBETRAG
+
+   49 € sind der volle Betrag, nichts kommt hinzu. Entsprechend ist
+   auf der Preisseite der Zusatz "(netto)" entfallen — er hätte
+   bedeutet, dass Umsatzsteuer noch dazukommt.
+
+Beides steht ausführlich in stripe-einrichtung.md, Abschnitt 4.
+
+
+════════════════════════════════════════════════════════════════
+ZWEI PUNKTE, DIE DU NOCH KLÄREN MUSST
+════════════════════════════════════════════════════════════════
+
+1  STEUERNUMMER
+
+   Eine Steuernummer ODER eine USt-IdNr. ist auf der Rechnung
+   Pflicht. Als Kleinunternehmer ohne USt-IdNr. bleibt die
+   Steuernummer — sie steht auf dem Bescheid des Finanzamts zur
+   steuerlichen Erfassung.
+
+   Liegt sie noch nicht vor, kann die erste Rechnung nicht
+   vollständig sein. Das ist ein Grund, mit dem ersten zahlenden
+   Kunden zu warten, nicht mit dem Founding Partner.
+
+2  BANKVERBINDUNG — PFLICHT ODER NICHT?
+
+   Gesetzlich nicht vorgeschrieben, wenn der Betrag ohnehin
+   eingezogen wird. Sie steht trotzdem drauf, weil ein
+   Handwerksbetrieb sie für die Buchhaltung erwartet und weil sie
+   den Weg offenhält, falls einmal per Überweisung gezahlt werden
+   soll.
+
+   Wenn du sie nicht veröffentlichen willst, streich die beiden
+   Zeilen. Der Rest bleibt vollständig.
+
+
+════════════════════════════════════════════════════════════════
+NACH DEM EINFÜGEN PRÜFEN
+════════════════════════════════════════════════════════════════
+
+Stripe zeigt rechts in den Rechnungseinstellungen eine Vorschau.
+Einmal ansehen und auf vier Dinge achten:
+
+  - Kein Platzhalter in ⟨⟩ mehr übrig
+  - Der Name stimmt mit Impressum und AGB überein
+  - Der § 19-Hinweis steht drauf
+  - Es wird KEINE Umsatzsteuer ausgewiesen
+
+Danach einmal im Sandbox eine Testrechnung erzeugen und als PDF
+herunterladen — die Vorschau zeigt nicht immer dasselbe wie das
+fertige Dokument.
+
+
+════════════════════════════════════════════════════════════════
+WENN DIE KLEINUNTERNEHMERREGELUNG EINMAL ENTFÄLLT
+════════════════════════════════════════════════════════════════
+
+Sie endet, sobald die Umsatzgrenze überschritten wird. Dann ändert
+sich mehr als diese Fußzeile:
+
+  - § 19-Hinweis raus, USt-IdNr. rein
+  - Stripe Tax an, Preis als netto oder brutto entscheiden
+  - "(netto)" zurück auf die Preisseite, falls 49 € netto gelten
+    sollen — oder der Bruttopreis bleibt 49 € und der Nettoerlös
+    sinkt
+  - § 5 der AGB neu fassen
+  - Impressum: Abschnitt "Umsatzsteuer" ersetzen
+
+Das ist ein zusammenhängender Vorgang, kein einzelnes Feld. Vorher
+mit dem Steuerberater durchgehen.

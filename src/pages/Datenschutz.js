@@ -93,7 +93,7 @@ export default function Datenschutz() {
         <P>
           <strong>Wer ist verantwortlich für die Datenerfassung auf dieser Website?</strong><br />
           Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber:
-          Iver Gentz, Große Freiheit 82, 22767 Hamburg, E-Mail: info@werkruf.com
+          Iver Bohnes (geb. Gentz), Große Freiheit 82, 22767 Hamburg, E-Mail: info@werkruf.com
         </P>
         <P>
           <strong>Wie erfassen wir Ihre Daten?</strong><br />
@@ -143,7 +143,7 @@ export default function Datenschutz() {
         <H3>Hinweis zur verantwortlichen Stelle</H3>
         <InfoBox>
           <P style={{ margin: 0 }}>
-            Iver Gentz<br />
+            Iver Bohnes (geb. Gentz)<br />
             Große Freiheit 82, 22767 Hamburg<br />
             Telefon: +49 176 66631237<br />
             E-Mail: <A href="mailto:info@werkruf.com">info@werkruf.com</A>

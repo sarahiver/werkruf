@@ -119,7 +119,7 @@ export default function AGB() {
       <Section>
         <H2>§ 1 Anbieter und Geltungsbereich</H2>
         <P>
-          Anbieter von WERKRUF ist [NAME DES ANBIETERS], Große Freiheit 82, 22767 Hamburg
+          Anbieter von WERKRUF ist Iver Bohnes (geb. Gentz), Große Freiheit 82, 22767 Hamburg
           (nachfolgend „Anbieter"). Die vollständigen Angaben stehen im{' '}
           <IntLink to="/impressum">Impressum</IntLink>.
         </P>
@@ -203,10 +203,15 @@ export default function AGB() {
       <Section>
         <H2>§ 5 Preise und Zahlung</H2>
         <P>
-          Die Nutzung kostet {preis} je angefangenem Monat {pricing.priceLabel.replace('/ ', '').trim()}.
-          Maßgeblich ist der auf der Preisseite ausgewiesene Preis bei Vertragsschluss.
-          [HINWEIS ZUR UMSATZSTEUER: Angabe, ob der Preis zuzüglich gesetzlicher
-          Umsatzsteuer gilt oder ob nach § 19 UStG keine Umsatzsteuer ausgewiesen wird.]
+          Die Nutzung kostet {preis} je Abrechnungszeitraum von einem Monat. Maßgeblich ist
+          der auf der Preisseite ausgewiesene Preis bei Vertragsschluss.
+        </P>
+        <P>
+          <strong>
+            Gemäß § 19 Abs. 1 UStG wird keine Umsatzsteuer berechnet.
+          </strong>{' '}
+          Der genannte Betrag ist der Endbetrag; es kommt keine Umsatzsteuer hinzu, und in
+          Rechnungen wird keine ausgewiesen.
         </P>
         <P>
           Die Abrechnung erfolgt monatlich im Voraus über den Zahlungsdienstleister Stripe

@@ -64,7 +64,7 @@ export default function Impressum() {
       <Section>
         <H2>Angaben gemäß § 5 TMG</H2>
         <P>
-          Iver Gentz<br />
+          Iver Bohnes (geb. Gentz)<br />
           Große Freiheit 82<br />
           22767 Hamburg<br />
           Deutschland
@@ -80,17 +80,17 @@ export default function Impressum() {
       </Section>
 
       <Section>
-        <H2>Umsatzsteuer-ID</H2>
+        <H2>Umsatzsteuer</H2>
         <P>
-          Umsatzsteuer-Identifikationsnummer gemäß § 27a Umsatzsteuergesetz:<br />
-          <strong>[Bitte deine USt-IdNr. eintragen oder streichen falls nicht vorhanden]</strong>
+          Gemäß § 19 Abs. 1 Umsatzsteuergesetz wird keine Umsatzsteuer berechnet und
+          daher auch nicht in Rechnungen ausgewiesen.
         </P>
       </Section>
 
       <Section>
         <H2>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</H2>
         <P>
-          Iver Gentz<br />
+          Iver Bohnes (geb. Gentz)<br />
           Große Freiheit 82<br />
           22767 Hamburg
         </P>
