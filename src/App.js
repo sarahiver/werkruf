@@ -36,6 +36,7 @@ import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung
 import ProGate                 from './components/dashboard/ProGate';
 import Impressum            from './pages/Impressum';
 import AGB                  from './pages/AGB';
+import AVV                  from './pages/AVV';
 import Hilfe                from './pages/Hilfe';
 import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
@@ -93,6 +94,11 @@ function App() {
             } />
             <Route path="/agb" element={
               <PublicLayout><AGB /></PublicLayout>
+            } />
+            {/* Anlage zu den AGB (§ 13). Eigene Seite, weil der Kunde
+                sie fuer seine eigene Dokumentation verlinken muss. */}
+            <Route path="/avv" element={
+              <PublicLayout><AVV /></PublicLayout>
             } />
             <Route path="/hilfe" element={
               <PublicLayout><Hilfe /></PublicLayout>

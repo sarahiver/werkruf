@@ -33,6 +33,12 @@ const Title = styled.h1`
   color: var(--color-primary); margin-bottom: 40px;
   border-bottom: 2px solid var(--color-border);
   padding-bottom: 20px;
+  /* "Datenschutzerklaerung" ist ein Wort und passt auf einem Telefon
+     nicht in eine Zeile. Ohne Trennung schob es die ganze Seite 43px
+     nach rechts und erzeugte waagerechtes Scrollen. lang="de" steht
+     in index.html, also trennt der Browser richtig. */
+  overflow-wrap: break-word;
+  hyphens: auto;
 `;
 
 const Section = styled.section`margin-bottom: 36px;`;
@@ -62,6 +68,13 @@ const Code = styled.code`
 `;
 
 const A = styled.a`
+  color: var(--color-accent); text-decoration: none;
+  &:hover { text-decoration: underline; }
+`;
+
+/* Interner Verweis. Als react-router-Link, nicht als <a href>, sonst
+   laedt der Browser die Anwendung neu. */
+const IntLink = styled(Link)`
   color: var(--color-accent); text-decoration: none;
   &:hover { text-decoration: underline; }
 `;
@@ -364,15 +377,40 @@ export default function Datenschutz() {
         <H3>Brevo (E-Mail-Versand)</H3>
         <P>
           Wir nutzen Brevo (ehemals Sendinblue) für den transaktionalen E-Mail-Versand. Anbieter
-          ist Sendinblue SAS, 55 rue d'Amsterdam, 75008 Paris, Frankreich. Weitere Informationen:{' '}
+          ist Brevo SAS, 106 boulevard Haussmann, 75008 Paris, Frankreich. Weitere Informationen:{' '}
           <A href="https://www.brevo.com/de/legal/privacypolicy/" target="_blank" rel="noopener noreferrer">
             https://www.brevo.com/de/legal/privacypolicy/
           </A>
         </P>
       </Section>
 
+      <Section>
+        <H2>8. Auftragsverarbeitung für unsere Kunden</H2>
+        <P>
+          Für die Daten unserer Kunden — also der Betriebe, die WERKRUF nutzen — sind wir
+          verantwortlich im Sinne der DSGVO. Dafür gelten die Abschnitte 1 bis 7 dieser
+          Erklärung.
+        </P>
+        <P>
+          Darüber hinaus verarbeiten wir Daten <strong>im Auftrag</strong> unserer Kunden: die
+          Bewertungen, die Kunden und Interessenten über das Google Unternehmensprofil eines
+          Betriebs abgeben, und die Antworten darauf. Über diese Daten entscheidet der Betrieb,
+          nicht wir. Wir sind insoweit Auftragsverarbeiter nach Art. 28 DSGVO.
+        </P>
+        <P>
+          Was dabei verarbeitet wird, welche Unterauftragsverarbeiter beteiligt sind und welche
+          technischen und organisatorischen Maßnahmen gelten, steht im{' '}
+          <IntLink to="/avv">Vertrag zur Auftragsverarbeitung</IntLink>.
+        </P>
+        <P>
+          Wenn Sie eine Bewertung über ein Google Unternehmensprofil abgegeben haben und Ihre
+          Rechte geltend machen wollen, wenden Sie sich an den Betrieb, den Sie bewertet haben.
+          Erreicht uns eine solche Anfrage, leiten wir sie dorthin weiter.
+        </P>
+      </Section>
+
       <P style={{ color: 'var(--color-text-muted)', fontSize: '.8rem', marginTop: 40 }}>
-        Stand: September 2026
+        Stand: Oktober 2026
       </P>
     </Wrap>
   );

@@ -64,6 +64,12 @@ const Title = styled.h1`
   font-size: clamp(1.8rem, 4vw, 2.6rem);
   text-transform: var(--text-transform);
   color: var(--color-primary); margin-bottom: 12px;
+  /* "Geschaeftsbedingungen" ist ein Wort und passt auf einem Telefon
+     nicht in eine Zeile. Ohne Trennung schob es die ganze Seite 39px
+     nach rechts und erzeugte waagerechtes Scrollen. lang="de" steht
+     in index.html, also trennt der Browser richtig. */
+  overflow-wrap: break-word;
+  hyphens: auto;
 `;
 
 const Stand = styled.p`
@@ -360,9 +366,15 @@ export default function AGB() {
         </P>
         <P>
           Soweit der Anbieter personenbezogene Daten im Auftrag des Kunden verarbeitet,
-          schließen die Parteien einen Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO.
-          [HINWEIS: Der Auftragsverarbeitungsvertrag ist noch bereitzustellen und hier zu
-          verlinken.]
+          gilt der <IntLink to="/avv">Vertrag zur Auftragsverarbeitung</IntLink> nach
+          Art. 28 DSGVO. Er ist Anlage zu diesen Bedingungen und wird mit deren Annahme
+          Vertragsbestandteil. Dort stehen auch die eingesetzten
+          Unterauftragsverarbeiter und die technischen und organisatorischen Maßnahmen.
+        </P>
+        <P>
+          Eine gesonderte Unterschrift ist nach Art. 28 Abs. 9 DSGVO nicht erforderlich. Wer
+          eine unterschriebene Fassung für die eigene Dokumentation benötigt, erhält sie auf
+          Anfrage unter <A href="mailto:info@werkruf.com">info@werkruf.com</A>.
         </P>
       </Section>
 
