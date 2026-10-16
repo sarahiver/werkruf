@@ -22,7 +22,7 @@
  * den vollen Pfad. Der Seitenneuaufbau ist der Preis dafür.
  */
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { Menu, X } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
@@ -184,6 +184,51 @@ const Header = () => {
   const [menuOpen,  setMenuOpen]  = useState(false);
   const { brand, pricing } = useIndustry();
   const { isAuthenticated } = useAuthContext();
+  const { pathname } = useLocation();
+
+  /* Das Logo.
+     ───────────────────────────────────────────────
+     Von einer Unterseite führt es wie bisher auf "/" — React Router
+     montiert dann die Landingpage, und die beginnt oben.
+
+     Steht der Besucher aber SCHON auf "/" und ist weit unten, war der
+     Klick bis zum 16.10.2026 wirkungslos: Router navigiert auf
+     dieselbe Route, die Seite bleibt stehen, nichts passiert. Genau
+     da greift ein Besucher aber zum Logo, um nach oben zu kommen.
+
+     Deshalb nur in diesem einen Fall das Standardverhalten abfangen
+     und selbst scrollen. Kein globaler Scroll-Wiederhersteller, keine
+     Änderung an anderen Links.
+
+     Es bleibt ein echter <Link>: Rechtsklick, Mittelklick und
+     "In neuem Tab öffnen" funktionieren weiter, und die Tastatur
+     ebenfalls — Enter auf einem <a> löst denselben Klick aus. */
+  const logoKlick = (e) => {
+    setMenuOpen(false);
+
+    /* Wer Bewegung im Betriebssystem abgestellt hat, bekommt den
+       Sprung statt der Fahrt. */
+    const ruhig = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (pathname === '/') {
+      /* Schon da: nicht navigieren, sondern fahren. */
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: ruhig ? 'auto' : 'smooth' });
+      return;
+    }
+
+    /* Von einer Unterseite: Der Router übernimmt die Navigation, aber
+       er setzt die Scrollposition NICHT zurück. Im Browser gemessen:
+       Von /impressum aus, 800px weit unten, wechselte der Pfad auf /
+       und die Seite blieb auf 800px stehen — die Landingpage begann
+       also mitten in den Leistungen.
+
+       Kein preventDefault, kein smooth: Der Sprung passiert, bevor
+       die neue Seite sichtbar ist, und eine Fahrt über eine Seite,
+       die gerade ausgetauscht wird, sieht nach Fehler aus. */
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  };
 
   /* Ein Ziel für alle Haupt-CTAs der öffentlichen Seiten. Wer
      angemeldet ist, will nicht noch einmal registrieren. */
@@ -202,7 +247,7 @@ const Header = () => {
     <>
       <Nav $scrolled={scrolled}>
         <NavInner>
-          <LogoWrap to="/">
+          <LogoWrap to="/" onClick={logoKlick} aria-label={`${brand.name} — zum Seitenanfang`}>
             <LogoMark />
             <LogoText>{brand.logo}</LogoText>
           </LogoWrap>
@@ -219,13 +264,23 @@ const Header = () => {
             <LoginBtn to={ctaZiel}>{ctaText}</LoginBtn>
           </Rechts>
 
-          <MobileMenuBtn onClick={() => setMenuOpen(!menuOpen)}>
+          {/* Der Umschalter trug bis zum 16.10.2026 nur ein Symbol:
+              kein Name, kein Zustand. Ein Screenreader las "Schalter"
+              und konnte nicht sagen, ob das Menü offen ist — und im
+              Test war der Zustand aus demselben Grund nicht ablesbar.
+              aria-expanded behebt beides mit einem Attribut. */}
+          <MobileMenuBtn
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-expanded={menuOpen}
+            aria-controls="mobilmenue"
+            aria-label={menuOpen ? 'Menü schliessen' : 'Menü öffnen'}
+          >
             {menuOpen ? <X size={28} /> : <Menu size={28} />}
           </MobileMenuBtn>
         </NavInner>
       </Nav>
 
-      <MobileMenu $open={menuOpen}>
+      <MobileMenu id="mobilmenue" $open={menuOpen} aria-hidden={!menuOpen}>
         <MobileNavLink href="/#so-gehts"   onClick={() => setMenuOpen(false)}>So funktioniert's</MobileNavLink>
         <MobileNavLink href="/#leistungen" onClick={() => setMenuOpen(false)}>Leistungen</MobileNavLink>
         <MobileNavLink href="/#preis"      onClick={() => setMenuOpen(false)}>Preis</MobileNavLink>

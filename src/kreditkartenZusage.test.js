@@ -69,10 +69,14 @@ const CHECKOUT   = lies('supabase/functions/create-checkout-session/index.ts');
    Quelltextmuster kann Kommentar und Ausgabe nicht unterscheiden —
    genau daran ist in diesem Paket schon ein Test (billingAudit) und
    eine Migrationsprüfung gescheitert. */
+/* Reihenfolge wie in oeffentlicheWahrheit.test.js, und aus demselben
+   Grund: Ein eigenes Muster für die JSX-Form `{ / * ... * / }` sucht
+   sein Ende über den Kommentar hinaus und löscht dabei echten Code.
+   Blockkommentare einzeln entfernen, dann die leere Klammer. */
 const ohneKommentare = (text) => text
-  .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ')
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/^[ \t]*\/\/.*$/gm, ' ');
+  .replace(/^[ \t]*\/\/.*$/gm, ' ')
+  .replace(/\{\s*\}/g, ' ');
 
 describe('aktive Preisseite', () => {
   const ausgabe = ohneKommentare(AKTIV);

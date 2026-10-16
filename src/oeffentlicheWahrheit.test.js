@@ -60,10 +60,32 @@ const OEFFENTLICH = [
   'src/components/Footer.js',
 ];
 
+/* Kommentare müssen raus, bevor hier Textmuster geprüft werden: Die
+   korrigierten Dateien zitieren in ihren Kommentaren genau die Sätze,
+   die entfernt wurden. Ein Test, der den Rohtext liest, findet sie
+   wieder und meldet einen Fehler, der nicht existiert.
+
+   Die Reihenfolge ist nicht beliebig. Zuerst stand hier ein eigenes
+   Muster für die JSX-Form `{ / * ... * / }`:
+
+       /\{\s*\/\*[\s\S]*?\*\/\s*\}/
+
+   Das war falsch, und zwar still. `[\s\S]*?` ist nur innerhalb des
+   Treffers knapp — die Suche nach dem Abschluss `*​/` + `}` läuft
+   weiter, bis irgendwo einer kommt. Am 16.10.2026 begann der Treffer
+   an der Klammer von `if (pathname === '/') {` im Header und endete
+   drei Kommentare später. Alles dazwischen war weg, darunter die
+   Zeile `const ctaZiel = isAuthenticated ? ... : '/signup'`. Der
+   Test "bietet Ausgeloggten einen Weg zur Registrierung" wurde rot,
+   obwohl der Kopf genau das tat.
+
+   Deshalb jetzt: Blockkommentare einzeln entfernen — ein `/*` findet
+   immer sein eigenes `*​/`, es gibt nichts zu überspringen. Die
+   JSX-Form löst sich dabei von selbst, übrig bleibt `{ }`. */
 const ohneKommentare = (text) => text
-  .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ')
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/^[ \t]*\/\/.*$/gm, ' ');
+  .replace(/^[ \t]*\/\/.*$/gm, ' ')
+  .replace(/\{\s*\}/g, ' ');
 
 /* Die aktive Branche. Gastro und Beauty tragen noch die alten
    Behauptungen; sie sind nicht live (ACTIVE_INDUSTRY = 'handwerk')
