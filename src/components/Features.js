@@ -252,13 +252,31 @@ const Features = () => {
     <Section id="leistungen">
       <TopStripe $show={design.topStripe} />
       <Inner>
+        {/* Die USP-Zeile.
+
+            Sie steht hier und nicht in einer eigenen Sektion: Der
+            Satz gehört an die Stelle, an der der Besucher fragt "was
+            habe ich davon" — und er ersetzt einen Titel, der nur die
+            Gliederung beschrieb ("Drei Ergebnisse. Kein
+            Schnickschnack."). Das kostet keine zusätzliche Höhe.
+
+            Er sagt bewusst NICHT "keine Agentur". Diese Abgrenzung
+            steht schon im Vertrauensstreifen und im Vergleich; ein
+            drittes Mal wäre sie das Hauptargument, und das ist sie
+            nicht. Das Hauptargument ist die abgenommene laufende
+            Aufmerksamkeit — deshalb zwei Sätze: was du tust, was
+            WERKRUF tut. */}
         <SectionHeader>
           <div>
             <Eyebrow>Was du davon hast</Eyebrow>
-            <Title>Drei <TitleAccent>Ergebnisse.</TitleAccent><br />Kein Schnickschnack.</Title>
+            <Title>
+              Du arbeitest.<br />
+              <TitleAccent>WERKRUF behält dein Profil im Blick.</TitleAccent>
+            </Title>
           </div>
           <HeaderNote>
-            Alles hier ist gebaut und in Betrieb. Was fehlt, steht nicht drin.
+            Es meldet sich, wenn etwas zu tun ist — und sonst nicht. Alles,
+            was hier steht, ist gebaut und in Betrieb.
           </HeaderNote>
         </SectionHeader>
 

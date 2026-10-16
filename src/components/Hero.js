@@ -25,6 +25,13 @@ const HeroSection = styled.section`
   position: relative;
   overflow: hidden;
   padding: 120px 24px 80px;
+  /* Auf dem Telefon ist der Abschnitt ohnehin höher als ein
+     Bildschirm; 200px Innenabstand sind dort reine Höhe. Oben bleibt
+     genug für die feste Kopfzeile (72px). */
+  @media (max-width: 760px) {
+    min-height: 0;
+    padding: 96px 20px 44px;
+  }
 `;
 
 const GridOverlay = styled.div`
@@ -80,6 +87,7 @@ const EyebrowTag = styled.div`
   text-transform: uppercase;
   padding: 6px 14px;
   margin-bottom: 22px;
+  @media (max-width: 760px) { margin-bottom: 14px; font-size: 0.7rem; }
 `;
 
 const Dot = styled.span`
@@ -90,12 +98,18 @@ const Dot = styled.span`
   animation: ${pulse} 1.5s ease infinite;
 `;
 
+/* Die Headline bleibt wörtlich, wie sie ist — sie ist der Haken der
+   Seite. Auf sehr schmalen Geräten wird nur der Grad kleiner: Bei
+   2.6rem bricht der Satz auf 375px in fünf Zeilen, bei 2.2rem in
+   vier. Das sind rund 45px weniger, ohne ein Wort zu streichen, und
+   dominant bleibt sie allemal. */
 const Headline = styled.h1`
   font-size: clamp(2.6rem, 5vw, 4.2rem);
   line-height: 1.0;
   color: var(--color-white);
   margin-bottom: 8px;
   text-transform: var(--text-transform);
+  @media (max-width: 420px) { font-size: 2.2rem; }
 `;
 
 const HeadlineAccent = styled.span`
@@ -121,6 +135,23 @@ const HeadlineSub = styled.p`
   margin-bottom: 18px;
   max-width: 34em;
   &:last-of-type { margin-bottom: 32px; }
+  @media (max-width: 760px) {
+    font-size: 0.97rem; line-height: 1.55;
+    margin-bottom: 14px;
+    &:last-of-type { margin-bottom: 22px; }
+  }
+`;
+
+/* Der zweite Absatz — "Du musst dich nicht darum kümmern…" — ist auf
+   dem Telefon der dritte Text in Folge, der dasselbe Versprechen in
+   anderen Worten gibt. Darunter stehen bereits drei konkrete Punkte,
+   die es belegen statt es zu wiederholen.
+
+   Auf dem Telefon entscheidet die Höhe bis zum Knopf; auf dem Desktop
+   steht alles ohnehin nebeneinander und kostet nichts. Deshalb nur
+   hier ausgeblendet, nicht gelöscht. */
+const NurBreit = styled.div`
+  @media (max-width: 760px) { display: none; }
 `;
 
 const CheckList = styled.ul`
@@ -164,12 +195,20 @@ const CardTitle = styled.p`
   margin-bottom: 4px;
 `;
 
+/* Erklärender Fliesstext in der Karte: auf dem Telefon weg.
+
+   Was er sagt — Konto anlegen, Profil verbinden, Berechtigung
+   widerrufbar — steht dort entweder schon in der Überschrift ("In
+   zwei Minuten eingerichtet") oder kurz darunter im Vertrauenssatz.
+   Drei Zeilen Erklärung zwischen Überschrift und Knopf schieben den
+   Knopf aus dem ersten Bildschirm. */
 const CardSub = styled.p`
   font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--color-text-muted);
   margin-bottom: 20px;
   line-height: 1.5;
+  @media (max-width: 760px) { display: none; }
 `;
 
 const CtaButton = styled(Link)`
@@ -182,13 +221,27 @@ const CtaButton = styled(Link)`
   &:hover { filter: brightness(1.07); }
 `;
 
+/* Der ausführliche Vertrauenshinweis bleibt dem Desktop vorbehalten.
+   Auf dem Telefon steht stattdessen die Kurzfassung (KurzHinweis) —
+   der Inhalt verschwindet also nicht, er wird kürzer. */
 const CtaHinweis = styled.p`
   font-size: .78rem; color: #66717e; line-height: 1.55; margin: 14px 0 0;
+  @media (max-width: 760px) { display: none; }
+`;
+
+const KurzHinweis = styled.p`
+  display: none;
+  @media (max-width: 760px) {
+    display: block;
+    font-size: .76rem; color: #66717e; line-height: 1.5;
+    margin: 12px 0 0; text-align: center;
+  }
 `;
 
 const Anmeldung = styled.p`
   font-size: .82rem; color: #66717e; margin: 16px 0 0;
   padding-top: 14px; border-top: 1px solid var(--color-border);
+  @media (max-width: 760px) { margin-top: 12px; padding-top: 10px; }
 `;
 
 const AnmeldeLink = styled(Link)`
@@ -199,13 +252,20 @@ const AnmeldeLink = styled(Link)`
    Vorher nannte ihn keine einzige Stelle der Landingpage — der
    Besucher erfuhr erst nach der Registrierung, dass WERKRUF Geld
    kostet. Das ist der teuerste Moment, um es zu erfahren. */
+/* Steht seit dem 16.10.2026 ÜBER dem Knopf, nicht darunter: Erst das
+   Angebot lesen, dann drücken. Darunter war sie die Fussnote einer
+   Entscheidung, die schon gefallen war. */
 const PreisZeile = styled.p`
   font-family: var(--font-body);
-  font-size: .86rem; font-weight: 700;
+  font-size: .9rem; font-weight: 700;
   color: var(--color-primary);
   text-align: center;
-  margin: 14px 0 0;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: rgba(var(--color-accent-rgb), .08);
+  border-radius: var(--radius-button);
   span { color: var(--color-text-muted); font-weight: 400; }
+  @media (max-width: 760px) { margin-bottom: 12px; }
 `;
 
 /* ─────────────────────────────────────────────
@@ -247,9 +307,11 @@ const Hero = () => {
 
           <HeadlineSub>{heroCopy.subline}</HeadlineSub>
           {heroCopy.differenzierung && (
-            <HeadlineSub style={{ fontWeight: 700 }}>
-              {heroCopy.differenzierung}
-            </HeadlineSub>
+            <NurBreit>
+              <HeadlineSub style={{ fontWeight: 700 }}>
+                {heroCopy.differenzierung}
+              </HeadlineSub>
+            </NurBreit>
           )}
 
           <CheckList>
@@ -271,21 +333,30 @@ const Hero = () => {
               was zu tun ist.
             </CardSub>
 
-            <CtaButton to={ctaZiel}>
-              {ctaText}
-              <ArrowRight size={18} />
-            </CtaButton>
-
             <PreisZeile>
               {pricing.trialDays} Tage kostenlos{' '}
               <span>· danach {pricing.monthlyPrice} {pricing.currency} / Monat · monatlich kündbar</span>
             </PreisZeile>
+
+            <CtaButton to={ctaZiel}>
+              {ctaText}
+              <ArrowRight size={18} />
+            </CtaButton>
 
             <CtaHinweis>
               WERKRUF liest dein Unternehmensprofil und schlägt Änderungen vor.
               Veröffentlicht wird nur, was du freigibst. Kein Zugriff auf E-Mails,
               Kontakte oder Dateien.
             </CtaHinweis>
+
+            {/* Dieselbe Zusage, auf einen Satz gebracht. Die
+                Berechtigungsfrage ist die häufigste Hürde vor dem
+                Klick — sie darf auf dem Telefon nicht wegfallen,
+                nur kürzer werden. */}
+            <KurzHinweis>
+              Eine Berechtigung, jederzeit widerrufbar. Veröffentlicht wird nur,
+              was du freigibst.
+            </KurzHinweis>
 
             {!isAuthenticated && (
               <Anmeldung>

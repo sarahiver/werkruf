@@ -48,7 +48,7 @@ export const BEISPIEL_BETRIEB = Object.freeze({
 const FAKTOR_TEXTE = {
   responseRate: { label: 'Antwortquote',    hinweis: 'Wie viele Bewertungen beantwortet sind' },
   rating:       { label: 'Bewertung',       hinweis: 'Der Durchschnitt aus allen Rezensionen' },
-  recency:      { label: 'Aktualitaet',     hinweis: 'Wie lange die letzte Bewertung zurueckliegt' },
+  recency:      { label: 'Aktualität',     hinweis: 'Wie lange die letzte Bewertung zurückliegt' },
   completeness: { label: 'Profilangaben',   hinweis: 'Telefon, Website, Adresse, Kategorie' },
   photos:       { label: 'Fotos',           hinweis: 'Bilder im Unternehmensprofil' },
 };
@@ -64,27 +64,27 @@ const FAKTOR_TEXTE = {
 const AUFGABEN_TEXTE = {
   responseRate: {
     titel:  'Offene Bewertungen beantworten',
-    grund:  'Wer dein Profil oeffnet, sieht unbeantwortete Bewertungen sofort — und liest sie anders als beantwortete.',
-    nutzen: 'WERKRUF legt zu jeder einen Antwortvorschlag bereit. Veroeffentlicht wird nur, was du freigibst.',
+    grund:  'Wer dein Profil öffnet, sieht unbeantwortete Bewertungen sofort — und liest sie anders als beantwortete.',
+    nutzen: 'WERKRUF legt zu jeder einen Antwortvorschlag bereit. Veröffentlicht wird nur, was du freigibst.',
   },
   completeness: {
-    titel:  'Fehlende Profilangaben ergaenzen',
-    grund:  'Google spielt unvollstaendige Profile seltener aus, und wer sie oeffnet, findet nicht, was er sucht.',
-    nutzen: 'WERKRUF zeigt, welche Angabe fehlt, und uebertraegt sie nach deiner Freigabe ins Profil.',
+    titel:  'Fehlende Profilangaben ergänzen',
+    grund:  'Google spielt unvollständige Profile seltener aus, und wer sie öffnet, findet nicht, was er sucht.',
+    nutzen: 'WERKRUF zeigt, welche Angabe fehlt, und überträgt sie nach deiner Freigabe ins Profil.',
   },
   photos: {
-    titel:  'Fotos hinzufuegen',
+    titel:  'Fotos hinzufügen',
     grund:  'Profile ohne Bilder werden seltener angeklickt.',
     nutzen: 'WERKRUF meldet sich, wenn zu wenige hinterlegt sind.',
   },
   rating: {
     titel:  'Bewertungen verbessern',
-    grund:  'Der Durchschnitt ist das Erste, was in der Suche auffaellt.',
+    grund:  'Der Durchschnitt ist das Erste, was in der Suche auffällt.',
     nutzen: 'WERKRUF zeigt, welche Kritik sich wiederholt.',
   },
   recency: {
     titel:  'Um neue Bewertungen bitten',
-    grund:  'Ein Profil ohne frische Bewertungen wirkt auf Suchende aelter, als es ist.',
+    grund:  'Ein Profil ohne frische Bewertungen wirkt auf Suchende älter, als es ist.',
     nutzen: 'Bewertungslink und QR-Code liegen im Dashboard bereit.',
   },
 };
@@ -121,8 +121,15 @@ const H2 = styled.h2`
   font-size: clamp(1.7rem, 3.4vw, 2.5rem); color: var(--color-primary);
   margin: 0 0 14px; line-height: 1.2;
 `;
+/* Auf dem Telefon rutscht die Einleitung in den Hintergrund: Der
+   Score und die Aufgaben sind die Geschichte, die Erklaerung ist der
+   Rahmen. Sie bleibt stehen — sie sagt, dass die Zahlen erfunden
+   sind — aber sie nimmt weniger Hoehe und weniger Aufmerksamkeit. */
 const Lead = styled.p`
   color: #5f6875; line-height: 1.7; max-width: 640px; margin: 0 0 34px;
+  @media (max-width: 760px) {
+    font-size: .88rem; line-height: 1.6; margin-bottom: 22px;
+  }
 `;
 
 const Grid = styled.div`
@@ -146,28 +153,64 @@ const BeispielBanner = styled.div`
 const Betrieb = styled.p`
   font-size: .82rem; color: #66717e; margin: 0 0 4px;
 `;
+/* Der Score ist auf dem Telefon das Erste, was haengenbleiben soll.
+   Deshalb wird er dort GROESSER statt kleiner — entgegen dem Reflex,
+   auf kleinen Bildschirmen alles zu verkleinern. Die uebrigen
+   Elemente der Karte geben die Hoehe dafuer her. */
 const ScoreZahl = styled.div`
   font-size: 3.4rem; font-weight: 900; color: var(--color-primary);
   line-height: 1; margin: 0 0 4px;
   span { font-size: 1.2rem; color: #8a9199; font-weight: 700; }
+  @media (max-width: 760px) {
+    font-size: 4.2rem;
+    span { font-size: 1.3rem; }
+  }
 `;
 
+/* Sagt in drei Worten, was die Zahl ist. Ohne diese Zeile steht auf
+   dem Telefon eine grosse Zahl ohne Begriff — und der Begriff ist
+   der, den das ganze Produkt benutzt: WERKRUF Score. */
+const ScoreLabel = styled.p`
+  font-size: .72rem; font-weight: 800; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--color-accent);
+  margin: 0 0 2px;
+`;
+
+/* Sekundaerdetail: Die Aufschluesselung belegt den Score, sie
+   erzaehlt ihn nicht. Auf dem Telefon kompakter, damit die Aufgaben
+   darunter frueher sichtbar werden. */
 const FaktorZeile = styled.div`
   display: flex; justify-content: space-between; align-items: baseline;
   gap: 10px; padding: 9px 0; border-top: 1px solid #e8e9ec;
   &:first-of-type { border-top: 0; }
+  @media (max-width: 760px) { padding: 6px 0; }
 `;
 const FaktorName = styled.span`
   font-size: .84rem; color: var(--color-primary); font-weight: 600;
   small { display: block; font-weight: 400; color: #8a9199; font-size: .72rem; margin-top: 2px; }
+  /* Der erklaerende Halbsatz je Faktor entfaellt auf dem Telefon.
+     Er beschreibt, was der Faktor misst — auf einer Breite, auf der
+     fuenf solche Halbsaetze die Aufgabenliste aus dem Bild schieben. */
+  @media (max-width: 760px) {
+    font-size: .8rem;
+    small { display: none; }
+  }
 `;
 const FaktorPunkte = styled.span`
   font-size: .84rem; font-weight: 800; white-space: nowrap;
   color: ${p => p.$voll ? '#1e7e34' : '#a66a00'};
 `;
 
+/* Auf dem Telefon steht dieser Titel direkt unter der Score-Karte und
+   traegt den entscheidenden Satz der Sektion: Aus der Zahl werden
+   Aufgaben. Deshalb dort groesser und mit einer Trennlinie darueber —
+   gestapelt sah es vorher aus wie eine Fortsetzung der Karte. */
 const AufgabenTitel = styled.h3`
   font-size: 1.05rem; color: var(--color-primary); margin: 0 0 4px;
+  @media (max-width: 880px) {
+    font-size: 1.2rem; margin-top: 26px; padding-top: 22px;
+    border-top: 3px solid var(--color-primary);
+  }
 `;
 const AufgabenLead = styled.p`
   font-size: .85rem; color: #66717e; margin: 0 0 18px; line-height: 1.6;
@@ -238,6 +281,7 @@ export default function ExampleScore() {
             </BeispielBanner>
 
             <Betrieb>{BEISPIEL_BETRIEB.name}</Betrieb>
+            <ScoreLabel>WERKRUF Score</ScoreLabel>
             <ScoreZahl>{ergebnis.score}<span> / 100</span></ScoreZahl>
 
             <div style={{ marginTop: 18 }}>
