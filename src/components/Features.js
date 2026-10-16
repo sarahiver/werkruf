@@ -55,9 +55,15 @@ const HeaderNote = styled.p`
   @media (max-width: 700px) { max-width: 100%; }
 `;
 
+/* Die Spaltenzahl folgt der Kartenzahl.
+
+   Das Raster hat 2px Abstand auf einem grauen Grund — so entsteht die
+   Trennlinie zwischen den Karten. Bei fest drei Spalten und nur zwei
+   Karten bleibt die dritte Zelle als grauer Block stehen. Mit
+   $spalten füllt jede Gruppe ihre Reihe aus. */
 const Grid = styled.div`
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(${({ $spalten }) => $spalten ?? 3}, 1fr);
   gap: 2px;
   background: var(--color-border);
   @media (max-width: 900px) { grid-template-columns: 1fr 1fr; }
@@ -91,13 +97,10 @@ const Card = styled.div`
   &:hover::before { transform: scaleX(1); }
 `;
 
-const CardNum = styled.span`
-  font-family: var(--font-display);
-  font-weight: var(--heading-weight);
-  font-size: 4.5rem; line-height: 1;
-  color: rgba(var(--color-primary-rgb), 0.06);
-  display: block; margin-bottom: -12px;
-`;
+/* CardNum ist am 16.10.2026 entfallen: Die Nummerierung 01–06 stammte
+   aus der flachen Liste. Innerhalb von drei Gruppen hätte sie bei
+   jeder Gruppe wieder bei 01 begonnen oder durchgezählt — beides
+   erzeugt eine Ordnung, die es nicht gibt. */
 
 const IconWrap = styled.div`
   width: 50px; height: 50px;
@@ -132,71 +135,169 @@ const CardTag = styled.span`
   border-radius: var(--radius-button);
 `;
 
-const BottomBar = styled.div`
-  margin-top: 64px;
+/* ─────────────────────────────────────────────
+   GRUPPENKOPF
+
+   Jede der drei Gruppen bekommt eine eigene Überschrift. Sie benennt
+   das Ergebnis, nicht die Funktion — "Besser gefunden werden" statt
+   "Profilpflege".
+───────────────────────────────────────────── */
+const Gruppe = styled.div`
+  & + & { margin-top: 72px; }
+`;
+
+const GruppenKopf = styled.div`
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 32px; align-items: end; margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 3px solid var(--color-primary);
+  @media (max-width: 760px) { grid-template-columns: 1fr; gap: 10px; }
+`;
+
+const GruppenTitel = styled.h3`
+  font-family: var(--font-display);
+  font-weight: var(--heading-weight);
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  text-transform: var(--text-transform);
+  color: var(--color-primary);
+  line-height: 1.1;
+  overflow-wrap: break-word;
+  hyphens: auto;
+`;
+
+const GruppenText = styled.p`
+  font-family: var(--font-body); font-size: 0.95rem;
+  color: var(--color-text-muted); line-height: 1.7;
+`;
+
+/* ─────────────────────────────────────────────
+   VERTRAUENSSTREIFEN
+
+   Einwände, keine Vorteile. Deshalb schmal, ruhig und am Ende —
+   nicht als vierte Kachelreihe, die mit den Ergebnissen um
+   Aufmerksamkeit konkurriert.
+───────────────────────────────────────────── */
+const Vertrauen = styled.div`
+  margin-top: 72px;
   background: var(--color-primary);
   border-radius: var(--radius-card);
-  padding: 36px 40px;
-  display: flex; align-items: center;
-  justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  padding: 32px 40px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;
+  @media (max-width: 760px) { grid-template-columns: 1fr; gap: 24px; padding: 28px 24px; }
 `;
 
-const BottomText = styled.p`
+const VertrauenTitel = styled.p`
   font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.3rem; text-transform: var(--text-transform);
-  color: var(--color-white); letter-spacing: 0.04em;
-`;
-
-const BottomCTA = styled.a`
-  display: inline-flex; align-items: center;
-  padding: 12px 28px;
-  background: var(--color-accent); color: var(--color-white);
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1rem; letter-spacing: 0.08em;
+  font-size: 1.05rem; letter-spacing: 0.04em;
   text-transform: var(--text-transform);
-  white-space: nowrap;
-  border-radius: var(--radius-button);
-  transition: filter 0.2s;
-  &:hover { filter: brightness(0.9); }
+  color: var(--color-white); margin-bottom: 6px;
 `;
 
+const VertrauenText = styled.p`
+  font-family: var(--font-body); font-size: 0.86rem;
+  color: rgba(255,255,255,0.6); line-height: 1.65;
+`;
+
+/**
+ * Leistungen, gruppiert nach drei Ergebnissen.
+ *
+ * Der Abschluss-CTA ist am 16.10.2026 hier verschwunden. Er lautete
+ * "Jetzt Sichtbarkeits-Check machen →" und zeigte auf #check — ein
+ * Anker, den es seit dem 28.09.2026 nicht mehr gibt. Damit endete die
+ * Landingpage auf einem Knopf ohne Ziel. Der Abschluss steht jetzt in
+ * einer eigenen Sektion am Seitenende, nach Vergleich, Preis und FAQ.
+ *
+ * Fällt `featureGruppen` in der Branchenkonfiguration, greift die alte
+ * flache Liste. Gastro und Beauty tragen sie noch.
+ */
 const Features = () => {
   const { copy, design } = useIndustry();
-  const features = copy.features;
+  const gruppen   = copy.featureGruppen;
+  const vertrauen = copy.vertrauen;
+
+  /* Rückfall für Branchen ohne Gruppen. */
+  if (!Array.isArray(gruppen)) {
+    const flach = copy.features ?? [];
+    return (
+      <Section id="leistungen">
+        <TopStripe $show={design.topStripe} />
+        <Inner>
+          <SectionHeader>
+            <div>
+              <Eyebrow>Was du davon hast</Eyebrow>
+              <Title>Digital. <TitleAccent>Hart.</TitleAccent><br />Auf den Punkt.</Title>
+            </div>
+          </SectionHeader>
+          <Grid>
+            {flach.map((f, i) => {
+              const Icon = ICONS[i % ICONS.length];
+              return (
+                <Card key={f.num ?? i}>
+                  <IconWrap><Icon size={22} /></IconWrap>
+                  <CardTitle>{f.title}</CardTitle>
+                  <CardBody>{f.body}</CardBody>
+                  {f.tag && <CardTag>{f.tag}</CardTag>}
+                </Card>
+              );
+            })}
+          </Grid>
+        </Inner>
+      </Section>
+    );
+  }
+
+  let ikone = 0;
 
   return (
-    <Section id="features">
+    <Section id="leistungen">
       <TopStripe $show={design.topStripe} />
       <Inner>
         <SectionHeader>
           <div>
             <Eyebrow>Was du davon hast</Eyebrow>
-            <Title>Digital. <TitleAccent>Hart.</TitleAccent><br />Auf den Punkt.</Title>
+            <Title>Drei <TitleAccent>Ergebnisse.</TitleAccent><br />Kein Schnickschnack.</Title>
           </div>
           <HeaderNote>
-            Kein Schnickschnack. Sechs Hebel, die deinen Betrieb nach vorne bringen.
+            Alles hier ist gebaut und in Betrieb. Was fehlt, steht nicht drin.
           </HeaderNote>
         </SectionHeader>
 
-        <Grid>
-          {features.map((f, i) => {
-            const Icon = ICONS[i % ICONS.length];
-            return (
-              <Card key={f.num}>
-                <CardNum>{f.num}</CardNum>
-                <IconWrap><Icon size={22} /></IconWrap>
-                <CardTitle>{f.title}</CardTitle>
-                <CardBody>{f.body}</CardBody>
-                <CardTag>{f.tag}</CardTag>
-              </Card>
-            );
-          })}
-        </Grid>
+        {gruppen.map((g) => (
+          <Gruppe key={g.key}>
+            <GruppenKopf>
+              <div>
+                <Eyebrow>{g.eyebrow}</Eyebrow>
+                <GruppenTitel>{g.titel}</GruppenTitel>
+              </div>
+              <GruppenText>{g.einleitung}</GruppenText>
+            </GruppenKopf>
 
-        <BottomBar>
-          <BottomText>Bereit, die falschen Kunden loszuwerden?</BottomText>
-          <BottomCTA href="#check">Jetzt Sichtbarkeits-Check machen →</BottomCTA>
-        </BottomBar>
+            <Grid $spalten={g.karten.length}>
+              {g.karten.map((f) => {
+                const Icon = ICONS[ikone++ % ICONS.length];
+                return (
+                  <Card key={f.title}>
+                    <IconWrap><Icon size={22} /></IconWrap>
+                    <CardTitle>{f.title}</CardTitle>
+                    <CardBody>{f.body}</CardBody>
+                    {f.tag && <CardTag>{f.tag}</CardTag>}
+                  </Card>
+                );
+              })}
+            </Grid>
+          </Gruppe>
+        ))}
+
+        {Array.isArray(vertrauen) && (
+          <Vertrauen>
+            {vertrauen.map((v) => (
+              <div key={v.title}>
+                <VertrauenTitel>{v.title}</VertrauenTitel>
+                <VertrauenText>{v.body}</VertrauenText>
+              </div>
+            ))}
+          </Vertrauen>
+        )}
       </Inner>
     </Section>
   );

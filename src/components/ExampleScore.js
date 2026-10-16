@@ -216,8 +216,11 @@ export default function ExampleScore() {
 
   const aufgaben = beispielAufgaben(ergebnis.points);
 
+  /* Anker heisst seit dem 16.10.2026 "so-gehts" — genau wie der
+     Menuepunkt im Kopf. Ein Anker, der anders heisst als der Link
+     darauf, faellt erst auf, wenn jemand klickt. */
   return (
-    <Section id="beispiel">
+    <Section id="so-gehts">
       <Inner>
         <Eyebrow>So funktioniert WERKRUF</Eyebrow>
         <H2>Dein Google-Unternehmensprofil auf einen Blick</H2>

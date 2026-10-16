@@ -1,8 +1,32 @@
+/*
+ * Kopfzeile der öffentlichen Seiten.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ZWEI ÄNDERUNGEN AM 16.10.2026
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 1 — Der Menüpunkt "Sichtbarkeits-Check" ist raus. Er zeigte auf
+ *     /#check, und dieses Ziel gibt es seit dem 28.09.2026 nicht
+ *     mehr: Der Anker steht nur in SmartCheck.js, und die Komponente
+ *     wird nirgends gerendert. Der zweite Menüpunkt der Hauptnavi-
+ *     gation führte also ins Leere — auch auf dem Telefon.
+ *
+ * 2 — Der Kopf kennt jetzt den Anmeldezustand. Vorher stand dort
+ *     immer "Einloggen", auch für angemeldete Nutzer, und einen
+ *     Registrieren-Knopf gab es überhaupt nicht. Der einzige Weg zur
+ *     Registrierung war der Hero-CTA.
+ *
+ * Die Ankerlinks bleiben bewusst <a href>, nicht Router-Links:
+ * React Router springt nicht von selbst zu einem Hash, und ein
+ * Anker, der von /impressum aus funktionieren muss, braucht ohnehin
+ * den vollen Pfad. Der Seitenneuaufbau ist der Preis dafür.
+ */
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { Menu, X } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
+import { useAuthContext } from '../context/AuthContext';
 
 const Nav = styled.header`
   position: fixed;
@@ -55,14 +79,29 @@ const NavLink = styled.a`
   &:hover { color: var(--color-accent); }
 `;
 
-const NavLinkRouted = styled(Link)`
+/* NavLinkRouted ist am 16.10.2026 entfallen: Es war der Router-Link
+   auf /pricing. Die Preise stehen jetzt als Abschnitt auf der
+   Landingpage, die Navigation springt per Anker dorthin. Die eigene
+   Preisseite bleibt unter /pricing erreichbar — nur nicht mehr aus
+   dem Hauptmenü, weil der Besucher sonst zwei Wege zum selben Inhalt
+   hat und einen davon raten muss. */
+
+/* Rechts im Kopf stehen zwei Dinge nebeneinander: ein ruhiger
+   Textlink und der eine Knopf, der etwas auslöst. Zwei gleich
+   auffällige Knöpfe wären zwei Angebote — und damit keines. */
+const Rechts = styled.div`
+  display: flex; align-items: center; gap: 20px;
+  @media (max-width: 768px) { display: none; }
+`;
+
+const TextLink = styled(Link)`
   font-family: var(--font-body);
   font-weight: 600; font-size: 0.85rem;
   letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--color-accent);
-  transition: opacity 0.2s;
+  color: rgba(255,255,255,0.75);
   text-decoration: none;
-  &:hover { opacity: 0.8; }
+  transition: color 0.2s;
+  &:hover { color: var(--color-accent); }
 `;
 
 const LoginBtn = styled(Link)`
@@ -76,8 +115,8 @@ const LoginBtn = styled(Link)`
   text-decoration: none;
   border-radius: var(--radius-button);
   transition: filter 0.2s;
+  white-space: nowrap;
   &:hover { filter: brightness(0.9); }
-  @media (max-width: 768px) { display: none; }
 `;
 
 const MobileMenuBtn = styled.button`
@@ -143,7 +182,15 @@ const LogoMark = () => (
 const Header = () => {
   const [scrolled,  setScrolled]  = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
-  const { brand } = useIndustry();
+  const { brand, pricing } = useIndustry();
+  const { isAuthenticated } = useAuthContext();
+
+  /* Ein Ziel für alle Haupt-CTAs der öffentlichen Seiten. Wer
+     angemeldet ist, will nicht noch einmal registrieren. */
+  const ctaZiel  = isAuthenticated ? '/dashboard' : '/signup';
+  const ctaText  = isAuthenticated
+    ? 'Zum Dashboard'
+    : `${pricing.trialDays} Tage kostenlos testen`;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -161,12 +208,16 @@ const Header = () => {
           </LogoWrap>
 
           <NavLinks>
-            <NavLink href="/#features">Was du kriegst</NavLink>
-            <NavLink href="/#check">Sichtbarkeits-Check</NavLink>
-            <NavLinkRouted to="/pricing">Preise</NavLinkRouted>
+            <NavLink href="/#so-gehts">So funktioniert's</NavLink>
+            <NavLink href="/#leistungen">Leistungen</NavLink>
+            <NavLink href="/#preis">Preis</NavLink>
+            <NavLink href="/#faq">Fragen</NavLink>
           </NavLinks>
 
-          <LoginBtn to="/login">Einloggen</LoginBtn>
+          <Rechts>
+            {!isAuthenticated && <TextLink to="/login">Einloggen</TextLink>}
+            <LoginBtn to={ctaZiel}>{ctaText}</LoginBtn>
+          </Rechts>
 
           <MobileMenuBtn onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X size={28} /> : <Menu size={28} />}
@@ -175,10 +226,14 @@ const Header = () => {
       </Nav>
 
       <MobileMenu $open={menuOpen}>
-        <MobileNavLink href="/#features" onClick={() => setMenuOpen(false)}>Was du kriegst</MobileNavLink>
-        <MobileNavLink href="/#check"    onClick={() => setMenuOpen(false)}>Sichtbarkeits-Check</MobileNavLink>
-        <MobileNavLinkRouted to="/pricing" onClick={() => setMenuOpen(false)}>Preise</MobileNavLinkRouted>
-        <MobileLoginBtn to="/login" onClick={() => setMenuOpen(false)}>Einloggen</MobileLoginBtn>
+        <MobileNavLink href="/#so-gehts"   onClick={() => setMenuOpen(false)}>So funktioniert's</MobileNavLink>
+        <MobileNavLink href="/#leistungen" onClick={() => setMenuOpen(false)}>Leistungen</MobileNavLink>
+        <MobileNavLink href="/#preis"      onClick={() => setMenuOpen(false)}>Preis</MobileNavLink>
+        <MobileNavLink href="/#faq"        onClick={() => setMenuOpen(false)}>Fragen</MobileNavLink>
+        {!isAuthenticated && (
+          <MobileNavLinkRouted to="/login" onClick={() => setMenuOpen(false)}>Einloggen</MobileNavLinkRouted>
+        )}
+        <MobileLoginBtn to={ctaZiel} onClick={() => setMenuOpen(false)}>{ctaText}</MobileLoginBtn>
       </MobileMenu>
     </>
   );

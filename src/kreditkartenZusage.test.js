@@ -47,9 +47,20 @@ import path from 'path';
 const wurzel = process.cwd();
 const lies = (p) => fs.readFileSync(path.join(wurzel, p), 'utf8');
 
-const AKTIV    = lies('src/pages/Pricing.js');
-const APP      = lies('src/App.js');
-const CHECKOUT = lies('supabase/functions/create-checkout-session/index.ts');
+/* Seit dem 16.10.2026 besteht die aktive Preisoberfläche aus zwei
+   Dateien: pages/Pricing.js bringt den Kopf, components/Preis.js die
+   Preiskarte mit den Trial-Aussagen. Geprüft wird deshalb die Summe
+   beider — sonst würde dieser Test grün bleiben, nur weil der Satz in
+   die andere Datei gewandert ist.
+
+   components/Preis.js hängt in HomePage.js UND in pages/Pricing.js.
+   Eine falsche Zusage dort steht damit auf beiden öffentlichen
+   Seiten, was die Prüfung wichtiger macht, nicht unwichtiger. */
+const PREISSEITE = lies('src/pages/Pricing.js');
+const PREISKARTE = lies('src/components/Preis.js');
+const AKTIV      = `${PREISSEITE}\n${PREISKARTE}`;
+const APP        = lies('src/App.js');
+const CHECKOUT   = lies('supabase/functions/create-checkout-session/index.ts');
 
 /* Kommentare weg, bevor Textzusagen geprüft werden.
 

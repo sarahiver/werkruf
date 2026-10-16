@@ -22,7 +22,19 @@ jest.mock('./context/IndustryContext', () => ({ useIndustry: jest.fn() }));
 const { useAuthContext } = require('./context/AuthContext');
 const { useIndustry }    = require('./context/IndustryContext');
 
+/* Die Attrappe bildet nur ab, was die Landingpage tatsächlich liest.
+   Seit dem 16.10.2026 gehört der Preisblock dazu: Hero, Preis und
+   Abschluss nennen den Preis, bevor der Besucher klickt. Fehlt
+   `pricing` hier, fällt die Seite beim Rendern aus — und genau das
+   soll sie, statt still eine Lücke anzuzeigen.
+
+   Bewusst OHNE featureGruppen, comparison und faq: So läuft dieser
+   Test über den Rückfallpfad der Komponenten (flache Feature-Liste,
+   Vergleich und FAQ blenden sich aus). Damit ist nebenbei geprüft,
+   dass Branchen ohne die neue Struktur — gastro, beauty — die Seite
+   nicht zerlegen. */
 const INDUSTRY = {
+  brand: { name: 'WERKRUF', logo: 'WERKRUF' },
   copy: {
     features: [
       { title: 'Merkmal eins', text: 'Beschreibung eins' },
@@ -35,8 +47,14 @@ const INDUSTRY = {
     subline: 'WERKRUF hält es aktuell.',
     checks: ['Punkt eins', 'Punkt zwei'],
     },
+    footer: { email: 'info@werkruf.com' },
   },
-  design: { accentStripePattern: false },
+  pricing: {
+    currency: '€', trialDays: 30, monthlyPrice: 49,
+    priceLabel: '/ Monat', productName: 'WERKRUF PRO',
+    features: ['Leistung eins', 'Leistung zwei'],
+  },
+  design: { accentStripePattern: false, topStripe: false },
   places: { searchPlaceholder: '', searchHint: '' },
 };
 
@@ -105,23 +123,56 @@ describe('Beispiel-Score', () => {
 });
 
 describe('Hero-CTA', () => {
+  /* Geprüft wird das Ziel, nicht die Beschriftung.
+
+     Bis zum 16.10.2026 stand hier der Text "Google-Unternehmensprofil
+     verbinden" im Suchmuster. Damit fror der Test eine
+     Marketingentscheidung ein: Als der Knopf auf "30 Tage kostenlos
+     testen" wechselte — weil er sagen soll, worauf man sich einlässt,
+     statt was im zweiten Schritt passiert — wurde er rot, obwohl
+     nichts kaputt war.
+
+     Der Hero hat genau einen Hauptknopf. Ihn über die Reihenfolge zu
+     greifen ist deshalb eindeutig und überlebt jede Umformulierung. */
+  const hauptKnopf = () => screen.getAllByRole('link')
+    .find((a) => ['/signup', '/dashboard/google', '/dashboard'].includes(a.getAttribute('href')));
+
   it('fuehrt nicht angemeldete Besucher zur Registrierung', () => {
     useAuthContext.mockReturnValue({ isAuthenticated: false });
     mitRouter(<Hero />);
-    const cta = screen.getByRole('link', { name: /Google-Unternehmensprofil verbinden/i });
-    expect(cta).toHaveAttribute('href', '/signup');
+    expect(hauptKnopf()).toHaveAttribute('href', '/signup');
   });
 
   it('fuehrt angemeldete Nutzer direkt zur Verbindungsseite', () => {
     useAuthContext.mockReturnValue({ isAuthenticated: true });
     mitRouter(<Hero />);
-    const cta = screen.getByRole('link', { name: /Google-Unternehmensprofil verbinden/i });
-    expect(cta).toHaveAttribute('href', '/dashboard/google');
+    expect(hauptKnopf()).toHaveAttribute('href', '/dashboard/google');
+  });
+
+  it('nennt den Preis, bevor der Besucher klickt', () => {
+    /* Der teuerste Moment, um vom Preis zu erfahren, ist nach der
+       Registrierung. Bis zum 16.10.2026 war das der einzige. */
+    useAuthContext.mockReturnValue({ isAuthenticated: false });
+    mitRouter(<Hero />);
+    /* getAllByText, nicht getByText: "30 Tage kostenlos" steht jetzt
+       zweimal im Hero — einmal auf dem Knopf, einmal in der
+       Preiszeile darunter. Das ist Absicht und kein Grund, rot zu
+       werden. */
+    expect(screen.getAllByText(/49\s*€/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/30 Tage kostenlos/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/monatlich kündbar/i).length).toBeGreaterThan(0);
   });
 
   it('bietet bereits Registrierten den Anmeldeweg', () => {
+    useAuthContext.mockReturnValue({ isAuthenticated: false });
     mitRouter(<Hero />);
     expect(screen.getByRole('link', { name: /^Anmelden$/i })).toHaveAttribute('href', '/login');
+  });
+
+  it('zeigt Angemeldeten keinen Anmeldeweg', () => {
+    useAuthContext.mockReturnValue({ isAuthenticated: true });
+    mitRouter(<Hero />);
+    expect(screen.queryByRole('link', { name: /^Anmelden$/i })).not.toBeInTheDocument();
   });
 
   it('behauptet keine Rangverbesserung und keine Zeitzusage', () => {

@@ -1,565 +1,186 @@
-import React, { useState } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { Link, useNavigate } from 'react-router-dom';
-import { CheckCircle, X, ChevronRight, ArrowRight, Zap } from 'lucide-react';
+/*
+ * Preisseite.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * WAS AM 16.10.2026 VERSCHWUNDEN IST — UND WARUM
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Diese Seite trug bis heute 565 Zeilen, die grösstenteils eine
+ * ältere Produktgeneration beschrieben. Entfernt wurden:
+ *
+ * 1 — DER ROI-RECHNER.
+ *     Ein Schieberegler fragte "Wie viele Anrufe bekommst du aktuell
+ *     pro Monat?", multiplizierte mit 0,30 und beschriftete das
+ *     Ergebnis als "neue Aufträge" — eine Abschlussquote kam nirgends
+ *     vor. Bei der Voreinstellung 30 zeigte die Seite 3.600 €
+ *     Zusatzumsatz und "ROI 7247 %". Weder die 30 % noch die 400 €
+ *     Auftragswert waren belegt.
+ *
+ * 2 — "3× MEHR ANFRAGEN" und "BIS ZU 9.120 € ZURÜCK".
+ *     Beide standen im selben Hero wie die +30-%-Rechnung und
+ *     widersprachen ihr: 3× sind +200 %, und der Rechner darunter kam
+ *     auf 18.000 € statt 9.120 €.
+ *
+ * 3 — DER FREE-TARIF.
+ *     Eine Karte "Sichtbarkeits-Check, 0 €, kein Account erforderlich"
+ *     bewarb den öffentlichen Check und das Befund-PDF. Beides ist
+ *     seit dem 28.09.2026 abgeschaltet, das PDF zusätzlich hinter
+ *     einem geschlossenen Rechte-Gate.
+ *
+ * 4 — DIE ERFOLGSGARANTIE.
+ *     "Wenn du nach 30 Tagen nicht mehr Anfragen hast als vorher,
+ *     zahlst du nichts. Kein Kleingedrucktes." WERKRUF misst Anfragen
+ *     nicht, und einen Erstattungsweg gibt es im Code nicht. Wer nicht
+ *     kündigt, wird am 31. Tag abgebucht.
+ *
+ * 5 — DER ABSCHLUSS-CTA AUF /register.
+ *     Diese Route existiert nicht. Der letzte Knopf der Seite führte
+ *     auf die Fehlerseite.
+ *
+ * Belege zu allen fünf Punkten: docs/operations/p4a-product-truth-audit.md.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * WARUM DIE SEITE JETZT SO KURZ IST
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Preis, Vergleich, FAQ und Abschluss stehen seit dem Umbau auch auf
+ * der Landingpage — als eigene Komponenten. Sie hier ein zweites Mal
+ * auszuformulieren hiesse, zwei Fassungen zu pflegen, die
+ * auseinanderlaufen. Genau daran ist die alte Preisseite gestorben.
+ *
+ * Diese Seite bringt deshalb einen eigenen Kopf mit und setzt
+ * darunter dieselben Bausteine ein.
+ */
+import React from 'react';
+import styled from 'styled-components';
 import { useIndustry } from '../context/IndustryContext';
-import { useAuthContext } from '../context/AuthContext';
-import { useCheckout } from '../hooks/useCheckout';
 
-const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
-const pulse  = keyframes`0%,100%{opacity:1}50%{opacity:.5}`;
+import Preis        from '../components/Preis';
+import Vergleich    from '../components/Vergleich';
+import FAQ          from '../components/FAQ';
+import AbschlussCTA from '../components/AbschlussCTA';
 
-/* ─────────────────────────────────────────────
-   LAYOUT — all CSS vars
-───────────────────────────────────────────── */
-const Page = styled.div`background:var(--color-bg);min-height:100vh;`;
+const Page = styled.div`background: var(--color-bg); min-height: 100vh;`;
 
-/* Hero */
-const HeroBand = styled.section`
-  background:var(--color-primary);
-  padding:100px 24px 80px;position:relative;overflow:hidden;
+const Kopf = styled.section`
+  background: var(--color-primary);
+  padding: 110px 24px 72px;
+  position: relative; overflow: hidden;
 `;
-const HeroGrid = styled.div`
-  position:absolute;inset:0;pointer-events:none;
+
+const Raster = styled.div`
+  position: absolute; inset: 0; pointer-events: none;
   background-image:
-    linear-gradient(rgba(var(--color-accent-rgb),.04) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(var(--color-accent-rgb),.04) 1px,transparent 1px);
-  background-size:44px 44px;
-  display:${({ $show }) => $show ? 'block' : 'none'};
+    linear-gradient(rgba(var(--color-accent-rgb), .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--color-accent-rgb), .04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  display: ${({ $show }) => ($show ? 'block' : 'none')};
 `;
-const HeroInner = styled.div`max-width:900px;margin:0 auto;text-align:center;animation:${fadeUp} .6s ease both;`;
+
+const Inner = styled.div`
+  max-width: 860px; margin: 0 auto;
+  text-align: center; position: relative;
+`;
+
 const Eyebrow = styled.div`
-  display:inline-flex;align-items:center;gap:8px;
-  background:rgba(var(--color-accent-rgb),.12);
-  border:1px solid rgba(var(--color-accent-rgb),.35);
-  color:var(--color-accent);font-family:var(--font-body);font-weight:700;
-  font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;
-  padding:6px 14px;margin-bottom:24px;border-radius:var(--radius-button);
-`;
-const PulseDot = styled.span`
-  width:6px;height:6px;background:var(--color-accent);border-radius:50%;
-  display:inline-block;animation:${pulse} 1.5s ease infinite;
-`;
-const HeroH1 = styled.h1`
-  font-size:clamp(2.4rem,5vw,3.8rem);text-transform:var(--text-transform);
-  color:var(--color-white);line-height:1.02;margin-bottom:16px;
-`;
-const HeroAccent = styled.span`color:var(--color-accent);`;
-const HeroSub = styled.p`
-  font-family:var(--font-body);font-size:1.05rem;
-  color:rgba(255,255,255,.65);max-width:560px;
-  margin:0 auto 40px;line-height:1.7;
+  display: inline-block;
+  background: rgba(var(--color-accent-rgb), .12);
+  border: 1px solid rgba(var(--color-accent-rgb), .35);
+  color: var(--color-accent);
+  font-family: var(--font-body); font-weight: 700;
+  font-size: .72rem; letter-spacing: .18em; text-transform: uppercase;
+  padding: 6px 14px; margin-bottom: 22px;
+  border-radius: var(--radius-button);
 `;
 
-/* ROI numbers */
-const ROIRow = styled.div`display:flex;align-items:center;justify-content:center;flex-wrap:wrap;`;
-const ROIItem = styled.div`
-  padding:20px 32px;text-align:center;
-  border-right:1px solid rgba(255,255,255,.1);
-  &:last-child{border-right:none;}
-  @media(max-width:600px){padding:14px 20px;}
-`;
-const ROINum = styled.div`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:clamp(2.2rem,4vw,3rem);color:var(--color-white);line-height:1;
-`;
-const ROIAccent = styled.span`color:var(--color-accent);`;
-const ROILabel = styled.div`
-  font-family:var(--font-body);font-size:.75rem;
-  color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.1em;margin-top:4px;
+const H1 = styled.h1`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  text-transform: var(--text-transform);
+  color: var(--color-white); line-height: 1.04;
+  margin-bottom: 18px;
+  overflow-wrap: break-word; hyphens: auto;
 `;
 
-/* Calc */
-const CalcSection = styled.section`
-  background:var(--color-primary);
-  border-top:1px solid rgba(255,255,255,.08);
-  padding:0 24px 80px;
-`;
-const CalcInner = styled.div`max-width:900px;margin:0 auto;`;
-const CalcCard = styled.div`
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.1);
-  border-left:5px solid var(--color-accent);
-  border-radius:var(--radius-card);
-  padding:32px 36px;
-  @media(max-width:600px){padding:24px 20px;}
-`;
-const CalcLabel = styled.p`
-  font-family:var(--font-body);font-weight:700;font-size:.75rem;
-  letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent);margin-bottom:20px;
-`;
-const CalcGrid = styled.div`
-  display:grid;grid-template-columns:1fr auto 1fr auto 1fr;
-  align-items:center;gap:16px;
-  @media(max-width:680px){grid-template-columns:1fr;gap:8px;}
-`;
-const CalcBox = styled.div`
-  text-align:center;padding:20px;
-  background:rgba(255,255,255,.06);
-  border-radius:var(--radius-card);
-`;
-const CalcNum = styled.div`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:2.2rem;color:${({ $c }) => $c || 'var(--color-white)'};line-height:1;
-`;
-const CalcLbl = styled.div`
-  font-family:var(--font-body);font-size:.75rem;
-  color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em;margin-top:5px;
-`;
-const CalcOp = styled.div`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:2rem;color:rgba(255,255,255,.3);text-align:center;
-  @media(max-width:680px){display:none;}
-`;
-const CalcNote = styled.p`
-  font-family:var(--font-body);font-size:.78rem;
-  color:rgba(255,255,255,.4);text-align:center;margin-top:20px;line-height:1.6;
+const Akzent = styled.span`color: var(--color-accent);`;
+
+const Lead = styled.p`
+  font-family: var(--font-body); font-size: 1.05rem;
+  color: rgba(255,255,255,.65); line-height: 1.7;
+  max-width: 580px; margin: 0 auto;
 `;
 
-/* Pricing cards */
-const PricingSection = styled.section`padding:80px 24px 100px;background:var(--color-bg);`;
-const PricingInner = styled.div`max-width:900px;margin:0 auto;`;
-const PLabel = styled.p`
-  font-family:var(--font-body);font-weight:700;font-size:.72rem;
-  letter-spacing:.18em;text-transform:uppercase;
-  color:var(--color-accent);text-align:center;margin-bottom:12px;
-`;
-const PH2 = styled.h2`
-  font-size:clamp(2rem,4vw,2.8rem);text-transform:var(--text-transform);
-  color:var(--color-primary);text-align:center;margin-bottom:48px;line-height:1.05;
-`;
-const CardsGrid = styled.div`
-  display:grid;grid-template-columns:1fr 1.15fr;gap:2px;background:var(--color-border);
-  @media(max-width:700px){grid-template-columns:1fr;}
+/* Vier Tatsachen statt vier Werbezahlen. Hier stand bis heute eine
+   Reihe mit "3× mehr Anfragen" — die einzige Zahl darin, die keine
+   Tatsache war, und zugleich die auffälligste. */
+const Fakten = styled.div`
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; margin-top: 40px;
 `;
 
-/* Free card */
-const FreeCard = styled.div`
-  background:var(--color-white);padding:36px 32px;
-  border-radius:var(--radius-card) 0 0 var(--radius-card);
-  @media(max-width:560px){padding:28px 20px;}
-`;
-const CardLabel = styled.p`
-  font-family:var(--font-body);font-weight:700;font-size:.72rem;
-  letter-spacing:.14em;text-transform:uppercase;
-  color:${({ $c }) => $c||'var(--color-text-muted)'};margin-bottom:12px;
-`;
-const CardTitle = styled.h3`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.8rem;text-transform:var(--text-transform);
-  color:var(--color-primary);margin-bottom:8px;
-`;
-const Price = styled.div`display:flex;align-items:baseline;gap:4px;margin-bottom:6px;`;
-const PriceNum = styled.span`
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:3rem;line-height:1;color:${({ $c }) => $c||'var(--color-primary)'};
-`;
-const PricePeriod = styled.span`
-  font-family:var(--font-body);font-size:.9rem;color:var(--color-text-muted);margin-left:4px;
-`;
-const PriceNote = styled.p`
-  font-family:var(--font-body);font-size:.8rem;color:#A0ADB8;margin-bottom:24px;
-`;
-const FeatureList = styled.ul`list-style:none;display:flex;flex-direction:column;gap:10px;margin-bottom:28px;`;
-const Feature = styled.li`
-  display:flex;align-items:flex-start;gap:10px;
-  font-family:var(--font-body);font-size:.9rem;
-  color:${({ $muted }) => $muted?'#A0ADB8':'var(--color-text)'};
-  svg{flex-shrink:0;margin-top:1px;}
+const Fakt = styled.div`
+  padding: 16px 30px; text-align: center;
+  border-right: 1px solid rgba(255,255,255,.12);
+  &:last-child { border-right: none; }
+  @media (max-width: 600px) { padding: 12px 18px; }
 `;
 
-/* Pro card */
-const ProCard = styled.div`
-  background:var(--color-primary);padding:36px 32px;
-  position:relative;overflow:hidden;
-  border-radius:0 var(--radius-card) var(--radius-card) 0;
-  @media(max-width:560px){padding:28px 20px;}
-`;
-const ProGlow = styled.div`
-  position:absolute;top:0;left:0;right:0;height:5px;
-  background:var(--color-accent);
-`;
-const ProBadge = styled.div`
-  display:inline-block;background:var(--color-accent);color:var(--color-white);
-  font-family:var(--font-body);font-weight:700;font-size:.75rem;
-  letter-spacing:.1em;text-transform:uppercase;
-  padding:4px 12px;margin-bottom:16px;border-radius:var(--radius-button);
-`;
-const TrialBanner = styled.div`
-  background:rgba(var(--color-accent-rgb),.12);
-  border:1px solid rgba(var(--color-accent-rgb),.3);
-  border-radius:var(--radius-card);
-  padding:12px 16px;margin-bottom:20px;
-  display:flex;align-items:center;gap:10px;
-`;
-const TrialText = styled.p`
-  font-family:var(--font-body);font-size:.83rem;
-  color:var(--color-accent);font-weight:600;line-height:1.4;
-  strong{display:block;font-weight:700;}
-`;
-const CTABtn = styled(Link)`
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  padding:16px;width:100%;background:var(--color-accent);color:var(--color-white);
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.1rem;letter-spacing:.07em;text-transform:var(--text-transform);
-  text-decoration:none;border-radius:var(--radius-button);
-  box-shadow:0 4px 20px rgba(var(--color-accent-rgb),.4);
-  transition:filter .2s,transform .1s;
-  &:hover{filter:brightness(.9);transform:translateY(-2px);}
-`;
-const SecBtn = styled(Link)`
-  display:flex;align-items:center;justify-content:center;gap:6px;
-  padding:13px;width:100%;margin-top:2px;
-  background:transparent;color:var(--color-text-muted);
-  font-family:var(--font-body);font-weight:600;font-size:.88rem;
-  text-decoration:none;border:2px solid var(--color-border);
-  border-radius:var(--radius-button);
-  transition:border-color .2s,color .2s;
-  &:hover{border-color:var(--color-primary);color:var(--color-primary);}
+const FaktZahl = styled.div`
+  font-family: var(--font-display); font-weight: var(--heading-weight);
+  font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+  color: var(--color-white); line-height: 1;
 `;
 
-/* Comparison table */
-const CompareSection = styled.section`background:var(--color-white);padding:80px 24px;`;
-const CompareInner = styled.div`max-width:700px;margin:0 auto;`;
-const CompareH2 = styled.h2`
-  font-size:clamp(1.8rem,3.5vw,2.4rem);text-transform:var(--text-transform);
-  color:var(--color-primary);text-align:center;margin-bottom:36px;
-`;
-const Table = styled.table`width:100%;border-collapse:collapse;`;
-const Th = styled.th`
-  font-family:var(--font-body);font-weight:700;font-size:.9rem;
-  text-transform:uppercase;letter-spacing:.06em;
-  padding:12px 16px;text-align:${({ $left }) => $left?'left':'center'};
-  background:${({ $pro }) => $pro?'var(--color-primary)':'var(--color-bg)'};
-  color:${({ $pro }) => $pro?'var(--color-white)':'var(--color-primary)'};
-  border-bottom:2px solid ${({ $pro }) => $pro?'var(--color-accent)':'var(--color-border)'};
-`;
-const Tr = styled.tr`&:nth-child(even){background:#F8F9FA;}&:hover{background:rgba(var(--color-primary-rgb),.03);}`;
-const Td = styled.td`
-  font-family:var(--font-body);font-size:.88rem;
-  color:${({ $muted }) => $muted?'#A0ADB8':'var(--color-text)'};
-  padding:12px 16px;text-align:${({ $center }) => $center?'center':'left'};
-  border-bottom:1px solid #F0F0F0;
-`;
-const Check = styled.span`color:#1E7E34;display:flex;justify-content:center;`;
-const Cross  = styled.span`color:#D0D8E0;display:flex;justify-content:center;`;
-
-/* Bottom CTA */
-const CtaBand = styled.section`
-  background:var(--color-primary);padding:72px 24px;text-align:center;
-`;
-const CtaInner = styled.div`max-width:640px;margin:0 auto;`;
-const CtaH2 = styled.h2`
-  font-size:clamp(2rem,4vw,3rem);text-transform:var(--text-transform);
-  color:var(--color-white);line-height:1.05;margin-bottom:16px;
-`;
-const CtaSub = styled.p`
-  font-family:var(--font-body);font-size:.98rem;
-  color:rgba(255,255,255,.6);margin-bottom:32px;line-height:1.65;
-`;
-const CtaBtn = styled(Link)`
-  display:inline-flex;align-items:center;gap:10px;
-  padding:18px 40px;background:var(--color-accent);color:var(--color-white);
-  font-family:var(--font-display);font-weight:var(--heading-weight);
-  font-size:1.2rem;letter-spacing:.08em;text-transform:var(--text-transform);
-  text-decoration:none;border-radius:var(--radius-button);
-  box-shadow:0 6px 28px rgba(var(--color-accent-rgb),.4);
-  transition:filter .2s,transform .15s;
-  &:hover{filter:brightness(.9);transform:translateY(-3px);}
-`;
-const CtaNote = styled.p`
-  font-family:var(--font-body);font-size:.78rem;
-  color:rgba(255,255,255,.35);margin-top:16px;
+const FaktText = styled.div`
+  font-family: var(--font-body); font-size: .74rem;
+  color: rgba(255,255,255,.5);
+  text-transform: uppercase; letter-spacing: .1em; margin-top: 6px;
 `;
 
-/* ─────────────────────────────────────────────
-   COMPONENT
-───────────────────────────────────────────── */
 export default function Pricing() {
-  const { pricing, design } = useIndustry();
-  const monthlyPrice = pricing?.monthlyPrice ?? 49;
-  const { user } = useAuthContext();
-  const { startCheckout, loading: checkoutLoading } = useCheckout();
-  const navigate = useNavigate();
-
-  const handleCheckout = ({ plan }) => {
-    if (!user) { navigate('/signup'); return; }
-    startCheckout({ plan, path: 'optimisation', companyName: '', industryKey: 'handwerk' });
-  };
-  const { roi } = pricing;
-
-  const [roiInput, setRoiInput] = useState(roi.sliderDefault);
-
-  const newUnits     = Math.round(roiInput * roi.upliftFactor);
-  const extraRevenue = newUnits * roi.avgOrderValue;
-  const roiPct       = Math.round((extraRevenue - monthlyPrice) / monthlyPrice * 100);
-  const heroMax      = (roi.maxMonthlyRevenue).toLocaleString('de-DE');
+  const { pricing, design, brand } = useIndustry();
 
   return (
     <Page>
-      {/* ── HERO ── */}
-      <HeroBand>
-        <HeroGrid $show={design.accentStripePattern} />
-        <HeroInner>
-          <Eyebrow><PulseDot /> {pricing.productName}</Eyebrow>
-          <HeroH1>
-            Investiere {monthlyPrice}{pricing.currency}.<br />
-            <HeroAccent>Hol dir bis zu {heroMax}{pricing.currency} zurück.</HeroAccent>
-          </HeroH1>
-          <HeroSub>
-            Kein Jahresvertrag. Keine Einrichtungsgebühr.{' '}
-            Die ersten {pricing.trialDays} Tage kostenlos — danach nur, wenn du zufrieden bist.
-          </HeroSub>
-          <ROIRow>
-            <ROIItem>
-              <ROINum>{monthlyPrice}<ROIAccent>{pricing.currency}</ROIAccent></ROINum>
-              <ROILabel>pro Monat</ROILabel>
-            </ROIItem>
-            <ROIItem>
-              <ROINum>{pricing.trialDays}<ROIAccent>T</ROIAccent></ROINum>
-              <ROILabel>kostenlos testen</ROILabel>
-            </ROIItem>
-            <ROIItem>
-              <ROINum>3<ROIAccent>×</ROIAccent></ROINum>
-              <ROILabel>mehr Anfragen</ROILabel>
-            </ROIItem>
-            <ROIItem>
-              <ROINum>0<ROIAccent>{pricing.currency}</ROIAccent></ROINum>
-              <ROILabel>Einrichtungsgebühr</ROILabel>
-            </ROIItem>
-          </ROIRow>
-        </HeroInner>
-      </HeroBand>
+      <Kopf>
+        <Raster $show={design.accentStripePattern} />
+        <Inner>
+          <Eyebrow>{pricing.productName}</Eyebrow>
+          <H1>
+            Ein Produkt.<br />
+            <Akzent>Ein Preis.</Akzent>
+          </H1>
+          <Lead>
+            Keine Staffelung, kein Einstiegspaket, keine Einrichtungsgebühr.
+            {' '}{brand.name} kann für jeden Betrieb dasselbe — also kostet es
+            für jeden Betrieb dasselbe.
+          </Lead>
 
-      {/* ── ROI CALCULATOR ── */}
-      <CalcSection>
-        <CalcInner>
-          <CalcCard>
-            <CalcLabel>Dein ROI — interaktiv berechnen</CalcLabel>
+          <Fakten>
+            <Fakt>
+              <FaktZahl>{pricing.monthlyPrice}<Akzent>{pricing.currency}</Akzent></FaktZahl>
+              <FaktText>pro Monat</FaktText>
+            </Fakt>
+            <Fakt>
+              <FaktZahl>{pricing.trialDays}<Akzent>T</Akzent></FaktZahl>
+              <FaktText>kostenlos testen</FaktText>
+            </Fakt>
+            <Fakt>
+              <FaktZahl>0<Akzent>{pricing.currency}</Akzent></FaktZahl>
+              <FaktText>Einrichtung</FaktText>
+            </Fakt>
+            <Fakt>
+              <FaktZahl>1<Akzent>×</Akzent></FaktZahl>
+              <FaktText>Klick zum Kündigen</FaktText>
+            </Fakt>
+          </Fakten>
+        </Inner>
+      </Kopf>
 
-            <div style={{ marginBottom: 20 }}>
-              <p style={{
-                fontFamily: 'var(--font-body)', fontSize: '.83rem',
-                color: 'rgba(255,255,255,.6)', marginBottom: 8,
-              }}>
-                {roi.sliderLabel}{' '}
-                <strong style={{ color: 'white' }}>{roiInput}</strong>
-              </p>
-              <input
-                type="range"
-                min={roi.sliderMin} max={roi.sliderMax} step={roi.sliderStep}
-                value={roiInput}
-                onChange={e => setRoiInput(Number(e.target.value))}
-                style={{ width: '100%', accentColor: 'var(--color-accent)' }}
-              />
-              <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                fontFamily: 'var(--font-body)', fontSize: '.7rem',
-                color: 'rgba(255,255,255,.3)', marginTop: 4,
-              }}>
-                <span>{roi.sliderMin}</span><span>{roi.sliderMax}</span>
-              </div>
-            </div>
-
-            <CalcGrid>
-              <CalcBox>
-                <CalcNum>
-                  {monthlyPrice}
-                  <span style={{ fontSize: '1.2rem', color: 'rgba(255,255,255,.4)' }}>
-                    {pricing.currency}
-                  </span>
-                </CalcNum>
-                <CalcLbl>{roi.investmentLabel}</CalcLbl>
-              </CalcBox>
-              <CalcOp>→</CalcOp>
-              <CalcBox>
-                <CalcNum $c="var(--color-accent)">+{newUnits}</CalcNum>
-                <CalcLbl>{roi.callsLabel}</CalcLbl>
-              </CalcBox>
-              <CalcOp>=</CalcOp>
-              <CalcBox style={{
-                background: 'rgba(var(--color-accent-rgb), .12)',
-                border: '1px solid rgba(var(--color-accent-rgb), .3)',
-              }}>
-                <CalcNum $c="var(--color-accent)">
-                  {extraRevenue >= 1000
-                    ? `${(extraRevenue / 1000).toFixed(1).replace('.', ',')}k`
-                    : extraRevenue
-                  }{pricing.currency}
-                </CalcNum>
-                <CalcLbl>{roi.revenueLabel}</CalcLbl>
-              </CalcBox>
-            </CalcGrid>
-
-            <CalcNote>
-              {roi.roiNote} {roi.avgOrderValue}{pricing.currency}.{' '}
-              ROI in diesem Szenario:{' '}
-              <strong style={{ color: 'var(--color-accent)' }}>{roiPct} %</strong>.
-            </CalcNote>
-          </CalcCard>
-        </CalcInner>
-      </CalcSection>
-
-      {/* ── PRICING CARDS ── */}
-      <PricingSection>
-        <PricingInner>
-          <PLabel>Tarife</PLabel>
-          <PH2>Einfach. <HeroAccent>Transparent.</HeroAccent> Direkt.</PH2>
-
-          <CardsGrid>
-            {/* Free */}
-            <FreeCard>
-              <CardLabel>Kostenloser Einstieg</CardLabel>
-              <CardTitle>Sichtbarkeits-Check</CardTitle>
-              <Price>
-                <PriceNum>0<span style={{ fontSize: '1.5rem' }}>{pricing.currency}</span></PriceNum>
-              </Price>
-              <PriceNote>Einmalig, kein Account erforderlich</PriceNote>
-              <FeatureList>
-                {pricing.comparison.slice(0, 2).map((f, i) => (
-                  <Feature key={i}>
-                    <CheckCircle size={16} color="#1E7E34" />
-                    {f.feature}
-                  </Feature>
-                ))}
-                {pricing.comparison.slice(2).map((f, i) => (
-                  <Feature key={i} $muted>
-                    <X size={16} color="#D0D8E0" />
-                    {f.feature}
-                  </Feature>
-                ))}
-              </FeatureList>
-              <SecBtn to="/#check">
-                Zum kostenlosen Check <ChevronRight size={14} />
-              </SecBtn>
-            </FreeCard>
-
-            {/* PRO */}
-            <ProCard>
-              <ProGlow />
-              <ProBadge>Empfohlen</ProBadge>
-              <CardLabel $c="rgba(255,255,255,.5)">{pricing.productName}</CardLabel>
-              <CardTitle style={{ color: 'var(--color-white)' }}>Volle Sichtbarkeit</CardTitle>
-              <Price>
-                <PriceNum $c="var(--color-accent)">
-                  {monthlyPrice}
-                  <span style={{ fontSize: '1.5rem' }}>{pricing.currency}</span>
-                </PriceNum>
-                <PricePeriod>{pricing.priceLabel}</PricePeriod>
-              </Price>
-              <PriceNote style={{ color: 'rgba(255,255,255,.35)' }}>
-                Monatlich kündbar — kein Jahresvertrag
-              </PriceNote>
-
-              <TrialBanner>
-                <Zap size={18} color="var(--color-accent)" style={{ flexShrink: 0 }} />
-                <TrialText>
-                  <strong>{pricing.trialDays} Tage kostenlos testen.</strong>
-                  Danach {monthlyPrice}{pricing.currency} {pricing.priceLabel} — kündbar wann du willst.
-                </TrialText>
-              </TrialBanner>
-
-              <FeatureList style={{ marginBottom: 24 }}>
-                {pricing.features.map((f, i) => (
-                  <Feature key={i} style={{ color: 'rgba(255,255,255,.85)' }}>
-                    <CheckCircle size={16} color="var(--color-accent)" />
-                    {f}
-                  </Feature>
-                ))}
-              </FeatureList>
-
-              <CTABtn as="button" onClick={() => handleCheckout({ plan: 'monthly', path: 'optimisation' })} disabled={checkoutLoading}>
-                {pricing.trialCTA} <ArrowRight size={18} />
-              </CTABtn>
-              <p style={{
-                fontFamily: 'var(--font-body)', fontSize: '.73rem',
-                color: 'rgba(255,255,255,.3)', textAlign: 'center', marginTop: 12,
-              }}>
-                {/* Hier stand bis zum 14.10.2026 die Zusage, für die
-                    Testphase sei keine Karte nötig. Der Satz ist
-                    absichtlich nicht zitiert: er stand kurz in diesem
-                    Kommentar, und damit fand ihn der Audit-Test aus
-                    H2.1 weiter im Dateitext — der Test blieb grün,
-                    obwohl der Befund behoben war. Ein Kommentar, der
-                    eine falsche Aussage wörtlich aufbewahrt, macht
-                    jede Textprüfung darauf blind.
-
-                    Falsch war die Zusage messbar: Stripe Checkout
-                    im Modus 'subscription' verlangt eine
-                    Zahlungsmethode, solange
-                    payment_method_collection nicht auf 'if_required'
-                    steht — und create-checkout-session setzt das
-                    nicht (geprüft am 13.10.2026, H2.1 Bericht B).
-                    Der Kunde klickte also auf eine Zusage und landete
-                    eine Seite später bei der Kartenabfrage.
-
-                    Die Alternative wäre gewesen,
-                    payment_method_collection: 'if_required' zu setzen
-                    und die Zusage zu halten. Das ist eine
-                    Produktentscheidung mit Folgen — ohne Karte endet
-                    der Trial ohne Zahlung und ohne Übergang —, und
-                    H2.2 §26 schliesst Stripe-Umbauten in diesem
-                    Paket aus. Also wird hier die Aussage korrigiert,
-                    nicht das Verhalten.
-
-                    Was bleibt, ist wahr: 30 Tage ohne Abbuchung. */}
-                Zahlungsdaten werden beim Start hinterlegt — in den ersten{' '}
-                {pricing.trialDays} Tagen wird nichts abgebucht.
-              </p>
-            </ProCard>
-          </CardsGrid>
-        </PricingInner>
-      </PricingSection>
-
-      {/* ── COMPARISON TABLE ── */}
-      <CompareSection>
-        <CompareInner>
-          <CompareH2>Was du bekommst — auf einen Blick</CompareH2>
-          <Table>
-            <thead>
-              <tr>
-                <Th $left>Feature</Th>
-                <Th>Free</Th>
-                <Th $pro>Pro</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {pricing.comparison.map((row, i) => (
-                <Tr key={i}>
-                  <Td>{row.feature}</Td>
-                  <Td $center>
-                    {row.free
-                      ? <Check><CheckCircle size={16} /></Check>
-                      : <Cross><X size={16} /></Cross>
-                    }
-                  </Td>
-                  <Td $center><Check><CheckCircle size={16} /></Check></Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        </CompareInner>
-      </CompareSection>
-
-      {/* ── BOTTOM CTA ── */}
-      <CtaBand>
-        <CtaInner>
-          <CtaH2>
-            Kein Risiko.<br />
-            <HeroAccent>{pricing.trialDays} Tage auf unsere Kosten.</HeroAccent>
-          </CtaH2>
-          <CtaSub>
-            Wenn du nach {pricing.trialDays} Tagen nicht mehr Anfragen hast als vorher,
-            zahlst du nichts. Kein Kleingedrucktes. Kein Ärger.
-          </CtaSub>
-          <CtaBtn to="/register">
-            {pricing.trialCTA} <ArrowRight size={20} />
-          </CtaBtn>
-          <CtaNote>
-            Danach {monthlyPrice}{pricing.currency} {pricing.priceLabel} · Monatlich kündbar · Keine Einrichtungsgebühr
-          </CtaNote>
-        </CtaInner>
-      </CtaBand>
+      <Preis />
+      <Vergleich />
+      <FAQ />
+      <AbschlussCTA />
     </Page>
   );
 }

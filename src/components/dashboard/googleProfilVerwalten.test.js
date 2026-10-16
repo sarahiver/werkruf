@@ -6,6 +6,11 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+/* Nur die beiden Verweis-Reiter brauchen einen Router: Seit dem
+   16.10.2026 führen Bewertungen und Medien mit <Link> auf ihre
+   eigenen Seiten, statt zu behaupten, sie seien nicht eingerichtet.
+   Alle anderen Reiter rendern ohne Router weiter. */
+import { MemoryRouter } from 'react-router-dom';
 
 jest.mock('../../context/IndustryContext', () => ({
   useIndustry: () => ({ brand: { name: 'WERKRUF' } }),
@@ -83,10 +88,30 @@ describe('Unternavigation', () => {
     expect(screen.getByText('Eigener Inhalt hier')).toBeInTheDocument();
   });
 
-  it('sagt bei Bereichen ohne Inhalt, dass sie noch nicht eingerichtet sind', async () => {
-    render(<GoogleProfilVerwalten location={standort()} />);
+  /* Bis zum 16.10.2026 prüfte dieser Test, dass bei Bewertungen und
+     Medien "noch nicht eingerichtet" steht. Das war die falsche
+     Zusicherung: Beide Bereiche sind vollständig gebaut, nur nicht in
+     dieser Komponente — sie gehören zur v4-API und haben deshalb kein
+     Feld im Feldmodell. bereicheMitStatus sagt das selbst ("sind
+     trotzdem gültig — sie haben eigene Endpunkte").
+
+     Ein zahlender Kunde las über die Kernfunktion des Produkts, sie
+     sei nicht eingerichtet. Jetzt führt der Reiter dorthin, wo die
+     Funktion liegt — und dieser Test prüft das Ziel, nicht den Text. */
+  it('führt bei Bildern und Medien auf die Fotoseite', async () => {
+    render(<MemoryRouter><GoogleProfilVerwalten location={standort()} /></MemoryRouter>);
     await klicke(screen.getByRole('button', { name: /Bilder und Medien/ }));
-    expect(screen.getByText(/noch nicht eingerichtet/)).toBeInTheDocument();
+    expect(screen.queryByText(/noch nicht eingerichtet/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Zu den Fotos/ }))
+      .toHaveAttribute('href', '/dashboard/fotos');
+  });
+
+  it('führt bei Bewertungen auf die Bewertungsseite', async () => {
+    render(<MemoryRouter><GoogleProfilVerwalten location={standort()} /></MemoryRouter>);
+    await klicke(screen.getByRole('button', { name: /^Bewertungen/ }));
+    expect(screen.queryByText(/noch nicht eingerichtet/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Zu den Bewertungen/ }))
+      .toHaveAttribute('href', '/dashboard/bewertungen');
   });
 });
 

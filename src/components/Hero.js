@@ -102,13 +102,25 @@ const HeadlineAccent = styled.span`
   color: var(--color-accent);
 `;
 
+/* Normalschrift statt Versalien, und heller als vorher.
+
+   Die Subline stand bis zum 16.10.2026 in Grossbuchstaben
+   (text-transform aus der Branchenkonfiguration). Das trug die alte,
+   kurze Fassung gerade noch. Seit sie den Nutzen benennt und ein
+   zweiter Satz zur Abgrenzung dazukommt, sind es zwei Absätze
+   Versalien — und die liest niemand. Versalien sind die Schrift der
+   Überschrift, nicht des Fliesstextes.
+
+   Die Deckkraft steigt von 0.38 auf 0.72: Der wichtigste Satz der
+   Seite nach der Überschrift darf nicht aussehen wie eine Fussnote. */
 const HeadlineSub = styled.p`
-  font-family: var(--font-display);
-  font-size: clamp(1.1rem, 2vw, 1.5rem);
-  text-transform: var(--text-transform);
-  color: rgba(255,255,255,0.38);
-  margin-bottom: 32px;
-  letter-spacing: 0.04em;
+  font-family: var(--font-body);
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  color: rgba(255,255,255,0.72);
+  line-height: 1.65;
+  margin-bottom: 18px;
+  max-width: 34em;
+  &:last-of-type { margin-bottom: 32px; }
 `;
 
 const CheckList = styled.ul`
@@ -183,11 +195,24 @@ const AnmeldeLink = styled(Link)`
   color: var(--color-accent); font-weight: 700; text-decoration: underline;
 `;
 
+/* Der Preis steht ab dem 16.10.2026 im Hero.
+   Vorher nannte ihn keine einzige Stelle der Landingpage — der
+   Besucher erfuhr erst nach der Registrierung, dass WERKRUF Geld
+   kostet. Das ist der teuerste Moment, um es zu erfahren. */
+const PreisZeile = styled.p`
+  font-family: var(--font-body);
+  font-size: .86rem; font-weight: 700;
+  color: var(--color-primary);
+  text-align: center;
+  margin: 14px 0 0;
+  span { color: var(--color-text-muted); font-weight: 400; }
+`;
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
 const Hero = () => {
-  const { copy, design } = useIndustry();
+  const { copy, design, pricing } = useIndustry();
   const { hero: heroCopy } = copy;
   const { isAuthenticated } = useAuthContext();
 
@@ -195,6 +220,16 @@ const Hero = () => {
      der Verbindungsseite, alle anderen bei der Registrierung — von dort
      fuehrt das Onboarding weiter zur selben Seite. */
   const ctaZiel = isAuthenticated ? '/dashboard/google' : '/signup';
+
+  /* Warum "Tage kostenlos testen" und nicht "Google-Profil verbinden":
+     Der Knopf muss sagen, worauf man sich einlässt, nicht was im
+     zweiten Schritt passiert. "Verbinden" klingt nach Arbeit und nach
+     Berechtigung — zwei Hürden auf einmal, bevor der Besucher weiss,
+     was es kostet. Für angemeldete Nutzer dreht es sich um: die
+     Testphase laeuft schon, offen ist die Verbindung. */
+  const ctaText = isAuthenticated
+    ? 'Google-Unternehmensprofil verbinden'
+    : `Jetzt ${pricing.trialDays} Tage kostenlos testen`;
 
   return (
     <HeroSection id="hero">
@@ -211,6 +246,11 @@ const Hero = () => {
           </Headline>
 
           <HeadlineSub>{heroCopy.subline}</HeadlineSub>
+          {heroCopy.differenzierung && (
+            <HeadlineSub style={{ fontWeight: 700 }}>
+              {heroCopy.differenzierung}
+            </HeadlineSub>
+          )}
 
           <CheckList>
             {heroCopy.checks.map((check, i) => (
@@ -224,16 +264,22 @@ const Hero = () => {
 
         <Right>
           <SearchCard>
-            <CardTitle>Dein Unternehmensprofil verbinden</CardTitle>
+            <CardTitle>In zwei Minuten eingerichtet</CardTitle>
             <CardSub>
-              Eine Berechtigung, zwei Minuten. Danach prüft WERKRUF dein Profil
-              laufend und sagt dir, was zu tun ist.
+              Konto anlegen, Google-Profil verbinden — eine Berechtigung, jederzeit
+              widerrufbar. Danach prüft WERKRUF dein Profil laufend und sagt dir,
+              was zu tun ist.
             </CardSub>
 
             <CtaButton to={ctaZiel}>
-              Jetzt Google-Unternehmensprofil verbinden
+              {ctaText}
               <ArrowRight size={18} />
             </CtaButton>
+
+            <PreisZeile>
+              {pricing.trialDays} Tage kostenlos{' '}
+              <span>· danach {pricing.monthlyPrice} {pricing.currency} / Monat · monatlich kündbar</span>
+            </PreisZeile>
 
             <CtaHinweis>
               WERKRUF liest dein Unternehmensprofil und schlägt Änderungen vor.
@@ -241,9 +287,11 @@ const Hero = () => {
               Kontakte oder Dateien.
             </CtaHinweis>
 
-            <Anmeldung>
-              Schon registriert? <AnmeldeLink to="/login">Anmelden</AnmeldeLink>
-            </Anmeldung>
+            {!isAuthenticated && (
+              <Anmeldung>
+                Schon registriert? <AnmeldeLink to="/login">Anmelden</AnmeldeLink>
+              </Anmeldung>
+            )}
           </SearchCard>
         </Right>
 

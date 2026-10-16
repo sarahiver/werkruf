@@ -88,67 +88,152 @@ export const INDUSTRIES = {
         eyebrow:     'Für Handwerk & Gewerbe',
         headline:    'Deine Arbeit ist besser,',
         headlineAccent: 'als dein Profil vermuten lässt.',
-        subline:     'WERKRUF verbindet sich mit deinem Google-Profil, behält es im Blick und schlägt dir vor, was zu tun ist. Veröffentlicht wird nur, was du freigibst.',
+        /* Die Subline nennt seit dem 16.10.2026 den Nutzen zuerst und
+           die Mechanik danach. Vorher begann sie mit "WERKRUF
+           verbindet sich mit deinem Google-Profil" — das beschreibt
+           einen technischen Vorgang, keinen Grund. */
+        subline:     'WERKRUF behält deinen Google-Auftritt im Blick, damit du lokal besser gefunden wirst, professioneller wirkst und keine Bewertung und kein Profilproblem verpasst.',
+        differenzierung: 'Du musst dich nicht darum kümmern. WERKRUF sagt dir, was wichtig ist — in wenigen Minuten erledigt.',
         checks: [
           'Einmal verbinden — dein Profil bleibt deins',
           'Antwortvorschläge auf Knopfdruck freigeben',
           'Meldung, sobald etwas nicht stimmt',
         ],
       },
-      check: {
-        eyebrow:       'Kostenloser Sofort-Check',
-        title:         'Wie sichtbar bist du',
-        titleAccent:   'gerade wirklich?',
-        subline:       'Betrieb suchen — in Sekunden siehst du, was an deinem Profil gerade fehlt.',
-        cardTitle:     'Kostenloser Profil-Check',
-        cardSub:       'Betrieb eingeben. Der Check liest deine öffentlichen Google-Daten und zeigt sofort, wo Lücken sind.',
-      },
-      analysis: {
-        eyebrow:       'Dein Analyse-Ergebnis',
-        title:         'Dein',
-        titleAccent:   'Sichtbarkeits-Score',
-        successGreeting: 'Moin!',
-        successSub:    'Dein Profil-Befund ist unterwegs an',
-        upsellTitle:   'Nicht nur sehen, sondern ändern?',
-        upsellText:    'Verbinde dein Google-Profil mit WERKRUF. Ab dann siehst du Lücken nicht nur — du schliesst sie mit einem Klick.',
-      },
-      /* Drei Versprechen statt sechs Funktionen.
-         Vorher standen hier sechs Kacheln, von denen vier dasselbe
-         sagten ("du wirst besser gefunden"). Jede Kachel beantwortet
-         jetzt eine andere Frage — und jede endet bei einer Handlung,
-         die der Betrieb selbst auslöst. */
-      features: [
+      /* Hier standen bis zum 16.10.2026 die Blöcke `check` und
+         `analysis` mit den Texten des öffentlichen
+         Sichtbarkeits-Checks ("Kostenloser Profil-Check", "Dein
+         Sichtbarkeits-Score", "Dein Profil-Befund ist unterwegs an").
+
+         Entfernt, weil sie von KEINER Datei gelesen wurden — auch
+         nicht von SmartCheck.js, AnalysisSection.js oder LeadForm.js,
+         die ihre Texte selbst mitbringen. Gemessen am 16.10.2026 über
+         den gesamten Quelltext.
+
+         Der Check selbst liegt vollständig im Repository und kann
+         zurückkommen. Kehrt er zurück, gehören seine Texte neu
+         geschrieben statt aus dieser Generation übernommen: Sie
+         versprachen einen Befund als PDF, den das Rechte-Gate in
+         request-profile-report nicht herausgibt. */
+
+      /* Die Kacheln hängen seit dem 16.10.2026 unter drei Ergebnissen
+         statt nebeneinander. Grund: Sechs gleichgewichtete Karten
+         zwingen den Leser, sich selbst eine Reihenfolge zu bauen.
+         Drei Überschriften nehmen ihm das ab — und sie benennen das
+         Ergebnis, nicht die Funktion.
+
+         Dazu sind die Karten auf das umgestellt, was das Produkt
+         wirklich tut. Bewertungslink und QR-Code standen vorher in
+         keinem Verkaufstext, obwohl sie fertig sind. */
+      featureGruppen: [
         {
-          num: '01', title: 'Es fällt auf, bevor es dir auffällt',
-          body: 'WERKRUF prüft dein Profil laufend und meldet sich, wenn etwas nicht stimmt: eine neue Bewertung, veraltete Öffnungszeiten, eine abgerissene Verbindung. Du erfährst es nicht vom Kunden am Telefon.',
-          tag: 'Laufende Überwachung',
+          key: 'A', eyebrow: 'Ergebnis A',
+          titel: 'Besser gefunden werden',
+          einleitung: 'Ein vollständiges, aktuelles Profil ist die Voraussetzung dafür, dass Google dich überhaupt anzeigt.',
+          karten: [
+            {
+              title: 'Dein Profil bleibt vollständig',
+              body: 'Öffnungszeiten, Leistungen, Kontaktdaten, Kategorien: WERKRUF zeigt, was fehlt oder veraltet ist, und überträgt deine Änderungen direkt zu Google — ohne Umweg über Googles Oberfläche.',
+              tag: 'Direkt bearbeiten',
+            },
+            {
+              title: 'Fotos, die auch ankommen',
+              body: 'Bild vom fertigen Bad, vom Team, vom Fahrzeug — hochladen, und es landet in deinem Google-Profil. Kein Zwischenschritt, keine fremde Galerie.',
+              tag: 'Hochladen statt hochladen lassen',
+            },
+          ],
         },
         {
-          num: '02', title: 'Es ist beantwortet, bevor du dran denkst',
-          body: 'Zu jeder neuen Bewertung liegt ein Antwortvorschlag bereit — im Ton deines Betriebs. Du liest ihn, änderst was du willst, gibst frei. Veröffentlicht wird nichts ohne dein Ja.',
-          tag: 'KI schlägt vor, du entscheidest',
+          key: 'B', eyebrow: 'Ergebnis B',
+          titel: 'Professioneller wirken',
+          einleitung: 'Wer vor der Beauftragung dein Profil liest, entscheidet nach dem, was er dort sieht — vor allem nach den Bewertungen und deinen Antworten darauf.',
+          karten: [
+            {
+              title: 'Jede Bewertung beantwortet',
+              body: 'Zu jeder neuen Bewertung liegt ein Antwortvorschlag bereit, im Ton deines Betriebs. Du liest ihn, änderst was du willst, gibst frei. Veröffentlicht wird nichts ohne dein Ja.',
+              tag: 'Vorschlag, keine Automatik',
+            },
+            {
+              title: 'Schlechte Bewertung? Du weisst es zuerst',
+              body: 'Bei einem oder zwei Sternen meldet sich WERKRUF sofort — nicht erst montags. Eine schnelle, ruhige Antwort ist der Unterschied zwischen einem Ärgernis und einem Schaden.',
+              tag: 'Sofortmeldung',
+            },
+            {
+              title: 'Mehr Bewertungen bekommen',
+              body: 'Dein persönlicher Google-Bewertungslink und ein QR-Code zum Ausdrucken — für die Rechnung, die Übergabe, den Transporter. Den Link verschickst du selbst, wann du willst.',
+              tag: 'Link und QR-Code',
+            },
+          ],
         },
         {
-          num: '03', title: 'Es stimmt, auch wenn du nicht dran denkst',
-          body: 'Öffnungszeiten, Leistungen, Fotos: WERKRUF zeigt dir, was fehlt oder veraltet ist, und überträgt deine Änderungen direkt in dein Google-Profil.',
-          tag: 'Profil aktuell halten',
-        },
-        {
-          num: '04', title: 'Dein Profil bleibt deins',
-          body: 'WERKRUF arbeitet in deinem Google-Konto, nicht in einem fremden. Kündigst du, bleibt alles bestehen — Profil, Bewertungen, Fotos.',
-          tag: 'Kein Lock-in',
-        },
-        {
-          num: '05', title: 'Eine einzige Berechtigung',
-          body: 'WERKRUF fragt genau ein Recht ab: dein Unternehmensprofil verwalten. Kein Zugriff auf E-Mails, Kontakte oder Dateien. Jederzeit widerrufbar.',
-          tag: 'Nachprüfbar',
-        },
-        {
-          num: '06', title: 'Zwei Minuten pro Woche',
-          body: 'Mehr Zeit kostet es dich nicht. Der Rest läuft im Hintergrund, während du auf der Baustelle bist.',
-          tag: 'Kein zusätzlicher Aufwand',
+          key: 'C', eyebrow: 'Ergebnis C',
+          titel: 'Weniger Arbeit haben',
+          einleitung: 'Das Unterscheidende: WERKRUF ist kein weiteres Dashboard, in das du täglich schauen musst.',
+          karten: [
+            {
+              title: 'Montags eine Mail, mehr nicht',
+              body: 'Darin steht, was diese Woche zählt — jede Aufgabe mit Begründung und einer Zeitangabe daneben. Ist nichts zu tun, steht das auch drin. Du musst nicht nachsehen.',
+              tag: 'Priorisiert statt vollständig',
+            },
+            {
+              title: 'Es fällt auf, bevor es dir auffällt',
+              body: 'WERKRUF prüft dein Profil laufend und meldet sich, wenn etwas nicht stimmt: veraltete Öffnungszeiten, eine abgerissene Verbindung, eine neue Bewertung. Du erfährst es nicht vom Kunden am Telefon.',
+              tag: 'Laufende Überwachung',
+            },
+          ],
         },
       ],
+
+      /* Einwände, keine Vorteile — deshalb stehen sie als schmaler
+         Streifen unter den Kacheln und nicht als eigene Karten. */
+      vertrauen: [
+        {
+          title: 'Dein Profil bleibt deins',
+          body: 'WERKRUF arbeitet in deinem Google-Konto, nicht in einem fremden. Kündigst du, bleibt alles bestehen.',
+        },
+        {
+          title: 'Eine einzige Berechtigung',
+          body: 'Nur „Unternehmensprofil verwalten". Kein Zugriff auf E-Mails, Kontakte oder Dateien. Jederzeit widerrufbar.',
+        },
+        {
+          title: 'Keine Agentur',
+          body: 'Kein Beratungstermin, keine Laufzeit. WERKRUF bereitet vor, du entscheidest und gibst frei.',
+        },
+      ],
+
+      /* Für die Landingpage. Kurz beantwortet, nicht die Hilfeseite
+         verdoppelt — die beantwortet dieselben Fragen ausführlicher. */
+      faq: [
+        {
+          frage:   'Was kostet WERKRUF?',
+          antwort: '49 € im Monat. Die ersten 30 Tage kostenlos, danach monatlich kündbar. Keine Einrichtungsgebühr, kein Jahresvertrag.',
+        },
+        {
+          frage:   'Was darf WERKRUF bei Google?',
+          antwort: 'Genau eine Berechtigung: dein Unternehmensprofil verwalten. Kein Zugriff auf E-Mails, Kontakte oder Dateien. Du kannst sie jederzeit in deinem Google-Konto widerrufen.',
+        },
+        {
+          frage:   'Veröffentlicht WERKRUF etwas ohne mich?',
+          antwort: 'Nein. Antworten, Öffnungszeiten, Fotos — nichts geht zu Google, bevor du es freigibst. WERKRUF bereitet vor, du entscheidest.',
+        },
+        {
+          frage:   'Wie lange dauert die Einrichtung?',
+          antwort: 'Zwei Minuten. Konto anlegen, Google-Profil verbinden, fertig. Den Rest macht WERKRUF.',
+        },
+        {
+          frage:   'Brauche ich technisches Wissen?',
+          antwort: 'Nein. Du bekommst Aufgaben in normalem Deutsch, mit einer Zeitangabe daneben. Wer eine Rechnung schreiben kann, kann das auch.',
+        },
+        {
+          frage:   'Was passiert mit meinem Profil, wenn ich kündige?',
+          antwort: 'Nichts. Das Profil gehört deinem Google-Konto, nicht WERKRUF. Bewertungen, Fotos und Angaben bleiben, wie sie sind.',
+        },
+        {
+          frage:   'Muss ich jeden Tag ins Dashboard schauen?',
+          antwort: 'Nein, und das ist der Punkt. Montags kommt eine Mail mit dem, was ansteht. Passiert etwas Dringendes, meldet WERKRUF sich sofort.',
+        },
+      ],
+
       footer: {
         tagline: 'Digitaler Rückenwind für echtes Handwerk',
         email:   'info@werkruf.com',
@@ -228,52 +313,83 @@ export const INDUSTRIES = {
          Report-Mail lesen genau diese Felder. Unter pathA vergraben
          zeigte das Signup "undefined€ / Monat". */
       monthlyPrice:    49,
-      quarterPrice:    129,   // ~12% günstiger
-      annualPrice:     449,   // ~24% günstiger
+      /* quarterPrice und annualPrice liest KEINE Datei (gemessen am
+         16.10.2026). Der Checkout steht fest auf 'monthly'. Die Werte
+         bleiben als Platzhalter stehen, dürfen aber nirgends angezeigt
+         werden, solange der Checkout sie nicht annimmt — ein Preis auf
+         der Seite, den der Bezahlvorgang nicht kennt, ist ein
+         Abbruch mit Ansage. */
+      quarterPrice:    129,   // nicht beworben
+      annualPrice:     449,   // nicht beworben
       setupFee:        0,
 
-      roi: {
-        avgOrderValue:     400,    // EUR
-        upliftFactor:      0.30,   // +30% mehr qualif. Anfragen
-        maxMonthlyRevenue: 9120,
-        sliderMin:         5,
-        sliderMax:         150,
-        sliderStep:        5,
-        sliderDefault:     30,
-        sliderLabel:       'Wie viele Anrufe bekommst du aktuell pro Monat?',
-        callsLabel:        'neue Aufträge / Mo.',
-        investmentLabel:   'dein Monatsbeitrag',
-        revenueLabel:      'zusätzlicher Umsatz',
-        roiNote:           '* Basiert auf Ø +30 % mehr qualifizierten Anfragen und einem durchschnittlichen Auftragswert von',
-      },
+      /* Der ROI-Block stand bis zum 16.10.2026 hier und trug einen
+         Rechner auf der Preisseite: 30 Anrufe × 30 % × 400 € = 3.600 €
+         Zusatzumsatz, angezeigt als "ROI 7247 %". Entfernt, weil keine
+         der drei Zahlen belegbar war und die Rechnung einen Anruf
+         stillschweigend in einen Auftrag verwandelte.
+
+         Wer eine Zahl braucht, nimmt die wahre: 49 € im Monat,
+         588 € im Jahr, monatlich kündbar. Siehe p4a-product-truth-audit.md,
+         Abschnitt E. */
+
+      /* Was im Preis enthalten ist.
+
+         Jede Zeile beschreibt etwas, das das Produkt heute tut, und
+         zwar als Ergebnis statt als Werkzeugname. Bis zum 16.10.2026
+         standen hier "Bewertungs-Autopilot (SMS + E-Mail)" und
+         "Monatliches PDF-Reporting" — für beides existiert keine
+         Zeile Code. */
       features: [
-        'Google-Profil Optimierung (vollständig)',
-        'Bewertungs-Autopilot (SMS + E-Mail)',
-        'Monatliches PDF-Reporting',
-        'KI-Antwort-Assistent für Rezensionen',
-        'Verbunden in zwei Minuten',
+        'Montags eine Mail mit dem, was diese Woche zählt',
+        'Sofort Bescheid bei 1- und 2-Sterne-Bewertungen',
+        'Antwortvorschlag zu jeder Bewertung — du gibst frei',
+        'Öffnungszeiten, Leistungen und Kontaktdaten direkt ändern',
+        'Fotos hochladen, die bei Google landen',
+        'Bewertungslink und QR-Code für deine Kunden',
+        'Laufende Überwachung deines Profils',
         'Monatlich kündbar — kein Jahresvertrag',
       ],
+
+      /* Der Vergleich stellt nicht mehr Free gegen Pro — einen
+         kostenlosen Tarif gibt es nicht. Verglichen werden die drei
+         Wege, die ein Betrieb wirklich hat. 'agentur' bleibt bewusst
+         unscharf, wo Anbieter sich unterscheiden. */
       comparison: [
-        /* Zeilen beschreiben jetzt Ergebnisse statt Werkzeugnamen.
-           "Bewertungs-Autopilot" und "KI-Antwort-Assistent" waren
-           zwei Namen für dieselbe Sache — zusammengeführt.
-           "Persönlicher Ansprechpartner" ist raus: das klang nach
-           Agentur und ist keine Funktion, sondern Support. */
-        { feature: 'Profil-Check ohne Anmeldung',        free: true,  pro: true  },
-        { feature: 'Befund als PDF',                     free: true,  pro: true  },
-        { feature: 'Google-Profil verbinden',            free: false, pro: true  },
-        { feature: 'Laufende Überwachung',               free: false, pro: true  },
-        { feature: 'Bewertungen im Dashboard',           free: false, pro: true  },
-        { feature: 'KI-Antwortvorschläge zum Freigeben', free: false, pro: true  },
-        { feature: 'Profil-Angaben direkt ändern',       free: false, pro: true  },
-        { feature: 'Meldung bei Problemen',              free: false, pro: true  },
+        { feature: 'Zeitaufwand im Monat',
+          selbst: 'mehrere Stunden', agentur: 'gering', werkruf: 'wenige Minuten' },
+        { feature: 'Kosten',
+          selbst: 'nur deine Zeit',  agentur: 'Monatspaket', werkruf: '49 € / Monat' },
+        { feature: 'Wem gehört das Profil',
+          selbst: 'dir',             agentur: 'dir, verwaltet fremd', werkruf: 'dir' },
+        { feature: 'Kündigung',
+          selbst: '—',               agentur: 'oft mit Laufzeit', werkruf: 'monatlich' },
+        { feature: 'Was zuerst zu tun ist',
+          selbst: 'musst du selbst herausfinden', agentur: 'sagt dir der Anbieter', werkruf: 'sagt dir WERKRUF, mit Zeitangabe' },
+        { feature: 'Veröffentlicht wird',
+          selbst: 'was du machst',   agentur: 'je nach Anbieter', werkruf: 'nur was du freigibst' },
       ],
+
     },
   },
 
   /* ─────────────────────────────────────────────
      GASTRONOMIE — gastroruf.com
+
+     ⚠️  ACHTUNG, STAND 16.10.2026: Dieser Block ist NICHT durch den
+     Wahrheitsabgleich gegangen, den handwerk am 16.10.2026 bekommen
+     hat. Er stammt aus der Generation davor und behauptet unter
+     anderem einen "Bewertungs-Autopilot", "Monatliches Reporting",
+     eine "Google Maps Top-Platzierung" und eine ROI-Rechnung mit
+     +25 %. Keine dieser Funktionen existiert, und die Prozentzahl ist
+     nicht belegt.
+
+     Das ist heute folgenlos: gastroruf.com ist nicht live, und
+     ACTIVE_INDUSTRY steht auf 'handwerk'. Es wird in dem Moment
+     gefährlich, in dem die Domain aufgeschaltet wird.
+
+     Vor einem Start dieser Marke gehört derselbe Abgleich hierher:
+     docs/operations/p4a-product-truth-audit.md, Abschnitt B.
   ───────────────────────────────────────────── */
   gastro: {
     key: 'gastro',
@@ -482,6 +598,12 @@ export const INDUSTRIES = {
 
   /* ─────────────────────────────────────────────
      BEAUTY — beautyruf.com (Starter-Template)
+
+     ⚠️  Wie bei gastro: nicht durch den Wahrheitsabgleich vom
+     16.10.2026 gegangen. Behauptet "Buchungs-Autopilot",
+     "Bewertungs-Autopilot", "Monatliches Reporting" und eine
+     ROI-Rechnung mit +20 %. Nichts davon existiert. Nicht live,
+     deshalb heute folgenlos — vor einem Start derselbe Abgleich.
   ───────────────────────────────────────────── */
   beauty: {
     key: 'beauty',

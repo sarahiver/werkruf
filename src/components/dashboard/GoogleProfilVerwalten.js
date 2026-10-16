@@ -18,12 +18,34 @@
  * Platzhalter, der Funktionalität andeutet.
  */
 import React from 'react';
+import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { Lock, AlertTriangle, Info } from 'lucide-react';
 
 import {
   BEREICHE, SCHREIBART, bereichFuerStandort, bereicheMitStatus,
 } from '../../utils/gbpFieldModel';
+
+/* ─────────────────────────────────────────────
+   BEREICHE, DIE ES GIBT — NUR WOANDERS
+
+   Bewertungen und Medien stehen nicht im Standortobjekt der
+   Business-Information-API, sondern in der v4-API. Im Feldmodell
+   haben sie deshalb null Felder. Gebaut sind sie trotzdem, jeweils
+   als eigene Dashboardseite.
+───────────────────────────────────────────── */
+const VERWEIS = {
+  bewertungen: {
+    text:     'Deine Bewertungen und die Antwortvorschläge dazu findest du auf einer eigenen Seite:',
+    ziel:     '/dashboard/bewertungen',
+    linktext: 'Zu den Bewertungen',
+  },
+  medien: {
+    text:     'Fotos lädst du auf einer eigenen Seite hoch — sie landen anschliessend in deinem Google-Profil:',
+    ziel:     '/dashboard/fotos',
+    linktext: 'Zu den Fotos',
+  },
+};
 
 /* ─────────────────────────────────────────────
    DARSTELLUNG
@@ -211,14 +233,44 @@ export default function GoogleProfilVerwalten({ location, bereiche = {} }) {
         </>
       )}
 
+      {/* Bis zum 16.10.2026 stand hier für JEDEN Bereich ohne eigene
+          Felder: "Dieser Bereich ist noch nicht eingerichtet. Was die
+          Google-API dafür vorsieht, steht in docs/google-api-inventory.md."
+
+          Das traf genau zwei Bereiche — Bewertungen und Medien — und
+          war bei beiden falsch. Beide sind vollständig gebaut, nur
+          nicht hier: Bewertungen gehören nicht zum Standortobjekt der
+          Business-Information-API, sondern zur v4-API mit eigenen
+          Endpunkten, und haben deshalb kein Feld im Modell.
+          bereicheMitStatus kommentiert das selbst mit "sind trotzdem
+          gültig — sie haben eigene Endpunkte".
+
+          Ein zahlender Kunde las also über die Kernfunktion des
+          Produkts, sie sei nicht eingerichtet — mit Verweis auf eine
+          Datei im Repository, die er nie zu Gesicht bekommt.
+
+          Jetzt führt der Reiter dorthin, wo die Funktion liegt. Dass
+          der Kunde Bewertungen unter "Dein Profil" sucht, ist richtig
+          gedacht; das gehört belohnt, nicht mit einer Fehlanzeige
+          bestraft. */}
       {!status?.ausFeldmodell && !inhalt && (
-        <Hinweisbox>
-          <Info size={15} />
-          <span>
-            Dieser Bereich ist noch nicht eingerichtet. Was die Google-API dafür
-            vorsieht, steht in <code>docs/google-api-inventory.md</code>.
-          </span>
-        </Hinweisbox>
+        VERWEIS[aktiv] ? (
+          <Hinweisbox>
+            <Info size={15} />
+            <span>
+              {VERWEIS[aktiv].text}{' '}
+              <Link to={VERWEIS[aktiv].ziel}>{VERWEIS[aktiv].linktext}</Link>
+            </span>
+          </Hinweisbox>
+        ) : (
+          <Hinweisbox>
+            <Info size={15} />
+            <span>
+              Für diesen Bereich gibt es in WERKRUF noch keine Eingabemaske.
+              Du kannst ihn weiterhin direkt bei Google bearbeiten.
+            </span>
+          </Hinweisbox>
+        )
       )}
     </div>
   );

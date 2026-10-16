@@ -303,7 +303,13 @@ describe('E / R — der tote trial-Plan', () => {
 });
 
 describe('L — was die Oberfläche verspricht', () => {
-  const PRICING  = lies('src/pages/Pricing.js');
+  /* Seit dem 16.10.2026 besteht die Preisoberfläche aus zwei Dateien:
+     pages/Pricing.js bringt den Kopf, components/Preis.js die
+     Preiskarte mit den Trial-Aussagen. Geprüft wird die Summe — sonst
+     wäre dieser Test grün, weil der Satz in die andere Datei gewandert
+     ist, und das ist genau die Irrtumsrichtung, vor der der Kommentar
+     unten warnt. */
+  const PRICING  = `${lies('src/pages/Pricing.js')}\n${lies('src/components/Preis.js')}`;
   const SETTINGS = lies('src/pages/dashboard/DashboardSettings.js');
 
   it('nennt die Testtage aus der Branchenkonfiguration', () => {

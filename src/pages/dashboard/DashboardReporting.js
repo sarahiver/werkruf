@@ -115,23 +115,20 @@ export default function DashboardReporting() {
         </DocumentRow>
       </Card>
 
-      {/* Monthly Reports — Coming Soon */}
-      <Card $d=".1s">
-        <CardTitle>Monatliche Reports</CardTitle>
-        <CardSub>
-          Automatische PDF-Reports mit Sichtbarkeits-Entwicklung, Klickzahlen und Bewertungsübersicht.
-        </CardSub>
-        <DocumentRow>
-          <DocIcon style={{ background: 'var(--color-bg)', color: '#A0ADB8' }}>
-            <FileText size={18} />
-          </DocIcon>
-          <DocInfo>
-            <DocTitle style={{ color: '#A0ADB8' }}>Report — März 2026</DocTitle>
-            <DocDesc>Wird nach Aktivierung automatisch erstellt</DocDesc>
-          </DocInfo>
-          <ComingSoonBadge>PRO-Feature</ComingSoonBadge>
-        </DocumentRow>
-      </Card>
+      {/* Hier stand bis zum 16.10.2026 eine Karte "Monatliche Reports"
+          mit dem Hinweis "Automatische PDF-Reports mit
+          Sichtbarkeits-Entwicklung, Klickzahlen und
+          Bewertungsübersicht", einer ausgegrauten Zeile
+          "Report — März 2026" und dem Abzeichen "PRO-Feature".
+
+          Entfernt, weil diese Funktion nicht existiert — weder als
+          Code noch als geplanter Weg. Die Karte stand hinter ProGate,
+          ein zahlender Kunde las also eine Pro-Zusage, die nie
+          eingelöst wird. Das ist schlimmer als eine Lücke: Es ist eine
+          Lücke mit Preisschild.
+
+          Ersetzt wird sie durch nichts. Eine erfundene Karte an dieser
+          Stelle wäre derselbe Fehler mit anderem Text. */}
 
     </Page>
     </ProGate>

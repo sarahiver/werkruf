@@ -363,7 +363,15 @@ export default function DashboardKundenGewinnung() {
               'QR-Code auf Rechnungen drucken — Erinnerung beim Bezahlen.',
               'Freundlich ansprechen: "Würden Sie 2 Minuten für eine kurze Bewertung opfern?"',
               'Jede Bewertung sofort beantworten — auch positive. Google liebt aktive Profile.',
-              'Mit WERKRUF PRO: Automatische Bewertungsanfragen nach Auftragsabschluss.',
+              /* Hier stand bis zum 16.10.2026: "Mit WERKRUF PRO:
+                 Automatische Bewertungsanfragen nach Auftragsabschluss."
+                 Dafür existiert im Repository keine Zeile Code — kein
+                 Versanddienst, keine Vorlage, kein Feld für eine
+                 Endkundenadresse. Der Satz stand zudem hinter ProGate,
+                 wurde also ausgerechnet zahlenden Kunden gezeigt.
+                 Die Funktion steht als Backlog HIGH; bis sie existiert,
+                 wird sie nicht beworben. */
+              'Den Link vorbereitet halten: einmal ins Handy, dann ist er nach dem Auftrag in zehn Sekunden verschickt.',
             ].map((tip, i) => (
               <TipItem key={i}>
                 <TipNum>{i + 1}</TipNum>
