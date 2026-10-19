@@ -7,6 +7,7 @@ import { useIndustry } from '../context/IndustryContext';
 import supabase from '../supabaseClient';
 import { loadPublicFunnel, savePublicFunnel } from '../utils/publicFunnel';
 import { getPostAuthDestination } from '../utils/postAuthDestination';
+import { setzeOnboardingAbsicht } from '../utils/onboardingAbsicht';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -256,6 +257,11 @@ export default function Signup() {
     /* Cross-check: link existing lead data to new profile */
     await claimOwnLead();
 
+    /* Auch der E-Mail-Weg ist eine begonnene Einrichtung. Ohne Absicht
+       muesste der Nutzer die Google-Verbindung spaeter von Hand
+       anstossen — genau der Schritt, der hier wegfaellt. */
+    setzeOnboardingAbsicht();
+
     setLoading(false);
     // Projects may enable or disable email confirmation. Only enter the
     // protected onboarding route when signup actually yielded a session.
@@ -270,6 +276,10 @@ export default function Signup() {
     setError('');
     setLoading(true);
     if (prefillResult) savePublicFunnel({ email, result: prefillResult });
+    /* Die Einrichtung beginnt hier. Ab jetzt ueberlebt die Absicht den
+       Umweg ueber Google und traegt den Nutzer durch den Rest des
+       Weges — auch wenn der Ruecksprung woanders landet als gewollt. */
+    setzeOnboardingAbsicht();
     const { error: oauthError } = await signInGoogle('/onboarding');
     if (oauthError) {
       setError(oauthError.message || 'Google-Anmeldung konnte nicht gestartet werden.');

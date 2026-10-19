@@ -189,9 +189,16 @@ export default function GoogleBusinessConnect({ googleBusiness }) {
             </GhostBtn>
           </>
         ) : (
+          /* Nach einem abgebrochenen oder gescheiterten Durchlauf ist
+             das keine Erstverbindung mehr, sondern ein zweiter Anlauf.
+             Der Knopf sagt das auch — sonst sieht der Nutzer nach "Du
+             hast den Zugriff abgebrochen" wieder exakt denselben Knopf
+             wie vorher und weiss nicht, ob sein Klick angekommen ist. */
           <PrimaryBtn onClick={() => connect(connection?.id || null)} disabled={busy}>
             {busy ? <Spinner size={16} /> : <Link2 size={16} />}
-            {state === 'broken' ? 'Neu verbinden' : 'Mit Google verbinden'}
+            {state === 'broken' ? 'Neu verbinden'
+              : error ? 'Erneut mit Google verbinden'
+              : 'Mit Google verbinden'}
           </PrimaryBtn>
         )}
       </Actions>

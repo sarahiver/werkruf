@@ -9,6 +9,7 @@ import { AuthProvider }     from './context/AuthContext';
 import ThemeInjector        from './components/ThemeInjector';
 import ProtectedRoute       from './components/auth/ProtectedRoute';
 import AdminRoute           from './components/auth/AdminRoute';
+import OnboardingWeiche     from './components/auth/OnboardingWeiche';
 
 /* Global shell */
 import GlobalStyle from './components/GlobalStyle';
@@ -72,6 +73,10 @@ function App() {
         <AuthProvider>
           <GlobalStyle />
           <ThemeInjector />
+          {/* Faengt einen angemeldeten Nutzer auf, dessen Rueckweg von
+              Google auf einer oeffentlichen Seite endete. Greift nur
+              bei begonnener Einrichtung — siehe OnboardingWeiche. */}
+          <OnboardingWeiche />
 
           <Routes>
             {/* ── PUBLIC ── */}

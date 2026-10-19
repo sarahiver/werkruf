@@ -9,6 +9,9 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
+import {
+  darfAutoStarten, vermerkeVersuch, loescheOnboardingAbsicht,
+} from '../../utils/onboardingAbsicht';
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
@@ -160,12 +163,82 @@ const ERSTIMPORT_MAX = 48;
 export default function DashboardGoogleBusiness() {
   const { brand } = useIndustry();
   const googleBusiness = useGoogleBusiness();
-  const { isConnected, loading: connectionLoading } = googleBusiness;
+  const {
+    isConnected, loading: connectionLoading,
+    busy: verbindungBusy, error: verbindungsFehler, connect,
+  } = googleBusiness;
   const {
     locations, stats, replyCounts, lastSyncedAt, latestJob, lastFailedJob,
     failedJobHistory, stalledJobs, locationImport, loading, refreshing, error,
     reload, refresh, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
+
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * EINRICHTUNG OHNE ZWEITEN KLICK
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Wer "Testphase starten" geklickt hat, hat damit gesagt, was er
+   * will. Ihn hier noch einmal auf "Google verbinden" klicken zu
+   * lassen, ist kein Sicherheitsgewinn — der Einwilligungsdialog von
+   * Google kommt ohnehin, und DORT entscheidet er wirklich.
+   *
+   * Die beiden Google-Durchlaeufe bleiben technisch getrennt:
+   * Anmeldung fordert openid/email/profile, die Verbindung
+   * business.manage. Nur der zweite WERKRUF-Schritt faellt weg.
+   *
+   * VIER SPERREN, DAMIT DARAUS KEINE SCHLEIFE WIRD:
+   *
+   *   1. absichtDarfStarten() — eine Absicht, ein Versuch. Der
+   *      Zaehler liegt im sessionStorage, nicht in einer Ref: Diese
+   *      Seite wird beim Ruecksprung von Google neu aufgebaut, und
+   *      eine Ref waere dann wieder false.
+   *   2. vermerkeVersuch() VOR connect(). Danach zu zaehlen hiesse
+   *      nie zu zaehlen — der Browser ist dann schon bei Google.
+   *   3. Kein Start, wenn der Ruecksprung einen Fehler trug.
+   *      oauth_denied heisst: Der Nutzer hat abgelehnt. Ihm
+   *      denselben Dialog erneut vorzusetzen, waere Noetigung.
+   *      Stattdessen zeigt die Karte den Fehler und einen Knopf.
+   *   4. Kein Start, solange geladen oder gearbeitet wird.
+   *
+   * Der Fehlerparameter wird EINMAL beim Aufbau gelesen, nicht aus
+   * dem Zustand: useGoogleBusiness raeumt die Parameter aus der
+   * Adresszeile, und dieser Effekt koennte vorher laufen.
+   */
+  const callbackTrugFehler = React.useRef(
+    typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('gbp') === 'error',
+  ).current;
+  const autoStartRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (autoStartRef.current) return;
+    if (!darfAutoStarten({
+      laeuft:         connectionLoading,
+      beschaeftigt:   verbindungBusy,
+      verbunden:      isConnected,
+      fehler:         verbindungsFehler,
+      callbackFehler: callbackTrugFehler,
+    })) return;
+
+    autoStartRef.current = true;
+    vermerkeVersuch();
+    connect();
+  }, [connectionLoading, verbindungBusy, isConnected, verbindungsFehler,
+      connect, callbackTrugFehler]);
+
+  /*
+   * Die Absicht ist erfuellt, sobald die Verbindung steht. Ab hier
+   * traegt der normale Produktweg weiter — Standortauswahl,
+   * Erstimport, Dashboard.
+   *
+   * Sofort loeschen, nicht spaeter: Eine liegengebliebene Absicht
+   * wuerde beim naechsten Besuch dieser Seite erneut einen
+   * Google-Dialog oeffnen.
+   */
+  React.useEffect(() => {
+    if (isConnected) loescheOnboardingAbsicht();
+  }, [isConnected]);
 
   const [syncing, setSyncing] = React.useState(false);
 
