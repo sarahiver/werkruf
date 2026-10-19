@@ -92,8 +92,13 @@ const LocationStats = styled.div`
 const SyncBar = styled(Card)`
   display: flex; align-items: center; justify-content: space-between;
   gap: 14px; flex-wrap: wrap;
+  /* reauth gehoert zu den roten Zustaenden. Ohne eigenen Zweig fiele
+     er in den Standardfall und bekaeme einen gruenen Balken neben dem
+     Satz "Verbindung muss erneuert werden" — die Farbe wuerde dem
+     Text widersprechen, und die Farbe gewinnt. */
   border-left: 3px solid ${({ $state }) =>
     $state === 'error'   ? '#D93025' :
+    $state === 'reauth'  ? '#D93025' :
     $state === 'running' ? 'var(--color-accent)' :
     $state === 'never'   ? '#D48A00' : '#1E7E34'};
 `;
@@ -387,7 +392,44 @@ export default function DashboardGoogleBusiness() {
   /* Ruhiger Zustand: Ein laufender Hintergrundjob taucht hier NICHT
      mehr auf. Nur ein weiterhin bestehender Fehler oder ein noch nie
      gelaufener Abgleich verdienen einen Hinweis. */
-  const syncState = lastFailedJob ? 'error'
+
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * AUFGEGEBEN IST NICHT DASSELBE WIE GESCHEITERT
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Am 19.10.2026 in Produktion gemessen: Zwei Jobs standen auf
+   * status = 'failed' mit attempts = 1 und max_attempts = 3. Die
+   * Karte machte daraus "Versuch 1 von 3" — und versprach damit zwei
+   * Wiederholungen, die nie kamen.
+   *
+   * Denn der Worker gibt bei reauth_required sofort auf, mit gutem
+   * Grund (google-business/index.ts, abandon()):
+   *
+   *   "reauth_required ist kein transienter Fehler — der Kunde muss
+   *    handeln. Weitere Versuche kosten nur Quota."
+   *
+   * abandon() schreibt failed direkt in die Tabelle und laesst
+   * attempts stehen. Die Zahl ist danach kein Fortschritt mehr,
+   * sondern ein Rest.
+   *
+   * Fuer den Kunden ist der Unterschied der ganze Punkt. Bei einem
+   * aufgegebenen Job wartet er auf etwas, das nicht passiert —
+   * waehrend direkt darueber der Knopf steht, der es loesen wuerde.
+   * Deshalb bekommt dieser Fall einen eigenen Zustand mit einer
+   * Handlungsaufforderung statt einer Fehlermeldung.
+   *
+   * Die Liste stammt aus derselben Stelle im Worker, damit beide
+   * dasselbe meinen. Waechst sie dort, gehoert sie hier nachgezogen —
+   * ein Test haelt das fest.
+   */
+  const AUFGEGEBEN_CODES = ['reauth_required', 'not_connected'];
+  const istAufgegeben = Boolean(
+    lastFailedJob && AUFGEGEBEN_CODES.includes(lastFailedJob.error_code),
+  );
+
+  const syncState = istAufgegeben ? 'reauth'
+    : lastFailedJob ? 'error'
     : lastSyncedAt ? 'ok'
     : latestJob?.status === 'succeeded' ? 'ok'
     : 'never';
@@ -519,21 +561,29 @@ export default function DashboardGoogleBusiness() {
           {loading ? <SkeletonList count={1} height={72} /> : (
             <SyncBar $state={syncState}>
               <SyncInfo>
-                {syncState === 'error' ? <AlertTriangle size={19} color="#D93025" />
+                {syncState === 'error' || syncState === 'reauth'
+                  ? <AlertTriangle size={19} color="#D93025" />
                   : syncState === 'never' ? <Clock size={19} color="#D48A00" />
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
-                    {syncState === 'error' ? 'Letzter Abgleich fehlgeschlagen'
+                    {syncState === 'reauth' ? 'Verbindung zu Google muss erneuert werden'
+                      : syncState === 'error' ? 'Letzter Abgleich fehlgeschlagen'
                       : syncState === 'never' ? 'Einrichtung läuft'
                       : 'Dein Google-Unternehmensprofil wird automatisch aktualisiert'}
                   </p>
                   <p>
-                    {syncState === 'error'
-                      ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
-                      : syncState === 'never'
-                        ? 'Die ersten Daten werden geladen. Das dauert einen Moment — du musst nichts tun.'
-                        : `Zuletzt erfolgreich abgeglichen: ${formatRelative(lastSyncedAt)}`}
+                    {/* Kein Versuchszaehler: Dieser Job wird nicht
+                        wiederholt. Stattdessen der Satz, der sagt, was
+                        zu tun ist — der Knopf dafuer steht oben auf
+                        dieser Seite. */}
+                    {syncState === 'reauth'
+                      ? 'Google hat den Zugriff widerrufen oder er ist abgelaufen. Verbinde dein Konto oben neu — danach läuft der Abgleich automatisch weiter.'
+                      : syncState === 'error'
+                        ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
+                        : syncState === 'never'
+                          ? 'Die ersten Daten werden geladen. Das dauert einen Moment — du musst nichts tun.'
+                          : `Zuletzt erfolgreich abgeglichen: ${formatRelative(lastSyncedAt)}`}
                   </p>
                 </SyncText>
               </SyncInfo>
