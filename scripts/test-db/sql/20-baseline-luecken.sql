@@ -286,3 +286,119 @@ end $$;
    hier nichts mehr: zwei Wahrheiten ueber dieselbe Tabelle waeren
    eine zu viel, und die erfundene wuerde gewinnen —
    create table if not exists ueberschreibt nicht. */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   6 — APPEND-ONLY-TRIGGER UND DIE LOESCHKETTE
+   ═══════════════════════════════════════════════════════════════
+
+   Am 19.10.2026 war kontoloeschung.test.sql rot, und zwar an der
+   ersten Pruefung: "UPDATE auf audit_logs muss scheitern" —
+   es gelang. In Produktion scheitert es.
+
+   Ursache: Die Trigger stehen hinter dem Abbruch der Baseline und
+   fehlten hier deshalb. Die Testdatenbank kannte eine
+   Sicherheitskontrolle nicht, die Produktion hat. Genau die
+   Fehlerklasse, vor der setup.sh im Kopf warnt — ein Test waere
+   gruen gewesen, obwohl er etwas tat, das Produktion verbietet.
+
+   Beleg fuer jede Zeile unten: Abfrage an Produktion vom
+   19.10.2026 (docs/operations/loeschung-blocker.sql, Bereich B und
+   C). Sie lieferte wortgleich:
+
+     audit_logs / audit_logs_immutable
+       Funktion=reject_mutation | BEFORE | UPDATE=ja | DELETE=ja | aktiv=ja
+     recommendation_events / rec_events_immutable
+       Funktion=reject_mutation | BEFORE | UPDATE=ja | DELETE=ja | aktiv=ja
+     auth.users / on_user_deleted
+       Funktion=anonymise_user_on_delete | BEFORE | DELETE=ja | aktiv=ja
+
+     audit_logs.user_id            -> auth.users        | SET NULL
+     recommendation_events.user_id -> auth.users        | CASCADE
+     recommendation_events.event_id -> events           | CASCADE
+     recommendation_events.location_id -> google_locations | SET NULL
+
+   Die beiden Funktionen selbst stehen in der Baseline (Z 2212
+   reject_mutation, Z 36 anonymise_user_on_delete) und sind
+   geladen — nur ihre Verdrahtung fehlte.
+
+   Kein bestehender Test aendert oder loescht audit_logs oder
+   recommendation_events, und keiner loescht aus auth.users.
+   Geprueft am 19.10.2026 ueber das gesamte Verzeichnis
+   supabase/tests. Diese Ergaenzung kann also keinen gruenen Test
+   umwerfen — sie kann nur verhindern, dass einer gruen wird, der
+   es nicht sein darf. */
+
+do $$
+begin
+  /* Fremdschluessel der Loeschkette. Jeweils nur, wenn er fehlt —
+     Produktion hat eigene Namen, hier zaehlt die Wirkung. */
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+     where conrelid = 'public.audit_logs'::regclass and contype = 'f'
+       and confrelid = 'auth.users'::regclass
+  ) then
+    alter table public.audit_logs
+      add constraint audit_logs_user_id_fkey
+      foreign key (user_id) references auth.users(id) on delete set null;
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+     where conrelid = 'public.recommendation_events'::regclass and contype = 'f'
+       and confrelid = 'auth.users'::regclass
+  ) then
+    alter table public.recommendation_events
+      add constraint recommendation_events_user_id_fkey
+      foreign key (user_id) references auth.users(id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+     where conrelid = 'public.recommendation_events'::regclass and contype = 'f'
+       and confrelid = 'public.events'::regclass
+  ) then
+    alter table public.recommendation_events
+      add constraint recommendation_events_event_id_fkey
+      foreign key (event_id) references public.events(id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+     where conrelid = 'public.recommendation_events'::regclass and contype = 'f'
+       and confrelid = 'public.google_locations'::regclass
+  ) then
+    alter table public.recommendation_events
+      add constraint recommendation_events_location_id_fkey
+      foreign key (location_id) references public.google_locations(id) on delete set null;
+  end if;
+end $$;
+
+/* Die Trigger. create ... if not exists gibt es fuer Trigger nicht,
+   deshalb die Pruefung von Hand. */
+do $$
+begin
+  if not exists (select 1 from pg_trigger
+                  where tgname = 'audit_logs_immutable'
+                    and tgrelid = 'public.audit_logs'::regclass) then
+    create trigger audit_logs_immutable
+      before update or delete on public.audit_logs
+      for each row execute function public.reject_mutation();
+  end if;
+
+  if not exists (select 1 from pg_trigger
+                  where tgname = 'rec_events_immutable'
+                    and tgrelid = 'public.recommendation_events'::regclass) then
+    create trigger rec_events_immutable
+      before update or delete on public.recommendation_events
+      for each row execute function public.reject_mutation();
+  end if;
+
+  if not exists (select 1 from pg_trigger
+                  where tgname = 'on_user_deleted'
+                    and tgrelid = 'auth.users'::regclass) then
+    create trigger on_user_deleted
+      before delete on auth.users
+      for each row execute function public.anonymise_user_on_delete();
+  end if;
+end $$;
