@@ -51,27 +51,34 @@
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 1 — DER INDEX
+-- 1 — KEIN INDEX. WARUM NICHT.
 -- ═══════════════════════════════════════════════════════════════
 --
--- Das Kernstueck. ops_cron_failures(60) filtert auf
+-- Hier stand bis zum 20.10.2026
 --
---   where d.status = 'failed'
---     and d.start_time > now() - interval '60 minutes'
+--   create index if not exists job_run_details_start_time_idx
+--     on cron.job_run_details (start_time desc);
 --
--- und las dafuer bisher die ganze Tabelle: 4.074 Seq-Scans,
--- 57.527.863 Zeilen, idx_scan 0.
+-- Das scheiterte in Produktion:
 --
--- Der Index steht auf start_time, nicht auf status. Grund: status ist
--- in fast allen Zeilen 'succeeded' — ein Index darauf trennt kaum
--- etwas. start_time trennt scharf, weil die Abfrage eine Stunde aus
--- Wochen herausschneidet. Postgres liest dann nur diese Stunde und
--- prueft status an den wenigen gefundenen Zeilen.
+--   ERROR: 42501: must be owner of table job_run_details
 --
--- Wirkt sofort und unabhaengig davon, wie gross die Tabelle ist.
-
-create index if not exists job_run_details_start_time_idx
-  on cron.job_run_details (start_time desc);
+-- CREATE INDEX verlangt EIGENTUM. Auf Supabase gehoeren
+-- cron.job_run_details und net._http_response der Rolle
+-- supabase_admin, nicht postgres. Gemessen mit
+-- docs/operations/historie-rechte.sql.
+--
+-- Loeschen ist ein anderes Recht und IST erlaubt — select, delete und
+-- sogar truncate. Darauf beruht alles Weitere: Ohne Index muss die
+-- Tabelle klein bleiben, damit ein Durchlauf nichts kostet. Genau das
+-- leistet der taegliche Prune-Job aus Migration 20261020120000.
+--
+-- NICHT GEMACHT, OBWOHL ES NAHELAG: cron.log_run auf off setzen.
+-- Dann schriebe pg_cron gar nichts mehr mit — und
+-- public.ops_cron_failures() haette keine Datenquelle mehr. Die
+-- Ueberwachung der Cronjobs waere lautlos blind. Ihr Kommentar nennt
+-- sie "das Signal, das beim Ausfall vom 9.-11.09. als einziges
+-- vorhanden war". Die Einstellung steht auf on und bleibt dort.
 
 
 -- ═══════════════════════════════════════════════════════════════
@@ -92,36 +99,62 @@ select public.prune_net_history()  as geloeschte_http_antworten;
 -- 3 — NACHMESSUNG
 -- ═══════════════════════════════════════════════════════════════
 --
--- SO IST ES RICHTIG:
+-- WORAUF ES ANKOMMT: die Spalte "zeilen".
 --
---   beide Tabellen deutlich unter 1 MB
---   index_vorhanden = ja
---   job_vorhanden    = ja
+-- Ohne Index entscheidet allein die Zeilenzahl, was ein Durchlauf
+-- kostet — und ops_cron_failures() laeuft 96 Mal am Tag.
 --
--- Die Dateigroesse schrumpft nicht sofort auf den Zielwert: Ein
--- DELETE gibt den Platz zur Wiederverwendung frei, aber erst
--- Autovacuum raeumt ihn auf. Entscheidend ist ohnehin nicht die
--- Groesse, sondern dass der Index benutzt wird — danach liest
--- ops_cron_failures nur noch die letzte Stunde, egal wie gross die
--- Tabelle ist.
+-- Rund 750 Cron-Laeufe am Tag mal sieben Tage Aufbewahrung ergeben
+-- etwa 5.000 Zeilen. Bleibt es dabei, ist die Sache erledigt.
 --
--- Soll die Datei auch physisch schrumpfen, geht das mit
+-- Steht dort deutlich mehr, oder ist die Tabelle trotz weniger Zeilen
+-- noch gross, hat jede Zeile mehr Inhalt als erwartet (return_message
+-- nimmt ganze HTTP-Antworten auf). Dann ist die naechste Stellschraube
+-- die Aufbewahrungsdauer:
+--
+--   select public.prune_cron_history('2 days');
+--
+-- und bei Bedarf dauerhaft, indem der Job mit kuerzerer Frist laeuft.
+-- Erst messen, dann drehen — die Zahl unten sagt, ob es noetig ist.
+--
+-- ───────────────────────────────────────────────────────────────
+-- DANACH NOCH VACUUM — UND ZWAR ZWINGEND
+-- ───────────────────────────────────────────────────────────────
+--
+-- Der DELETE allein bringt fast nichts. Gemessen am 20.10.2026 an
+-- einer nachgebauten Tabelle, mit derselben Abfrage wie
+-- ops_cron_failures(60):
+--
+--   40.000 Zeilen, 18 MB                   2.763 Puffer
+--   nach Prune, 10.079 Zeilen, ohne vacuum 2.356 Puffer
+--   nach Prune UND vacuum                    596 Puffer
+--
+-- Der mittlere Wert ist der Punkt. Ein DELETE gibt den Platz nur zur
+-- Wiederverwendung frei; die leeren Seiten bleiben stehen, und ein
+-- Durchlauf ohne Index liest sie alle mit. Erst vacuum nimmt sie aus
+-- dem Weg.
+--
+-- Deshalb als ZWEITEN DURCHGANG, allein in einem leeren Fenster:
 --
 --   vacuum (analyze, verbose) cron.job_run_details;
 --
--- Das muss ALLEIN laufen, in einem eigenen Fenster: vacuum laeuft
--- nicht innerhalb einer Transaktion. Noetig ist es nicht.
+-- Allein, weil vacuum nicht innerhalb einer Transaktion laeuft.
+-- Meldet der Editor "VACUUM cannot run inside a transaction block",
+-- steht noch etwas anderes mit im Fenster.
+--
+-- Fuer net._http_response lohnt es sich ebenfalls, ist dort aber
+-- weniger dringend: Die Tabelle wird nicht gelesen (null Seq-Scans in
+-- 42 Tagen) und kostet nur Platz.
+--
+--   vacuum (analyze) net._http_response;
+--
+-- Danach diese Nachmessung noch einmal laufen lassen. Die Groesse
+-- sollte dann deutlich gefallen sein.
 
 select
   'cron.job_run_details' as tabelle,
   pg_size_pretty(pg_total_relation_size('cron.job_run_details')) as groesse,
   (select count(*) from cron.job_run_details)                    as zeilen,
-  case when exists (
-    select 1 from pg_indexes
-     where schemaname = 'cron'
-       and tablename  = 'job_run_details'
-       and indexdef ilike '%start_time%'
-  ) then 'ja' else 'NEIN' end as index_vorhanden,
   case when exists (
     select 1 from cron.job where jobname = 'history-prune'
   ) then 'ja' else 'NEIN' end as job_vorhanden
@@ -134,5 +167,4 @@ select
        else pg_size_pretty(pg_total_relation_size('net._http_response')) end,
   case when to_regclass('net._http_response') is null then 0
        else (select count(*) from net._http_response) end,
-  '—',
   '—';

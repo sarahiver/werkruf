@@ -59,12 +59,31 @@
 -- gelöst werden soll. Einmal am Tag genügt — ops_cron_failures
 -- schaut ohnehin nur 60 Minuten zurück.
 --
--- SIE LEGT KEINEN INDEX AN. Der gehört auf cron.job_run_details, eine
--- Tabelle der Erweiterung pg_cron. Schlägt ein CREATE INDEX dort an
--- fehlenden Rechten fehl, bricht die ganze Migration ab und auch die
--- Prune-Funktionen landen nicht. Der Index steht deshalb in
--- docs/operations/historie-einmalig.sql, zusammen mit der einmaligen
--- Bereinigung — dort siehst du das Ergebnis sofort.
+-- SIE LEGT KEINEN INDEX AN — und zwar nicht aus Vorsicht, sondern
+-- weil es nicht geht. Ein Versuch am 20.10.2026 in Produktion:
+--
+--   ERROR: 42501: must be owner of table job_run_details
+--
+-- CREATE INDEX verlangt EIGENTUM. cron.job_run_details und
+-- net._http_response gehören auf Supabase der Rolle supabase_admin.
+-- Dass der Index nie in dieser Migration stand, war die richtige
+-- Entscheidung: Er hätte sie abgebrochen und die Prune-Funktionen
+-- gleich mit verhindert.
+--
+-- LÖSCHEN ist ein anderes Recht und ist erlaubt — select, delete und
+-- truncate, gemessen mit docs/operations/historie-rechte.sql. Darauf
+-- beruht diese Migration.
+--
+-- Ohne Index entscheidet allein die Zeilenzahl, was ein Durchlauf
+-- kostet. Deshalb ist die einmalige Bereinigung kein Nachgedanke,
+-- sondern notwendig — und ein vacuum danach erst recht: Gemessen
+-- bringt ein DELETE ohne vacuum fast nichts (2.763 → 2.356 Puffer),
+-- erst mit vacuum fällt es auf 596. Die leeren Seiten liest ein
+-- Durchlauf sonst weiter mit.
+--
+-- NICHT GEMACHT, OBWOHL ES NAHELAG: cron.log_run auf off setzen.
+-- Dann schriebe pg_cron nichts mehr mit — und ops_cron_failures()
+-- hätte keine Datenquelle. Die Cron-Überwachung wäre lautlos blind.
 --
 -- SIE LÖSCHT NICHTS BESTEHENDES. Die 67 MB bleiben, bis entweder der
 -- tägliche Job das erste Mal läuft oder du die einmalige Bereinigung
@@ -248,7 +267,7 @@ begin
   end if;
 
   raise notice '[historie] in Ordnung — zwei Prune-Funktionen und der taegliche Job stehen';
-  raise notice '[historie] NAECHSTER SCHRITT: docs/operations/historie-einmalig.sql ausfuehren (Index + einmalige Bereinigung)';
+  raise notice '[historie] NAECHSTER SCHRITT: docs/operations/historie-einmalig.sql — einmalige Bereinigung, danach vacuum';
 end $$;
 
 commit;
