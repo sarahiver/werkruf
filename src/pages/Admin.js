@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { Users, AlertTriangle, RefreshCw, LogOut, Search, X } from 'lucide-react';
+import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
@@ -238,6 +238,13 @@ export default function Admin() {
   const [aktionLaeuft, setAktionLaeuft] = useState(false);
   const [aktionsErgebnis, setAktionsErgebnis] = useState(null);
 
+  /* Direkter Draht: offene Anfragen der Founding Partner. Oben auf der
+     Seite, weil sie das Zeitkritischste sind, was ein Admin hier
+     sieht. */
+  const [supportAnfragen, setSupportAnfragen] = useState([]);
+  const [supportFehler, setSupportFehler]     = useState('');
+  const [supportLaeuft, setSupportLaeuft]     = useState(null); // requestId waehrend eines Statuswechsels
+
   /* Ein Weg zum Server, eine Stelle fuer Fehler. Jede Aktion geht
      ueber admin-ops; das Frontend kennt keine Tabelle und keine RPC. */
   const rufeAdminOps = async (action, params = {}) => {
@@ -253,13 +260,20 @@ export default function Admin() {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [ops, leadsResult] = await Promise.all([
+      const [ops, leadsResult, support] = await Promise.all([
         rufeAdminOps('list_customers', { suche: begriff, limit: 50 }),
         supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
+        /* Eigener catch: Ein Fehler hier darf die Kundenliste nicht
+           mitreissen. Die Anfragen sind wichtig, aber nicht wichtiger
+           als alles andere auf der Seite. */
+        rufeAdminOps('list_support_requests', { status: 'open', limit: 50 })
+          .catch((e) => ({ requests: [], fehler: e.message })),
       ]);
       if (leadsResult.error) throw leadsResult.error;
       setCustomers(ops?.customers || []);
       setLeads(leadsResult.data || []);
+      setSupportAnfragen(support?.requests || []);
+      setSupportFehler(support?.fehler || '');
     } catch (err) {
       /* §24: brauchbar, aber ohne interne Details. Der Code steht im
          Function-Log. */
@@ -287,6 +301,21 @@ export default function Admin() {
      auf. Ergebnis: "Job eingereiht, Job-ID ..." war eine
      Millisekunde sichtbar. Aufgefallen ist das nicht beim Lesen,
      sondern in adminSupport.test.js. */
+  const setzeSupportStatus = async (requestId, status) => {
+    setSupportLaeuft(requestId);
+    setSupportFehler('');
+    try {
+      await rufeAdminOps('set_support_status', { requestId, status });
+      /* Nach dem Wechsel verschwindet die Anfrage aus "offen". Lokal
+         entfernen statt neu laden — schneller, und die Liste ist klein. */
+      setSupportAnfragen((liste) => liste.filter((a) => a.id !== requestId));
+    } catch (e) {
+      setSupportFehler(e.message || 'Statuswechsel fehlgeschlagen.');
+    } finally {
+      setSupportLaeuft(null);
+    }
+  };
+
   const ladeSnapshot = async (kunde) => {
     setSnapshot(null);
     setSnapshotFehler('');
@@ -385,6 +414,55 @@ export default function Admin() {
             </StatCard>
           )}
         </StatsGrid>
+
+        {/* ── DIREKTER DRAHT (21.10.2026) ──
+            Offene Supportanfragen der Founding Partner. Antworten
+            geschieht per Mail an die angezeigte Adresse; hier wird nur
+            der Status gefuehrt. Kein Antwortfeld — ein zweiter Kanal
+            neben der Mail waere ein zweiter Ort, an dem Gespraeche
+            verloren gehen. */}
+        {(supportAnfragen.length > 0 || supportFehler) && (
+          <Section data-testid="admin-support">
+            <SectionHead>
+              <SectionTitle>
+                <MessageCircle size={15} style={{ display: 'inline', marginRight: 8, color: 'var(--color-accent)', verticalAlign: 'middle' }} />
+                Direkter Draht — {supportAnfragen.length} offene Anfrage{supportAnfragen.length === 1 ? '' : 'n'}
+              </SectionTitle>
+            </SectionHead>
+            {supportFehler && <Reason style={{ color: '#B3261E' }}>{supportFehler}</Reason>}
+            {supportAnfragen.map((a) => (
+              <Block key={a.id} style={{ marginBottom: 12 }}>
+                <BlockTitel>
+                  {a.betreff}
+                  <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', marginLeft: 10, fontSize: '.8rem' }}>
+                    {a.betrieb || 'Betrieb unbekannt'} · {fmt(a.seit)}
+                  </span>
+                </BlockTitel>
+                <Zeile>
+                  <span>Antwort an</span>
+                  <span>
+                    {a.email
+                      ? <a href={`mailto:${a.email}?subject=${encodeURIComponent('Re: ' + a.betreff)}`}>{a.email}</a>
+                      : '—'}
+                  </span>
+                </Zeile>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '10px 0 14px' }}>
+                  {a.text}
+                </p>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <Btn type="button" $haupt disabled={supportLaeuft === a.id}
+                       onClick={() => setzeSupportStatus(a.id, 'answered')}>
+                    Als beantwortet markieren
+                  </Btn>
+                  <Btn type="button" disabled={supportLaeuft === a.id}
+                       onClick={() => setzeSupportStatus(a.id, 'closed')}>
+                    Erledigt
+                  </Btn>
+                </div>
+              </Block>
+            ))}
+          </Section>
+        )}
 
         {/* ── SUCHE (§5) ── */}
         <Section>

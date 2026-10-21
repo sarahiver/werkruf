@@ -10,6 +10,7 @@ import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useDashboardBriefing } from '../../hooks/useDashboardBriefing';
 import WerkrufScore from '../../components/dashboard/WerkrufScore';
 import NaechsteSchritte from '../../components/dashboard/NaechsteSchritte';
+import DirekterDraht from '../../components/dashboard/DirekterDraht';
 import { useHealthScore } from '../../hooks/useHealthScore';
 import { wantsOperationalMail } from '../../utils/subscription';
 import {
@@ -203,6 +204,12 @@ export default function DashboardHome() {
         onGeoeffnet={melde.geoeffnet}
         onWeggeklickt={melde.weggeklickt}
       />
+
+      {/* ═══ 3b. DIREKTER DRAHT — nur Founding Partner ═══
+          Die Komponente entscheidet selbst ueber ihre Sichtbarkeit
+          (isFoundingPartner) und rendert sonst nichts. Die Regel
+          dahinter steht in der Datenbank, nicht hier. */}
+      <DirekterDraht />
 
       {/* Technischer Hinweis zur Datenlage — keine Aufgabe. Der Kunde
           kann nichts daran tun ausser abwarten. */}

@@ -188,6 +188,12 @@ serve(async (req) => {
       case 'clear_founding_partner':
         return json(await entzieheFoundingPartner(admin, adminId, parameter));
 
+      case 'list_support_requests':
+        return json(await listeSupportAnfragen(admin, parameter));
+
+      case 'set_support_status':
+        return json(await setzeSupportStatus(admin, adminId, parameter));
+
       default:
         /* Unerreichbar: pruefeAnfrage laesst nur die Allowlist durch.
            Steht hier, damit eine neue Aktion in adminOps.js ohne
@@ -583,5 +589,108 @@ async function entzieheFoundingPartner(
     aktion: 'clear_founding_partner', adminId, userId, erfolg: true, ergebnis,
   }));
   log('founding_partner_entzogen', { adminId, userId });
+  return ergebnis;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DIREKTER DRAHT — Supportanfragen der Founding Partner (21.10.2026)
+   ═══════════════════════════════════════════════════════════════
+
+   Zwei Aktionen. Lesen liefert die Anfragen mit Betrieb und E-Mail —
+   der Anbieter antwortet per Mail, also muss die Adresse hier stehen.
+   Der Statuswechsel laeuft ueber set_support_request_status() in der
+   Datenbank, nicht ueber ein freies UPDATE (§19): Die Funktion prueft
+   den Uebergang und setzt answered_at genau einmal. */
+
+async function listeSupportAnfragen(
+  admin: SupabaseClient,
+  p: Record<string, unknown>,
+) {
+  const status = (p.status as string) ?? 'open';
+  const limit  = (p.limit as number) ?? 50;
+
+  let abfrage = admin
+    .from('support_requests')
+    .select('id, user_id, subject, body, status, created_at, answered_at, admin_note')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (status !== 'alle') abfrage = abfrage.eq('status', status);
+
+  const { data: anfragen, error } = await abfrage;
+  if (error) throw error;
+  if (!anfragen || anfragen.length === 0) {
+    return { requests: [], status, generatedAt: new Date().toISOString() };
+  }
+
+  /* Betrieb und E-Mail dazu. E-Mail aus auth.users ueber die Admin-API —
+     user_profiles traegt sie nicht. Eine Abfrage je Nutzer, aber die
+     Liste ist klein (Founding Partner sind eine Handvoll) und begrenzt. */
+  const nutzerIds = [...new Set(anfragen.map((a) => a.user_id as string))];
+  const { data: profile } = await admin
+    .from('user_profiles').select('id, company_name, plan').in('id', nutzerIds);
+  const firmen = new Map((profile ?? []).map((pr) => [pr.id as string, pr]));
+
+  const mails = new Map<string, string | null>();
+  for (const id of nutzerIds) {
+    const { data } = await admin.auth.admin.getUserById(id);
+    mails.set(id, data?.user?.email ?? null);
+  }
+
+  return {
+    status,
+    generatedAt: new Date().toISOString(),
+    requests: anfragen.map((a) => ({
+      id: a.id,
+      userId: a.user_id,
+      betrieb: firmen.get(a.user_id as string)?.company_name ?? null,
+      plan: firmen.get(a.user_id as string)?.plan ?? null,
+      email: mails.get(a.user_id as string) ?? null,
+      betreff: a.subject,
+      text: a.body,
+      status: a.status,
+      seit: a.created_at,
+      beantwortetAm: a.answered_at,
+      notiz: a.admin_note,
+    })),
+  };
+}
+
+async function setzeSupportStatus(
+  admin: SupabaseClient,
+  adminId: string,
+  p: Record<string, unknown>,
+) {
+  const requestId = p.requestId as string;
+
+  const { data: zeile, error } = await admin.rpc('set_support_request_status', {
+    p_request_id: requestId,
+    p_status:     p.status as string,
+    p_admin_note: (p.note as string | null) ?? null,
+  });
+
+  /* Die userId fuer das Audit kommt aus der Zeile selbst — der Client
+     schickt sie nicht mit. Bei einem Fehler kennen wir sie nicht;
+     dann steht die requestId im Ergebnis. */
+  if (error) {
+    await auditiere(admin, baueAuditEintrag({
+      aktion: 'set_support_status', adminId, userId: null, erfolg: false, fehler: error.message,
+      ergebnis: { requestId },
+    }));
+    throw error;
+  }
+
+  const ergebnis = {
+    ok: true,
+    requestId,
+    status: (zeile as { status?: string } | null)?.status ?? (p.status as string),
+    beantwortetAm: (zeile as { answered_at?: string } | null)?.answered_at ?? null,
+  };
+
+  await auditiere(admin, baueAuditEintrag({
+    aktion: 'set_support_status', adminId,
+    userId: (zeile as { user_id?: string } | null)?.user_id ?? null,
+    erfolg: true, ergebnis,
+  }));
+  log('support_status_gesetzt', { adminId, requestId, status: ergebnis.status });
   return ergebnis;
 }

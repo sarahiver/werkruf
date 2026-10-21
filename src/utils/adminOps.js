@@ -150,7 +150,24 @@ export const ADMIN_AKTIONEN = {
     auditAktion: 'admin.founding_partner_entzogen',
     bestaetigung: true,
   },
+  /* Direkter Draht (21.10.2026). Lesen braucht keine userId — die
+     Liste ist die aller Founding Partner. Der Statuswechsel laeuft
+     ueber set_support_request_status() in der Datenbank, nicht ueber
+     ein freies UPDATE (§19). */
+  list_support_requests: {
+    schreibt: false,
+    parameter: ['status', 'limit'],
+  },
+  set_support_status: {
+    schreibt: true,
+    parameter: ['requestId', 'status', 'note'],
+    auditAktion: 'admin.support_status_gesetzt',
+  },
 };
+
+/* Zustaende einer Supportanfrage — dieselben wie
+   support_requests_status_check in der Datenbank. */
+export const SUPPORT_STATUS = ['open', 'answered', 'closed'];
 
 /* Nach dem Entziehen landet der Betrieb hier. 'free' ist der einzige
    Wert, der fachlich Sinn hat und den user_profiles_plan_check
@@ -247,7 +264,11 @@ function pruefeParameter(aktion, roh) {
   const werte = {};
 
   const userId = roh?.userId;
-  const brauchtUser = aktion !== 'list_customers';
+  /* Zwei Aktionen kommen ohne Kunden aus: die Kundenliste und die
+     Liste der Supportanfragen. Der Statuswechsel identifiziert ueber
+     requestId; die zugehoerige userId holt der Server fuer das Audit
+     selbst aus der Zeile. */
+  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status'].includes(aktion);
 
   if (brauchtUser) {
     if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -286,6 +307,37 @@ function pruefeParameter(aktion, roh) {
     if (note !== undefined && note !== null) {
       if (typeof note !== 'string' || note.length > 500) {
         return { fehler: 'Notiz muss Text unter 500 Zeichen sein' };
+      }
+      werte.note = note.trim() || null;
+    } else {
+      werte.note = null;
+    }
+  }
+
+  if (aktion === 'list_support_requests') {
+    const status = roh?.status === undefined || roh?.status === null ? 'open' : roh.status;
+    if (status !== 'alle' && !SUPPORT_STATUS.includes(status)) {
+      return { fehler: `Status nicht erlaubt: ${String(status)}` };
+    }
+    werte.status = status;
+    const limit = Number(roh?.limit);
+    werte.limit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 100) : 50;
+  }
+
+  if (aktion === 'set_support_status') {
+    const requestId = roh?.requestId;
+    if (typeof requestId !== 'string' || !UUID.test(requestId)) {
+      return { fehler: 'requestId fehlt oder ist keine UUID' };
+    }
+    werte.requestId = requestId.toLowerCase();
+    if (!SUPPORT_STATUS.includes(roh?.status)) {
+      return { fehler: `Status nicht erlaubt: ${String(roh?.status)}` };
+    }
+    werte.status = roh.status;
+    const note = roh?.note;
+    if (note !== undefined && note !== null) {
+      if (typeof note !== 'string' || note.length > 2000) {
+        return { fehler: 'Notiz muss Text unter 2000 Zeichen sein' };
       }
       werte.note = note.trim() || null;
     } else {

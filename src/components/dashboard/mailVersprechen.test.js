@@ -39,6 +39,10 @@ jest.mock('../../supabaseClient', () => ({
 const leereAbfrage = () => ({
   select: () => ({
     eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+    /* Seit 21.10.2026 liegt auf der Uebersicht der Direkte Draht; der
+       liest fuer Founding Partner support_requests mit order().limit().
+       Hier leer — diese Suite prueft Mails, nicht Support. */
+    order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
   }),
 });
 

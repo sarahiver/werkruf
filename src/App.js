@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LinkAbgelaufen from './pages/LinkAbgelaufen';
 import Bestaetigen    from './pages/Bestaetigen';
 import Einstieg from './pages/Einstieg';
@@ -30,7 +30,6 @@ import ResetPassword  from './pages/ResetPassword';
 /* Dashboard */
 import DashboardLayout      from './pages/dashboard/DashboardLayout';
 import DashboardHome        from './pages/dashboard/DashboardHome';
-import DashboardReporting   from './pages/dashboard/DashboardReporting';
 import DashboardSettings       from './pages/dashboard/DashboardSettings';
 import DashboardBewertungen    from './pages/dashboard/DashboardBewertungen';
 import DashboardGoogleBusiness from './pages/dashboard/DashboardGoogleBusiness';
@@ -152,7 +151,11 @@ function App() {
               } />
               <Route path="fotos" element={<DashboardFotos />} />
               <Route path="kunden-gewinnung" element={<DashboardKundenGewinnung />} />
-              <Route path="reporting" element={<DashboardReporting />} />
+              {/* "Entwicklung"/Reporting am 21.10.2026 aus dem Produkt
+                  genommen — siehe NAV_ITEMS in DashboardLayout. Wer die
+                  Adresse als Lesezeichen hat, landet auf der Uebersicht
+                  statt auf einer leeren Seite oder einem 404. */}
+              <Route path="reporting" element={<Navigate to="/dashboard" replace />} />
               <Route path="einstellungen" element={<DashboardSettings />} />
             </Route>
 

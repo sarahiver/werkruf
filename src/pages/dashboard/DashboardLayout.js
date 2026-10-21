@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  FileText, Settings, LogOut, Menu, X, Users, MapPin
+  Settings, LogOut, Menu, X, Users, MapPin
 } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
@@ -223,7 +223,13 @@ const NAV_ITEMS = [
   { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen'        },
   { to: '/dashboard/fotos',            icon: Image,           label: 'Fotos'              },
   { to: '/dashboard/kunden-gewinnung', icon: Users,           label: 'Mehr Bewertungen'   },
-  { to: '/dashboard/reporting',        icon: FileText,        label: 'Entwicklung'        },
+  /* "Entwicklung" am 21.10.2026 entfernt. Dahinter stand nur noch der
+     Profil-Befund als PDF — erzeugt aus dem geschaetzten Funnel-Score,
+     ohne eine einzige echte Google-Zahl, hinter der Pro-Schranke. Das
+     Wort versprach einen Verlauf, den es nicht gibt; die zweite Karte
+     auf der Seite ("Monatliche Reports") war aus genau dem Grund schon
+     am 16.10. gegangen. Die Dateien (DashboardReporting, FahrplanPDF)
+     bleiben fuer einen spaeteren Monatsbericht aus echten Daten. */
   { to: '/dashboard/einstellungen',    icon: Settings,        label: 'Einstellungen'      },
 ];
 

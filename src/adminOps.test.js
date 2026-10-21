@@ -107,7 +107,11 @@ describe('das Tor', () => {
       'clear_founding_partner',
       'get_customer_support_state',
       'list_customers',
+      /* 21.10.2026: Direkter Draht. Lesen und Statuswechsel — kein
+         Loeschen, kein freier Schreibzugriff. */
+      'list_support_requests',
       'set_founding_partner',
+      'set_support_status',
       'trigger_customer_sync',
     ]);
   });
