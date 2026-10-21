@@ -74,21 +74,51 @@ verify_jwt = false
 
 # ── Mit JWT ──────────────────────────────────────────────────────────
 # Werden aus dem Frontend mit gueltiger Session aufgerufen.
+#
+# ═══════════════════════════════════════════════════════════════
+# verify_jwt = false SEIT 21.10.2026 — UND WARUM DAS NICHTS OEFFNET
+# ═══════════════════════════════════════════════════════════════
+#
+# Befund: /admin lieferte 401 von admin-ops, bevor die Function lief
+# (execution_id leer). Der Token im Request traegt alg = ES256 — das
+# Projekt signiert JWTs seit der Umstellung auf die neuen API-Keys
+# (sb_publishable_…) asymmetrisch. Das Edge-Function-Gateway weist
+# diese Tokens ab, obwohl sie gueltig sind:
+#
+#   github.com/supabase/supabase/issues/42244  (offen; Maintainer:
+#   "already working on best solutions", Workaround: --no-verify-jwt
+#   und getUser() in der Function)
+#
+# Betroffen waren damit ALLE sechs Functions unten — nicht nur der
+# Admin: KI-Antworten, Checkout, Kundenportal, Kontoloeschung,
+# Foto-Upload. Fuer jeden Nutzer mit frischem Token.
+#
+# Warum false hier keine Luecke ist: Jede der sechs prueft den Nutzer
+# SELBST, ueber supabase.auth.getUser() mit dem Authorization-Header
+# des Aufrufers — und der Auth-Server prueft ES256 problemlos. Das
+# Gateway war eine zweite Pruefung VOR der eigentlichen, nicht die
+# eigentliche. google-business laeuft seit jeher so (requireUser).
+#
+# Eine Function, die den Nutzer NICHT selbst prueft, darf hier nicht
+# auf false — dann staende sie offen. Vor dem Umschalten geprueft am
+# 21.10.2026: alle sechs rufen getUser() auf.
+#
+# Zurueck auf true, sobald Supabase das Gateway repariert hat.
 
 [functions.generate-review-reply]
-verify_jwt = true
+verify_jwt = false
 
 [functions.create-checkout-session]
-verify_jwt = true
+verify_jwt = false
 
 [functions.create-portal-session]
-verify_jwt = true
+verify_jwt = false
 
 [functions.delete-account]
-verify_jwt = true
+verify_jwt = false
 
 [functions.cloudinary-sign-upload]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-ops]
-verify_jwt = true
+verify_jwt = false
