@@ -51,8 +51,13 @@ const REGELN = ohneKommentare(
 );
 
 describe('Aufrufer und Rolle', () => {
-  it('lässt Supabase das JWT prüfen', () => {
-    expect(FUNKTION).toContain('caller.auth.getUser()');
+  it('lässt Supabase das JWT prüfen — und baut keine eigene Prüfung', () => {
+    /* Der Token geht an den Auth-Server, nicht an eigenen Code.
+       21.10.2026: vorher 'caller.auth.getUser()' ohne Argument; jetzt
+       explizit mit Token, siehe unten. Dekodieren oder selbst
+       verifizieren darf die Function nirgends. */
+    expect(FUNKTION).toMatch(/\.auth\.getUser\(token\)/);
+    expect(FUNKTION).not.toMatch(/jwtVerify|jose|atob\(|decodeJwt|verifyJwt/);
   });
 
   it('entscheidet über die geteilte Regel und nicht selbst', () => {
@@ -73,15 +78,45 @@ describe('Aufrufer und Rolle', () => {
     expect(REGELN).not.toMatch(/authUser\?\.user_metadata/);
   });
 
-  it('holt den Service-Role-Client erst NACH dem Urteil', () => {
-    /* Reihenfolge im Quelltext. Stünde der Service-Role-Client
-       vorher, wäre ein vergessenes return der Unterschied zwischen
-       403 und vollem Datenbankzugriff. */
+  it('fasst mit dem Service-Role-Client erst NACH dem Urteil Daten an', () => {
+    /* Reihenfolge im Quelltext. Stünde der Daten-Client vorher, wäre
+       ein vergessenes return der Unterschied zwischen 403 und vollem
+       Datenbankzugriff.
+
+       Geändert am 21.10.2026: Vorher wurde die Position des Strings
+       SUPABASE_SERVICE_ROLE_KEY gemessen. Seitdem prüft die Function
+       den Token über einen Service-Role-Client — so wie
+       google-business, nachweislich funktionierend —, und der steht
+       zwangsläufig VOR dem Urteil. Die Eigenschaft, die zählt, ist
+       aber nicht der Key, sondern der Datenzugriff: Vor dem Urteil
+       darf kein .from() und kein .rpc() stehen. Genau das wird jetzt
+       gemessen — und der Daten-Client `const admin` muss nach dem
+       Urteil kommen. */
     const beiUrteil = FUNKTION.indexOf('if (!urteil.erlaubt)');
-    const beiService = FUNKTION.indexOf('SUPABASE_SERVICE_ROLE_KEY');
+    const beiDaten  = FUNKTION.indexOf('const admin = createClient');
     expect(beiUrteil).toBeGreaterThan(-1);
-    expect(beiService).toBeGreaterThan(-1);
-    expect(beiUrteil).toBeLessThan(beiService);
+    expect(beiDaten).toBeGreaterThan(-1);
+    expect(beiUrteil).toBeLessThan(beiDaten);
+
+    /* Der Abschnitt vom Beginn des Handlers bis zum Urteil enthält
+       keinen Datenzugriff. serve( markiert den Handlerbeginn. */
+    const handlerStart = FUNKTION.indexOf('serve(');
+    expect(handlerStart).toBeGreaterThan(-1);
+    const vorDemUrteil = FUNKTION.slice(handlerStart, beiUrteil);
+    expect(vorDemUrteil).not.toMatch(/\.from\(/);
+    expect(vorDemUrteil).not.toMatch(/\.rpc\(/);
+  });
+
+  it('prüft den Token explizit und protokolliert eine Ablehnung', () => {
+    /* 21.10.2026: getUser() ohne Argument und ohne Protokoll liess in
+       Produktion einen gültigen Admin abblitzen, ohne dass irgendwo
+       stand, warum. */
+    expect(FUNKTION).toMatch(/\.auth\.getUser\(token\)/);
+    expect(FUNKTION).toMatch(/log\('auth_abgelehnt'/);
+    /* Und nie den Token selbst ins Log. */
+    const logZeilen = FUNKTION.match(/log\('auth_[a-z_]+',[\s\S]*?\}\);/g) || [];
+    expect(logZeilen.length).toBeGreaterThan(0);
+    for (const z of logZeilen) expect(z).not.toMatch(/\btoken\b/);
   });
 });
 

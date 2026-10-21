@@ -109,13 +109,49 @@ serve(async (req) => {
     app_metadata?: { role?: string } & Record<string, unknown>;
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     GEAENDERT AM 21.10.2026 — WARUM NICHT MEHR DER ANON-CLIENT
+     ═══════════════════════════════════════════════════════════
+
+     Bis hierher stand: createClient(url, SUPABASE_ANON_KEY, { global:
+     { headers: { Authorization } } }) und dann getUser() OHNE
+     Argument. In Produktion antwortete das fuer einen gueltigen
+     ES256-Admin-Token mit "Nicht angemeldet" — und weil die Zeile den
+     Fehler von getUser() verwarf, stand in den Logs nichts. Die
+     Ursache war von aussen nicht zu bestimmen.
+
+     google-business prueft denselben Token seit jeher anders und
+     nachweislich erfolgreich: Service-Role-Client, Token EXPLIZIT an
+     getUser(token). Genau das hier. Zwei Unterschiede weniger, die
+     schiefgehen koennen: keine Abhaengigkeit vom eingespielten
+     Anon-Key, keine Abhaengigkeit davon, wie supabase-js ohne Sitzung
+     mit globalen Headern umgeht.
+
+     Dieser Client dient AUSSCHLIESSLICH der Tokenpruefung. Er ist auf
+     diesen try-Block begrenzt und ruft nie .from() oder .rpc(). Der
+     Datenzugriff kommt erst nach dem Urteil (const admin = … unten).
+     Ein Test haelt beides fest.
+
+     Und: Scheitert die Pruefung, steht der Grund im Log — Code,
+     Status, Meldung. Nie der Token. */
+  if (!authHeader.startsWith('Bearer ')) return json({ error: 'Nicht angemeldet' }, 401);
+  const token = authHeader.slice(7).trim();
+  if (!token) return json({ error: 'Nicht angemeldet' }, 401);
+
   let aufrufer: Aufrufer | null = null;
   try {
-    const caller = createClient(url, umgebung('SUPABASE_ANON_KEY'), {
-      global: { headers: { Authorization: authHeader } },
+    const pruefer = createClient(url, umgebung('SUPABASE_SERVICE_ROLE_KEY'), {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data, error } = await caller.auth.getUser();
-    if (error || !data?.user) return json({ error: 'Nicht angemeldet' }, 401);
+    const { data, error } = await pruefer.auth.getUser(token);
+    if (error || !data?.user) {
+      log('auth_abgelehnt', {
+        code:    (error as { code?: string } | null)?.code ?? null,
+        status:  (error as { status?: number } | null)?.status ?? null,
+        message: error?.message ?? 'kein Nutzer in der Antwort',
+      });
+      return json({ error: 'Nicht angemeldet' }, 401);
+    }
     aufrufer = { id: data.user.id, app_metadata: data.user.app_metadata };
   } catch (err) {
     log('auth_fehler', { message: String(err) });
