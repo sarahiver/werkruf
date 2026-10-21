@@ -5,6 +5,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import { getPostAuthDestination } from '../utils/postAuthDestination';
+import { VERWAIST_MARKER } from '../hooks/useAuth';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -146,6 +147,19 @@ export default function Login() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [fieldErr, setFieldErr] = useState({});
+
+  /* Hat useAuth gerade eine verwaiste Sitzung beendet, steht der
+     Grund hier — einmal lesen, loeschen, anzeigen. Ohne diesen Satz
+     landet jemand nach Kontoloeschung im zweiten Tab wortlos auf
+     dieser Seite und haelt das fuer einen Fehler. */
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(VERWAIST_MARKER) === 'true') {
+        window.sessionStorage.removeItem(VERWAIST_MARKER);
+        setError('Du wurdest abgemeldet, weil dein Konto nicht mehr existiert. Du kannst dich jederzeit neu registrieren.');
+      }
+    } catch { /* privater Modus: dann eben ohne Satz */ }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

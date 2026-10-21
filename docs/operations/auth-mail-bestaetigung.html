@@ -1,0 +1,196 @@
+<!--
+  Supabase Auth — Vorlage "Confirm signup"
+
+  ═══════════════════════════════════════════════════════════════
+  WOHIN DAMIT
+  ═══════════════════════════════════════════════════════════════
+
+  Supabase Dashboard → Authentication → Emails → Templates →
+  "Confirm signup". Den gesamten Inhalt dieser Datei dort in das
+  Feld "Message body" einfuegen, ohne diesen Kommentar.
+
+  Betreff (Feld "Subject heading") separat setzen auf:
+
+      Bitte bestaetige deine E-Mail-Adresse
+
+  ═══════════════════════════════════════════════════════════════
+  WARUM ES DIESE DATEI GIBT
+  ═══════════════════════════════════════════════════════════════
+
+  Am 20.10.2026 im UX-Durchgang gemessen: Die Bestaetigungsmail nach
+  der Registrierung kam von
+
+      Supabase Auth <noreply@mail.app.supabase.io>
+
+  mit dem englischen Standardtext "Confirm your signup — Follow this
+  link to confirm your user". Erste Mail, die ein Kunde von WERKRUF je
+  sieht, und sie traegt einen fremden Absender und eine fremde
+  Sprache.
+
+  ═══════════════════════════════════════════════════════════════
+  DER PLATZHALTER
+  ═══════════════════════════════════════════════════════════════
+
+  {{ .ConfirmationURL }} und {{ .SiteURL }}. Beide belegt in der
+  Supabase-Dokumentation (Auth → Email Templates), nicht aus dem
+  Gedaechtnis: Ein falscher Platzhalter liefert eine Mail mit totem
+  Link, und das faellt erst beim Kunden auf.
+
+  ═══════════════════════════════════════════════════════════════
+  GEAENDERT AM 21.10.2026 — DER LINK GEHT NICHT MEHR DIREKT ZU SUPABASE
+  ═══════════════════════════════════════════════════════════════
+
+  Outlook-Durchgang: Der Link warf den Nutzer auf /login statt ins
+  Onboarding. Mit Gmail am selben Morgen hatte er funktioniert.
+
+  Ursache (Supabase-Doku, Abschnitt "Email prefetching"): Microsoft
+  Safe Links ruft Links in eingehenden Mails vorab auf. Der Einmal-
+  Link ist danach verbraucht; der Mensch bekommt "Token has expired or
+  is invalid". Das trifft jede Firmen-Mail hinter Microsoft 365 — bei
+  Handwerksbetrieben der Normalfall.
+
+  Deshalb zeigen beide Links jetzt auf
+
+      {{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}
+
+  Das ist eine Seite in dieser App (src/pages/Bestaetigen.js). Ein
+  Scanner laedt sie — harmlos. Der echte Link steckt dort in einem
+  Knopf, und verbraucht wird erst, was ein Mensch klickt. Supabases
+  "Option 2", woertlich aus der Dokumentation.
+
+  Voraussetzung: {{ .SiteURL }} muss https://www.werkruf.com sein
+  (Authentication → URL Configuration → Site URL).
+
+  Das Ziel steckt bereits darin. src/pages/Signup.js setzt
+  emailRedirectTo auf ${origin}/onboarding — Supabase baut die
+  Bestaetigungsadresse daraus. Voraussetzung ist, dass
+  https://www.werkruf.com/onboarding unter Authentication → URL
+  Configuration → Redirect URLs steht. Sonst ignoriert Supabase das
+  Ziel und leitet auf die Site URL.
+
+  ═══════════════════════════════════════════════════════════════
+  WARUM TABELLEN UND INLINE-STYLES
+  ═══════════════════════════════════════════════════════════════
+
+  Nicht aus Nostalgie. Outlook rendert mit der Word-Engine: kein
+  flex, kein grid, keine externen Stylesheets, keine <style>-Bloecke
+  zuverlaessig. Was hier steht, ist das, was ueberall ankommt.
+
+  Keine Bilder, keine Schriftarten von aussen. Ein Logo als Grafik
+  waere in vielen Postfaechern ein leerer Rahmen, bis jemand auf
+  "Bilder anzeigen" klickt — ausgerechnet in der Mail, die Vertrauen
+  herstellen soll. Der Schriftzug ist deshalb Text.
+
+  Farben aus src/config/industryConfig.js, handwerk:
+    primary #002C51 · accent #FF8C00 · bg #F2F2F2 · text #1A1A1A
+-->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F2F2;margin:0;padding:24px 0;">
+  <tr>
+    <td align="center">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#FFFFFF;border-top:5px solid #FF8C00;">
+
+        <!-- Kopf -->
+        <tr>
+          <td style="padding:32px 32px 0 32px;">
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-weight:bold;font-size:15px;letter-spacing:3px;color:#002C51;">
+              WERKRUF
+            </p>
+          </td>
+        </tr>
+
+        <!-- Anrede und Zweck -->
+        <tr>
+          <td style="padding:24px 32px 0 32px;">
+            <p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:28px;font-weight:bold;color:#002C51;">
+              Nur noch ein Klick
+            </p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:24px;color:#1A1A1A;">
+              Bitte bestätige deine E-Mail-Adresse. Danach richten wir
+              gemeinsam dein Google-Unternehmensprofil ein — das dauert
+              keine zwei Minuten.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Knopf -->
+        <tr>
+          <td style="padding:28px 32px 0 32px;">
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td bgcolor="#FF8C00" style="border-radius:4px;">
+                  <a href="{{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}"
+                     style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#FFFFFF;text-decoration:none;">
+                    E-Mail-Adresse bestätigen
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--
+          Derselbe Link als Text. Manche Postfaecher und
+          Sicherheitsprogramme entfernen Knoepfe oder schreiben sie um;
+          dann bleibt wenigstens etwas zum Kopieren. Und wer
+          misstrauisch ist, will sehen, wohin es geht, bevor er klickt
+          — bei einer Mail, die zur Anmeldung auffordert, ist das die
+          richtige Haltung.
+        -->
+        <tr>
+          <td style="padding:24px 32px 0 32px;">
+            <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Falls der Knopf nicht funktioniert, kopiere diese Adresse in deinen Browser:
+            </p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#002C51;word-break:break-all;">
+              {{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- Abgrenzung -->
+        <tr>
+          <td style="padding:28px 32px 0 32px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="border-top:1px solid #D0D8E0;font-size:0;line-height:0;">&nbsp;</td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--
+          Der Satz fuer den Fall, dass die Mail jemanden erreicht, der
+          sich nicht angemeldet hat. Ohne ihn wirkt sie wie ein
+          Angriffsversuch — mit ihm wie ein Versehen, und das ist sie
+          dann ja auch.
+        -->
+        <tr>
+          <td style="padding:20px 32px 32px 32px;">
+            <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Du hast dich nicht bei WERKRUF angemeldet? Dann ignoriere diese
+              E-Mail einfach. Ohne Bestätigung entsteht kein Konto.
+            </p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Fragen? Antworte einfach auf diese E-Mail oder schreib an
+              <a href="mailto:info@werkruf.com" style="color:#002C51;">info@werkruf.com</a>.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+      <!-- Fusszeile ausserhalb der weissen Karte -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr>
+          <td style="padding:18px 32px;">
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#7A8894;">
+              WERKRUF &middot;
+              <a href="https://www.werkruf.com/impressum" style="color:#7A8894;">Impressum</a> &middot;
+              <a href="https://www.werkruf.com/datenschutz" style="color:#7A8894;">Datenschutz</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+
+    </td>
+  </tr>
+</table>

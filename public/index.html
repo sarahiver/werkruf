@@ -27,6 +27,84 @@
     <meta name="twitter:image"       content="https://werkruf.com/og-image.png" />
 
     <title>WERKRUF – Mehr Aufträge für Handwerksbetriebe</title>
+
+    <!--
+      Rueckfall fuer den Fall, dass React nie startet.
+
+      Am 21.10.2026 sah ein Nutzer auf /login eine komplett weisse
+      Seite — keine Meldung, kein Knopf. Nachgestellt: Fehlt beim Build
+      REACT_APP_SUPABASE_URL, wirft der Supabase-Client beim Laden,
+      #root bleibt leer, und genau so sieht auch ein nach dem Deploy
+      verschwundener Chunk aus. Beides passiert VOR React; keine
+      ErrorBoundary der Welt kann es auffangen.
+
+      Deshalb reines HTML und CSS, keine Abhaengigkeit, kein Skript:
+      Das hier muss auch dann funktionieren, wenn sonst nichts laedt.
+
+      Der Mechanismus ist eine CSS-Geschwisterregel, kein Timer im
+      JavaScript: Sobald #root Inhalt hat, verschwindet der Rueckfall.
+      Hat #root keinen — weil React nie kam oder der ganze Baum nach
+      einem Fehler abgeraeumt wurde — bleibt er stehen. Die Verzoegerung
+      von vier Sekunden sorgt dafuer, dass er bei normalem Laden nicht
+      aufblitzt.
+    -->
+    <style>
+      #rueckfall {
+        display: none;
+        position: fixed; inset: 0;
+        background: #002C51; color: #fff;
+        font-family: Arial, Helvetica, sans-serif;
+        align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+        opacity: 0;
+        animation: rueckfall-erscheinen .4s ease 4s forwards;
+      }
+      #root:empty ~ #rueckfall { display: flex; }
+      @keyframes rueckfall-erscheinen { to { opacity: 1; } }
+      #rueckfall .karte {
+        background: #fff; color: #1A1A1A;
+        border-top: 5px solid #FF8C00; border-radius: 6px;
+        max-width: 480px; width: 100%; padding: 36px 32px;
+      }
+      #rueckfall .marke {
+        margin: 0 0 18px; font-weight: bold; font-size: 15px;
+        letter-spacing: 3px; color: #002C51;
+      }
+      #rueckfall h1 { margin: 0 0 12px; font-size: 20px; color: #002C51; }
+      #rueckfall p  { margin: 0 0 14px; font-size: 15px; line-height: 1.55; color: #1A1A1A; }
+      #rueckfall p.klein { font-size: 13px; color: #5A6B7B; margin-bottom: 0; }
+      #rueckfall a  { color: #002C51; }
+
+      /* Zwei Stufen, weil langsam und tot von aussen gleich aussehen.
+         Am 21.10.2026 auf einem Behoerdenrechner hinter Proxy gesehen:
+         Die Seite war 10+ Sekunden weiss und kam dann. "Konnte nicht
+         geladen werden" waere dort schlicht falsch gewesen.
+
+           4 s   Stufe 1: "laedt noch" — kein Knopf, keine Schuld
+          20 s   Stufe 2: Knopf und Kontakt — jetzt ist es ein Problem
+
+         Beide Zeiten laufen ab Seitenstart, unabhaengig voneinander. */
+      #rueckfall .stufe1 { animation: stufe-weg .3s ease 20s forwards; }
+      #rueckfall .stufe2 { opacity: 0; max-height: 0; overflow: hidden;
+                           animation: stufe-da .3s ease 20s forwards; }
+      @keyframes stufe-weg { to { opacity: 0; max-height: 0; overflow: hidden; margin: 0; } }
+      @keyframes stufe-da  { to { opacity: 1; max-height: 600px; } }
+      #rueckfall .punkte::after {
+        content: ''; display: inline-block; width: 1.2em; text-align: left;
+        animation: punkte 1.5s steps(4, end) infinite;
+      }
+      @keyframes punkte { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+      #rueckfall button {
+        display: inline-block; margin: 6px 0 20px;
+        background: #FF8C00; color: #fff; border: 0; border-radius: 4px;
+        padding: 12px 22px; font-size: 15px; font-weight: bold; cursor: pointer;
+        font-family: inherit;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #rueckfall, #rueckfall .stufe1, #rueckfall .stufe2 { animation-duration: 0s; }
+        #rueckfall .punkte::after { animation: none; content: '…'; }
+      }
+    </style>
     <!-- Google Maps JavaScript API with the Places library. The public funnel
          currently uses the proven legacy Autocomplete widget. -->
     <script>
@@ -44,5 +122,27 @@
   <body>
     <noscript>Du musst JavaScript aktivieren, um diese Seite zu nutzen.</noscript>
     <div id="root"></div>
+
+    <!-- Muss direkt NACH #root stehen: Die Regel oben ist eine
+         Geschwisterregel (#root:empty ~ #rueckfall). -->
+    <div id="rueckfall" role="alert" aria-live="assertive">
+      <div class="karte">
+        <p class="marke">WERKRUF</p>
+        <div class="stufe1">
+          <h1>Einen Moment<span class="punkte"></span></h1>
+          <p>Die Seite braucht gerade etwas länger als sonst. Du musst nichts tun.</p>
+        </div>
+        <div class="stufe2">
+          <h1>Die Seite lädt nicht</h1>
+          <p>Das liegt nicht an dir. Meist hilft ein neuer Versuch.</p>
+          <button type="button" onclick="window.location.reload()">Seite neu laden</button>
+          <p class="klein">
+            Klappt es weiterhin nicht, schreib uns an
+            <a href="mailto:info@werkruf.com">info@werkruf.com</a>
+            — wir kümmern uns darum.
+          </p>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

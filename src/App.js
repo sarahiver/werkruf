@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import LinkAbgelaufen from './pages/LinkAbgelaufen';
+import Bestaetigen    from './pages/Bestaetigen';
 import Einstieg from './pages/Einstieg';
 
 /* Providers */
@@ -10,6 +11,7 @@ import ThemeInjector        from './components/ThemeInjector';
 import ProtectedRoute       from './components/auth/ProtectedRoute';
 import AdminRoute           from './components/auth/AdminRoute';
 import OnboardingWeiche     from './components/auth/OnboardingWeiche';
+import Fehlergrenze         from './components/Fehlergrenze';
 
 /* Global shell */
 import GlobalStyle from './components/GlobalStyle';
@@ -68,6 +70,15 @@ function App() {
                            so auth redirects work)
       4. ThemeInjector    — writes CSS vars from industry config to :root
     */
+    /*
+      Die Fehlergrenze liegt GANZ AUSSEN — ausserhalb der Provider.
+      Laege sie innerhalb, koennte ein Fehler in IndustryProvider oder
+      AuthProvider an ihr vorbei den ganzen Baum abraeumen. Sie braucht
+      dafuer bewusst nichts von dem, was die Provider liefern: keine
+      Theme-Variablen, kein Router, keine styled-components.
+      Siehe components/Fehlergrenze.js.
+    */
+    <Fehlergrenze>
     <IndustryProvider>
       <BrowserRouter>
         <AuthProvider>
@@ -114,6 +125,14 @@ function App() {
                 Besucher ist per Definition nicht angemeldet. */}
             <Route path="/link-abgelaufen" element={<LinkAbgelaufen />} />
 
+            {/* Zwischenseite fuer den Bestaetigungslink aus der
+                Registrierungsmail. Oeffentlich und OHNE OnboardingWeiche
+                — der Besucher hat noch keine Sitzung. Traegt den
+                Einmal-Link als Knopf, damit Mail-Scanner (Microsoft Safe
+                Links) ihn nicht vor dem Menschen verbrauchen. Siehe
+                pages/Bestaetigen.js. */}
+            <Route path="/bestaetigen" element={<Bestaetigen />} />
+
             {/* Uebergabe nach der Anmeldung ueber einen Mail-Link.
                 Prueft serverseitig, ob die Sitzung zum Link passt. */}
             <Route path="/einstieg" element={<Einstieg />} />
@@ -151,6 +170,7 @@ function App() {
         </AuthProvider>
       </BrowserRouter>
     </IndustryProvider>
+    </Fehlergrenze>
   );
 }
 

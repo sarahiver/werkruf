@@ -4858,7 +4858,44 @@ class SyncScheduler {
       p_worker: options.workerId,
     });
 
-    if (error) throw new GbpError('internal_error', 'Job nicht übernehmbar', { cause: error });
+    /*
+     * HIER WIRD NICHT GEWORFEN — und das ist der Punkt.
+     *
+     * Dieser Weg ist eine Abkürzung, kein Pflichtweg. Der Job liegt
+     * bereits eingereiht in der Tabelle; gelingt die Übernahme nicht,
+     * holt ihn der nächste Worker-Lauf. Das ist exakt das Verhalten
+     * von vor dem 20.10.2026.
+     *
+     * Ein throw würde aus einer fehlenden Abkürzung einen 500er für
+     * den Kunden machen — also aus "etwas dauert länger" ein "geht
+     * nicht". Eine Optimierung darf den Normalfall nicht kaputtmachen.
+     *
+     * DER KONKRETE ANLASS: deploy.yml deployt die Functions bei jedem
+     * Push, migrationen-anwenden.yml läuft nur per Hand-Dispatch und
+     * liest dabei aus dem Repo. Die Function ist also zwangsläufig
+     * eine Weile vor der Migration live, und in diesem Fenster gibt
+     * es claim_sync_job_by_id noch nicht (SQLSTATE 42883). Ohne diesen
+     * Zweig stünde in genau diesem Fenster jede Einrichtung still.
+     *
+     * Die Reihenfolge von Deploy und Migration ist damit egal.
+     */
+    if (error) {
+      const fehltNoch = (error as { code?: string }).code === '42883';
+      const meldung = {
+        jobId, workerId: options.workerId,
+        code: (error as { code?: string }).code ?? null,
+        message: error.message,
+      };
+      if (fehltNoch) {
+        this.log.warn('inline_nicht_verfuegbar', {
+          ...meldung,
+          hinweis: 'Migration 20261020140000 noch nicht angewendet — der Worker übernimmt',
+        });
+      } else {
+        this.log.error('inline_claim_fehlgeschlagen', meldung);
+      }
+      return { ran: false, reason: fehltNoch ? 'not_migrated' : 'claim_failed' };
+    }
 
     const job = ((data ?? []) as SyncJobRow[])[0];
     /* Kein Fehler: Der Cron-Worker war schneller, oder der Job ist für

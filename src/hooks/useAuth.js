@@ -4,6 +4,52 @@ import { isAdminUser } from '../utils/authRoles';
 
 const RECOVERY_MARKER = 'werkruf.password-recovery';
 
+/* Gesetzt, wenn eine Sitzung beendet wurde, weil ihr Nutzer nicht
+   mehr existiert. Login.js liest und loescht den Eintrag und zeigt
+   einen Satz dazu — sonst landet der Betroffene wortlos auf /login
+   und weiss nicht, warum. */
+export const VERWAIST_MARKER = 'werkruf.sitzung-verwaist';
+
+/*
+ * Ist der Nutzer hinter einem gueltigen Token verschwunden?
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * DER FALL
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Am 21.10.2026 beobachtet: Nutzer in Supabase geloescht, Browser
+ * haelt weiter ein gueltiges Access-Token. Die App hielt ihn fuer
+ * angemeldet, das Dashboard mountete, jede Abfrage lief ins Leere
+ * (409 auf touch_dashboard_visit: Fremdschluessel auf einen Nutzer,
+ * den es nicht gibt). Kein Testartefakt — denselben Zustand hat jeder
+ * Kunde, der sein Konto loescht und in einem zweiten Tab oder auf dem
+ * Handy noch angemeldet ist, bis das Token ablaeuft.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * WARUM NUR DIESES EINE SIGNAL
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * getUser() prueft das Token gegen den Server. Fuer einen geloeschten
+ * Nutzer antwortet GoTrue mit einem Fehler, dessen Code user_not_found
+ * lautet (aeltere Fassungen: Meldung "User from sub claim in JWT does
+ * not exist"). Genau darauf wird geprueft — und auf nichts anderes.
+ *
+ * Ein allgemeines 401 oder 403 ZAEHLT NICHT. Das kann ein abgelaufenes
+ * Token sein, das der Client gleich erneuert, oder ein kurzer Ausfall.
+ * Wer darauf abmeldet, wirft Kunden bei jedem Wackler aus der Sitzung.
+ * Ein Netzfehler zaehlt erst recht nicht: Dann gibt es gar keine
+ * Antwort, und keine Antwort ist kein Befund.
+ *
+ * Exportiert, damit der Test die Entscheidung mit echten Fehlerformen
+ * fuettern kann, ohne den Hook zu mounten.
+ */
+export function istNutzerVerschwunden(error) {
+  if (!error) return false;
+  if (error.code === 'user_not_found') return true;
+  if (/user from sub claim in jwt does not exist/i.test(error.message ?? '')) return true;
+  return false;
+}
+
 /* ─────────────────────────────────────────────
    LEAD → PROFILE SYNC (non-blocking)
    Runs in background — never awaited in auth flow
@@ -170,6 +216,37 @@ export function useAuth() {
     setProfile(null);
     await supabase.auth.signOut();
   }, []);
+
+  /*
+   * Verwaiste Sitzung erkennen — siehe istNutzerVerschwunden().
+   *
+   * Eigener Effekt, NICHT im Auth-Callback: Der muss synchron bleiben
+   * (Auth-Sperre, siehe oben). Einmal je Nutzer-ID, nicht bei jedem
+   * Rendern — sonst kostet jeder Zustandswechsel einen Serveraufruf.
+   *
+   * Der Netzfehler-Zweig tut absichtlich nichts. Nicht abmelden ist
+   * hier die sichere Richtung: Ein Kunde mit wackligem Netz bleibt
+   * angemeldet, ein Kunde mit geloeschtem Konto wird beim naechsten
+   * erfolgreichen Aufruf erwischt.
+   */
+  const verwaistGeprueftRef = useRef(null);
+  useEffect(() => {
+    if (user === undefined || user === null) return undefined;
+    if (verwaistGeprueftRef.current === user.id) return undefined;
+    verwaistGeprueftRef.current = user.id;
+
+    let abgebrochen = false;
+    supabase.auth.getUser()
+      .then(({ error }) => {
+        if (abgebrochen || !istNutzerVerschwunden(error)) return;
+        try { window.sessionStorage.setItem(VERWAIST_MARKER, 'true'); } catch { /* privater Modus */ }
+        console.warn('[useAuth] Sitzung verwaist — Nutzer existiert nicht mehr, melde ab');
+        signOut();
+      })
+      .catch(() => { /* Netzfehler: kein Befund, nichts tun */ });
+
+    return () => { abgebrochen = true; };
+  }, [user?.id, user, signOut]);
 
   const completePasswordRecovery = useCallback(() => {
     window.sessionStorage.removeItem(RECOVERY_MARKER);

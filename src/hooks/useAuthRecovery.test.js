@@ -19,6 +19,7 @@ jest.mock('../supabaseClient', () => ({
         return { data: { subscription: { unsubscribe: jest.fn() } } };
       }),
       signOut: jest.fn(),
+      getUser: jest.fn(),
     },
     from: jest.fn(() => ({
       select: jest.fn(() => ({
@@ -53,6 +54,10 @@ beforeEach(() => {
     })),
   }));
   supabase.rpc.mockResolvedValue({ error: null });
+  // Seit 21.10.2026 prueft useAuth je Nutzer einmal per getUser(), ob
+  // der Nutzer hinter dem Token noch existiert (verwaiste Sitzung).
+  // Hier existiert er — die Pruefung darf diese Suite nicht beruehren.
+  supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
 });
 
 test('erkennt PASSWORD_RECOVERY und hält den Recovery-Modus über den Auth-Status hinweg', async () => {
