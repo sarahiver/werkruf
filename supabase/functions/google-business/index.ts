@@ -353,6 +353,17 @@ const GBP_ACCOUNT_MGMT_API = 'https://mybusinessaccountmanagement.googleapis.com
 const GBP_BUSINESS_INFO_API = 'https://mybusinessbusinessinformation.googleapis.com/v1';
 
 /** Access-Token gilt als abgelaufen, wenn es in unter 2 Minuten verfällt. */
+/*
+ * Wie lange ein nutzerangestossener Job im Request arbeiten darf,
+ * bevor er an den Worker zurückgeht (runJobNow).
+ *
+ * Zwanzig Sekunden: lang genug für den Standortimport, der gemessen
+ * ein bis zwei Sekunden braucht, und kurz genug, dass niemand vor
+ * einer hängenden Seite sitzt. Darüber hinaus wartet kein Mensch
+ * freiwillig, und der Worker holt den Rest ohnehin.
+ */
+const INLINE_BUDGET_MS = 20_000;
+
 const ACCESS_TOKEN_SKEW_SECONDS = 120;
 const STATE_TTL_SECONDS = 600;
 const MAX_REFRESH_FAILURES = 5;
@@ -4769,6 +4780,152 @@ class SyncScheduler {
   }
 
   /**
+   * Arbeitet GENAU EINEN Job sofort ab, im laufenden Request.
+   *
+   * ═══════════════════════════════════════════════════════════
+   * WOFÜR
+   * ═══════════════════════════════════════════════════════════
+   *
+   * Für die Fälle, in denen nachweislich ein Mensch auf das Ergebnis
+   * wartet. sync/trigger verlangt eine Session — dort sitzt per
+   * Definition jemand davor.
+   *
+   * Gemessen am 20.10.2026: Der Standortimport selbst dauert ein, zwei
+   * Sekunden. Das Warten auf den Abholtermin des Worker-Crons dauerte
+   * im Mittel 150 Sekunden. Die Arbeit war nie das Problem.
+   *
+   * Eine engere Cron-Taktung löst es nicht — pg_cron kann nicht feiner
+   * als eine Minute. Wer "sofort" will, muss im Request arbeiten.
+   *
+   * ═══════════════════════════════════════════════════════════
+   * WARUM DAS GEFAHRLOS IST
+   * ═══════════════════════════════════════════════════════════
+   *
+   * claim_sync_job_by_id() übernimmt nur, was noch auf 'queued' steht,
+   * atomar per "for update skip locked". Hat der Cron-Worker den Job
+   * in der Zwischenzeit gegriffen, kommt keine Zeile zurück und dieser
+   * Weg tut nichts. Niemand arbeitet doppelt.
+   *
+   * Und der Worker bleibt das Netz darunter: Was hier nicht fertig
+   * wird, liegt weiterhin in der Warteschlange.
+   *
+   * ═══════════════════════════════════════════════════════════
+   * DAS ZEITBUDGET — UND WAS ES NICHT KANN
+   * ═══════════════════════════════════════════════════════════
+   *
+   * Bei handleSyncTrigger stand bis zum 20.10.2026 als Begründung für
+   * das reine Einreihen: "ein synchroner Durchlauf würde bei grossen
+   * Standorten in den Timeout laufen". Der Einwand ist richtig — für
+   * sync_reviews, das seitenweise tausende Bewertungen holen kann.
+   * Für sync_locations (ein Aufruf, begrenzt durch die Zahl der
+   * Betriebe) trifft er nicht zu.
+   *
+   * Das Budget ist die Antwort darauf: Nach budgetMs hören wir auf zu
+   * warten, geben den Job zurück und überlassen ihn dem Worker.
+   *
+   * EHRLICH GESAGT, WAS DABEI OFFEN BLEIBT: Ein bereits laufender
+   * Handler lässt sich nicht abbrechen. Läuft das Budget ab, geben wir
+   * den Job frei, während der Handler im Hintergrund weiterläuft. Er
+   * schreibt dann möglicherweise dieselben Daten, die der Worker
+   * gleich noch einmal holt — identische Upserts, aber ein Google-Aufruf
+   * zu viel. Nur der Gewinner des Wettlaufs ruft finish_sync_job(),
+   * ein doppelter Abschluss ist also ausgeschlossen.
+   *
+   * Bei sync_locations ist dieser Fall praktisch ausgeschlossen (ein
+   * bis zwei Sekunden gegen zwanzig). Er wird in Kauf genommen, nicht
+   * übersehen.
+   *
+   * ═══════════════════════════════════════════════════════════
+   * WARUM release_sync_job() UND NICHT finish_sync_job()
+   * ═══════════════════════════════════════════════════════════
+   *
+   * Weil ein abgelaufenes Budget kein Fehlschlag ist.
+   *
+   * finish_sync_job(success => false) zählt den Versuch gegen
+   * max_attempts. Ein Bewertungsabgleich, der legitim länger braucht,
+   * stünde nach drei Anläufen endgültig auf 'failed' — allein wegen
+   * unserer Ungeduld. release_sync_job() nimmt die Zählung zurück, die
+   * das Übernehmen erhöht hat. Danach steht der Job genau so da, wie
+   * er ohne diesen Versuch dagestanden hätte.
+   */
+  async runJobNow(jobId: string, options: { workerId: string; budgetMs?: number }): Promise<{
+    ran: boolean; ok?: boolean; jobType?: string; error?: string; reason?: string;
+  }> {
+    const budgetMs = options.budgetMs ?? 20_000;
+
+    const { data, error } = await this.db.rpc('claim_sync_job_by_id', {
+      p_job_id: jobId,
+      p_worker: options.workerId,
+    });
+
+    if (error) throw new GbpError('internal_error', 'Job nicht übernehmbar', { cause: error });
+
+    const job = ((data ?? []) as SyncJobRow[])[0];
+    /* Kein Fehler: Der Cron-Worker war schneller, oder der Job ist für
+       später eingeplant. Beides heisst nur "nicht hier, nicht jetzt". */
+    if (!job) return { ran: false, reason: 'already_claimed' };
+
+    const handler = this.handlers[job.job_type];
+    if (!handler) {
+      await this.finish(job.id, false, null, 'no_handler', `Kein Handler für ${job.job_type}`);
+      this.log.error('no_handler', { jobId: job.id, jobType: job.job_type });
+      return { ran: true, ok: false, jobType: job.job_type, error: 'no_handler' };
+    }
+
+    /* Wettlauf zwischen Arbeit und Budget. Das Sinnbild ist bewusst
+       ein eigenes Objekt und keine Exception: Ein geworfener Fehler
+       wäre von einem echten Handler-Fehler nicht zu unterscheiden,
+       und der Unterschied entscheidet, ob ein Versuch verbraucht ist. */
+    const budgetMarke = Symbol('budget');
+    let wecker: number | undefined;
+    const budgetWache = new Promise<typeof budgetMarke>((resolve) => {
+      wecker = setTimeout(() => resolve(budgetMarke), budgetMs);
+    });
+
+    try {
+      const ausgang = await Promise.race([handler(job), budgetWache]);
+
+      if (ausgang === budgetMarke) {
+        const { error: freigabeFehler } = await this.db.rpc('release_sync_job', {
+          p_job_id: job.id,
+          p_worker: options.workerId,
+        });
+        if (freigabeFehler) {
+          this.log.error('release_job_failed', { jobId: job.id, message: freigabeFehler.message });
+        }
+        this.log.warn('inline_budget_exhausted', {
+          jobId: job.id, jobType: job.job_type, budgetMs,
+        });
+        return { ran: false, jobType: job.job_type, reason: 'budget' };
+      }
+
+      await this.finish(job.id, true, ausgang as Record<string, unknown>);
+      this.log.debug('inline_job_done', { jobId: job.id, jobType: job.job_type });
+      return { ran: true, ok: true, jobType: job.job_type };
+    } catch (err) {
+      const gbpError = toGbpError(err);
+
+      /* Dieselbe Unterscheidung wie im Worker: reauth_required ist
+         kein transienter Fehler, weitere Versuche kosten nur Quota.
+         Stünde sie hier nicht, verhielte sich derselbe Fehler je nach
+         Weg unterschiedlich. */
+      if (gbpError.code === 'reauth_required' || gbpError.code === 'not_connected') {
+        await this.abandon(job.id, gbpError.code, gbpError.message);
+      } else {
+        await this.finish(job.id, false, null, gbpError.code, gbpError.message);
+      }
+
+      this.log.error('inline_job_failed', {
+        jobId: job.id, jobType: job.job_type,
+        code: gbpError.code, attempts: job.attempts, message: gbpError.message,
+      });
+      return { ran: true, ok: false, jobType: job.job_type, error: gbpError.code };
+    } finally {
+      if (wecker !== undefined) clearTimeout(wecker);
+    }
+  }
+
+  /**
    * Arbeitet fällige Jobs ab.
    *
    * Das Zeitbudget ist keine Feinheit: Edge Functions werden hart
@@ -5624,9 +5781,35 @@ async function handleSyncSchedule(request: Request): Promise<Response> {
 /**
  * POST /sync/trigger
  *
- * Vom Nutzer angestossener Sync ("Jetzt aktualisieren"). Reiht nur
- * einen Job ein und antwortet sofort — ein synchroner Durchlauf würde
- * bei grossen Standorten in den Timeout laufen.
+ * Vom Nutzer angestossener Sync. Reiht einen Job ein UND arbeitet ihn
+ * im selben Request ab, soweit das Zeitbudget reicht.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * GEÄNDERT AM 20.10.2026 — UND WAS VORHER HIER STAND
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * "Reiht nur einen Job ein und antwortet sofort — ein synchroner
+ *  Durchlauf würde bei grossen Standorten in den Timeout laufen."
+ *
+ * Der Einwand war richtig und ist es noch, aber nur für sync_reviews:
+ * das holt seitenweise und kann bei einem Betrieb mit tausenden
+ * Bewertungen lange brauchen. Für sync_locations — ein Aufruf,
+ * begrenzt durch die Zahl der verwalteten Betriebe — trifft er nicht
+ * zu.
+ *
+ * Der Preis für das reine Einreihen war messbar: Im UX-Durchgang am
+ * 20.10.2026 sah ein frisch verbundener Kunde zweieinhalb Minuten
+ * lang nichts, weil gbp-worker nur alle fünf Minuten nachsieht. Die
+ * Arbeit selbst dauerte zwei Sekunden.
+ *
+ * runJobNow() löst beides: Es arbeitet sofort, hört aber nach einem
+ * Zeitbudget auf zu warten und gibt den Job dann an den Worker
+ * zurück — ohne einen Versuch zu berechnen. Der schlechteste Fall ist
+ * damit genau das Verhalten von vorher, nicht ein Timeout.
+ *
+ * Nur dieser Endpunkt bekommt das. Er verlangt eine Session, also
+ * wartet nachweislich ein Mensch. Periodisches macht weiter der
+ * Worker.
  *
  * Body: { locationId: string, force?: boolean }
  */
@@ -5667,11 +5850,31 @@ async function handleSyncTrigger(request: Request): Promise<Response> {
       }));
     }
 
+    /* Der Standortimport ist der Fall, für den dieser Weg gebaut ist:
+       Er steht am Anfang jeder Einrichtung, dauert ein bis zwei
+       Sekunden, und ohne ihn sieht der Kunde eine leere Seite.
+
+       enqueue() liefert null, wenn schon ein gleichartiger Job wartet.
+       Dann gibt es hier nichts zu tun — der wartende Job gehört dem,
+       der ihn eingereiht hat. */
+    const verarbeitet = await Promise.all(
+      jobIds.map((id) => (id
+        ? scheduler.runJobNow(id, {
+          workerId: `inline-${crypto.randomUUID().slice(0, 8)}`,
+          budgetMs: INLINE_BUDGET_MS,
+        })
+        : Promise.resolve({ ran: false, ok: false, reason: 'already_queued' }))),
+    );
+
     return jsonResponse(request, {
       queued: true,
       scope: 'locations',
       jobIds,
       alreadyRunning: jobIds.every((id) => id === null),
+      /* Damit das Dashboard weiss, ob es sofort nachladen kann oder auf
+         den Worker warten muss. */
+      processed: verarbeitet.some((v) => v.ran && v.ok === true),
+      results: verarbeitet,
     });
   }
 
@@ -5695,6 +5898,18 @@ async function handleSyncTrigger(request: Request): Promise<Response> {
     priority: 10,
   });
 
+  /* Auch hier sofort — mit demselben Budget als Schutz. Das ist der
+     Fall, vor dem die alte Begründung gewarnt hat: Ein Betrieb mit
+     tausenden Bewertungen kann das Budget reissen. Dann geht der Job
+     unverbraucht zurück an den Worker, und der Kunde sieht die
+     Fortschrittskarte statt einer hängenden Seite. */
+  const ergebnis = jobId
+    ? await scheduler.runJobNow(jobId, {
+      workerId: `inline-${crypto.randomUUID().slice(0, 8)}`,
+      budgetMs: INLINE_BUDGET_MS,
+    })
+    : { ran: false, ok: false, reason: 'already_queued' };
+
   return jsonResponse(request, {
     // null heisst: es lief bereits einer. Für den Nutzer dasselbe
     // Ergebnis, deshalb keine Fehlermeldung.
@@ -5702,6 +5917,8 @@ async function handleSyncTrigger(request: Request): Promise<Response> {
     scope: 'reviews',
     jobId,
     alreadyRunning: jobId === null,
+    processed: ergebnis.ran === true && ergebnis.ok === true,
+    result: ergebnis,
   });
 }
 

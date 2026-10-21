@@ -24,6 +24,9 @@ import {
   StarRating, ratingColor, Badge, GhostBtn, Spinner,
   formatDate, formatRelative,
 } from '../../components/dashboard/gb/GbUi';
+import EinrichtungsFortschritt, {
+  leiteEinrichtungAb,
+} from '../../components/dashboard/gb/EinrichtungsFortschritt';
 
 /* ─────────────────────────────────────────────
    DashboardGoogleBusiness
@@ -59,6 +62,19 @@ const HistorieZeile = styled.p`
   font-family: var(--font-body); font-size: .76rem;
   color: var(--color-text-muted); line-height: 1.55;
   margin: 10px 0 0; padding-left: 2px;
+`;
+
+/* Erscheint erst, wenn die Seite aufgehoert hat, von selbst
+   nachzufragen. Der Zusatz steht daneben, nicht im Knopf: Was der
+   Knopf tut — und vor allem, was er NICHT tut — gehoert sichtbar
+   dazu. */
+const NachsehenZeile = styled.div`
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px; padding-left: 2px;
+  span {
+    font-family: var(--font-body); font-size: .76rem;
+    color: var(--color-text-muted);
+  }
 `;
 
 const AktivMarke = styled.span`
@@ -159,11 +175,54 @@ const FooterLink = styled(Link)`
   &:hover { text-decoration: underline; }
 `;
 
-/* Nur fuer den einmaligen Erstimport nach dem Verbinden.
-   48 × 2,5 s = zwei Minuten. Danach fragt die Seite nicht weiter nach;
-   der Job im Backend laeuft davon unberuehrt weiter. */
-const ERSTIMPORT_INTERVALL_MS = 2500;
-const ERSTIMPORT_MAX = 48;
+/*
+ * Nachfragen waehrend des einmaligen Erstimports.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * WARUM GESTUFT UND WARUM SO LANGE
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Hier stand bis zum 20.10.2026: 48 × 2,5 s = zwei Minuten, danach
+ * eine rote Meldung "dauert ungewoehnlich lange".
+ *
+ * Das war falsch gerechnet. sync/trigger REIHT einen Job nur EIN; der
+ * Worker holt ihn ab, und gbp-worker laeuft im Fuenf-Minuten-Takt —
+ * also alle 300 Sekunden, siehe den Zeitplan in
+ * supabase/migrations/20261012120000_cron_kanonisch.sql.
+ * Die Seite gab damit auf, bevor der Worker das erste Mal nachsah.
+ *
+ * Im Durchgang am 20.10.2026 beobachtet: rote Meldung um 15:09, beide
+ * Betriebe um 15:11 da. Der Job war nie kaputt. Die Meldung erschien
+ * nicht TROTZ, sondern WEGEN des Normalbetriebs — im Mittel wartet ein
+ * frisch verbundener Kunde zweieinhalb Minuten, im schlechtesten Fall
+ * fuenf.
+ *
+ * Deshalb gestuft statt gleichmaessig: dicht am Anfang, falls der
+ * Worker-Takt gerade bevorsteht, danach sparsam. Ein gleichmaessiges
+ * 2,5-Sekunden-Raster ueber 18 Minuten waeren 432 Abfragen — nach dem
+ * Disk-IO-Befund vom 19.10. ist das kein theoretisches Argument.
+ *
+ *   Lauf  1–10   alle  3 s   →  30 s
+ *   Lauf 11–25   alle 10 s   →   3 min
+ *   Lauf 26–55   alle 30 s   →  18 min
+ *
+ * 55 Abfragen statt 432, und die Geduld der Seite ist zum ersten Mal
+ * groesser als die Taktung des Systems.
+ *
+ * Danach KEINE Fehlermeldung. Ein Auftrag, der noch in der
+ * Warteschlange steht, ist kein Fehler — er bekommt den ehrlichen
+ * Satz und einen Knopf zum Nachsehen.
+ */
+const ERSTIMPORT_STUFEN = [
+  { bisLauf: 10, abstand:  3000 },
+  { bisLauf: 25, abstand: 10000 },
+  { bisLauf: 55, abstand: 30000 },
+];
+
+/* Wie oft die verstrichene Zeit neu gerechnet wird. Rein oertlich,
+   kein Netzzugriff — und die Dauer wird ohnehin erst jenseits der
+   Sechs-Minuten-Schwelle ueberhaupt angezeigt. */
+const UHR_TAKT_MS = 10000;
 
 export default function DashboardGoogleBusiness() {
   const { brand } = useIndustry();
@@ -174,7 +233,8 @@ export default function DashboardGoogleBusiness() {
   } = googleBusiness;
   const {
     locations, stats, replyCounts, lastSyncedAt, latestJob, lastFailedJob,
-    failedJobHistory, stalledJobs, locationImport, loading, refreshing, error,
+    failedJobHistory, stalledJobs, locationImport, runningJob,
+    loading, refreshing, error,
     reload, refresh, triggerSync, updateLocation, selectLocation,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
@@ -269,33 +329,106 @@ export default function DashboardGoogleBusiness() {
     if (locationImport.status !== 'none') return;   // schon gelaufen
     if (erstimportRef.current) return;              // nur einmal je Seitenaufbau
     erstimportRef.current = true;
-    triggerSync(null).catch(() =>
-      setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
-  }, [isConnected, connectionLoading, loading, locations.length, locationImport.status, triggerSync]);
+    /* Sofort nachladen, nicht erst im Polling-Takt.
+       sync/trigger arbeitet den Job seit dem 20.10.2026 im selben
+       Request ab (runJobNow). Die Antwort kommt also, wenn die
+       Betriebe schon in der Datenbank stehen — auf den naechsten
+       Polling-Lauf zu warten waere geschenkte Zeit.
+
+       Kommt die Antwort mit processed: false, hat der Worker den Job
+       oder das Zeitbudget war erschoepft. Dann uebernimmt das
+       gestufte Nachfragen, und die Fortschrittskarte erklaert die
+       Wartezeit. Ein refresh ist auch dann richtig: Er kostet eine
+       Abfrage und beantwortet die Frage, ob schon etwas da ist. */
+    triggerSync(null)
+      .then(() => refresh())
+      .catch(() =>
+        setSyncError('Deine verwaltbaren Betriebe konnten nicht geladen werden.'));
+  }, [isConnected, connectionLoading, loading, locations.length, locationImport.status,
+      triggerSync, refresh]);
 
   /*
-   * Fortschritt NUR fuer diesen Einrichtungsschritt.
+   * ═══════════════════════════════════════════════════════════════
+   * ZUSTAND DER EINRICHTUNG
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Bewusst NICHT aus syncState abgeleitet. syncState kennt den Wert
+   * 'never', und der heisst "noch nie etwas erfolgreich" — nicht
+   * "gerade in Arbeit". Die Karte hing frueher an 'never' und
+   * behauptete damit Bewegung aus einem Zustand, der nur Abwesenheit
+   * bedeutet.
+   *
+   * Die Ableitung steht in der Komponente und ist dort einzeln
+   * geprueft; hier wird sie nur gefuettert.
+   */
+  const [jetzt, setJetzt] = React.useState(() => Date.now());
+  const [nachsehenNoetig, setNachsehenNoetig] = React.useState(false);
+
+  const einrichtung = leiteEinrichtungAb({
+    verbunden:       isConnected,
+    importStatus:    locationImport.status,
+    importJobStatus: locationImport.job?.status ?? null,
+    keineBetriebe:   locationImport.keineBetriebe,
+    anzahlStandorte: locations.length,
+    lastSyncedAt,
+    laufenderJob:    runningJob,
+    begonnenAm:      locationImport.job?.created_at ?? null,
+    jetzt,
+  });
+
+  /* Nur fuer die Anzeige der verstrichenen Zeit. Oertlich, kein
+     Netzzugriff. */
+  const einrichtungAktiv = einrichtung.aktiv;
+  React.useEffect(() => {
+    if (!einrichtungAktiv) return undefined;
+    const uhr = window.setInterval(() => setJetzt(Date.now()), UHR_TAKT_MS);
+    return () => window.clearInterval(uhr);
+  }, [einrichtungAktiv]);
+
+  /*
+   * Nachfragen, solange wirklich etwas in Arbeit ist.
    *
    * Das ist der einzige verbliebene Fortschrittsanzeiger im
    * Kundendashboard. Regulaere Hintergrundabgleiche bekommen keinen —
    * sie sind kein Ereignis, das Aufmerksamkeit braucht.
    *
-   * Endet, sobald der Import ein Ergebnis hat: Betriebe da, null
-   * Betriebe gefunden, oder gescheitert.
+   * setTimeout statt setInterval, weil der Abstand sich nach
+   * ERSTIMPORT_STUFEN aendert; ein Interval kann das nicht.
+   *
+   * Gezaehlt wird nach LAEUFEN, nicht nach Date.now(): Die Stufen
+   * sollen in Tests mit kuenstlicher Zeit exakt dieselben sein wie im
+   * Browser, und eine Rechnung ueber Date.now() haengt daran, ob die
+   * Testumgebung die Uhr mitdreht.
    */
+  const einrichtungInArbeit = einrichtung.aktiv && einrichtung.inArbeit;
   React.useEffect(() => {
-    if (!isConnected || locationImport.status !== 'running') return undefined;
-    let polls = 0;
-    const timer = window.setInterval(() => {
-      polls += 1;
-      refresh();
-      if (polls >= ERSTIMPORT_MAX) {
-        window.clearInterval(timer);
-        setSyncError('Das Laden deiner Betriebe dauert ungewöhnlich lange. Sieh in ein paar Minuten erneut nach.');
-      }
-    }, ERSTIMPORT_INTERVALL_MS);
-    return () => window.clearInterval(timer);
-  }, [isConnected, locationImport.status, refresh]);
+    if (!einrichtungInArbeit) return undefined;
+
+    /* Neuer Abschnitt, neue Geduld. Sonst bliebe der Knopf aus einer
+       frueheren Phase stehen, obwohl gerade wieder etwas laeuft. */
+    setNachsehenNoetig(false);
+
+    let abgebrochen = false;
+    let timer;
+    let lauf = 0;
+
+    const planen = () => {
+      const stufe = ERSTIMPORT_STUFEN.find((s) => lauf < s.bisLauf);
+      /* Geduld aufgebraucht. KEIN Fehler — der Auftrag steht weiter in
+         der Warteschlange und wird abgearbeitet. Die Seite hoert nur
+         auf, von selbst nachzufragen. */
+      if (!stufe) { setNachsehenNoetig(true); return; }
+      timer = window.setTimeout(() => {
+        if (abgebrochen) return;
+        lauf += 1;
+        refresh();
+        planen();
+      }, stufe.abstand);
+    };
+
+    planen();
+    return () => { abgebrochen = true; window.clearTimeout(timer); };
+  }, [einrichtungInArbeit, refresh]);
 
   /* Kein Polling fuer regulaere Hintergrundabgleiche mehr.
      Entfernt am 29.09. mit dem Knopf "Jetzt abgleichen". Damit
@@ -558,7 +691,27 @@ export default function DashboardGoogleBusiness() {
               Kein Spinner fuer regulaere Hintergrundjobs, kein
               Abgleich-Knopf. Bezieht sich auf den ausgewaehlten
               Betrieb — lastSyncedAt ist darauf begrenzt. */}
-          {loading ? <SkeletonList count={1} height={72} /> : (
+          {loading ? <SkeletonList count={1} height={72} />
+            : einrichtung.aktiv ? (
+            <>
+              <EinrichtungsFortschritt einrichtung={einrichtung} />
+
+              {/* Die Seite hat aufgehoert, von selbst nachzufragen.
+                  Das ist KEIN Abgleich-Knopf: refresh() liest nur den
+                  vorhandenen Stand neu, es wird kein Job eingereiht
+                  und keine Google-Quota verbraucht. Der am 29.09.
+                  entfernte Knopf "Jetzt abgleichen" stiess einen Sync
+                  an — das hier tut es ausdruecklich nicht. */}
+              {nachsehenNoetig && (
+                <NachsehenZeile>
+                  <GhostBtn onClick={() => { setJetzt(Date.now()); refresh(); }}>
+                    Jetzt nachsehen
+                  </GhostBtn>
+                  <span>Lädt nur den aktuellen Stand neu.</span>
+                </NachsehenZeile>
+              )}
+            </>
+          ) : (
             <SyncBar $state={syncState}>
               <SyncInfo>
                 {syncState === 'error' || syncState === 'reauth'
@@ -567,9 +720,27 @@ export default function DashboardGoogleBusiness() {
                   : <CheckCircle size={19} color="#1E7E34" />}
                 <SyncText>
                   <p>
+                    {/* 'never' heisst "noch nie etwas erfolgreich" und
+                        NICHT "gerade in Arbeit". Hier stand bis zum
+                        20.10.2026 "Einrichtung läuft" — eine Behauptung
+                        ueber Bewegung, abgeleitet aus blosser
+                        Abwesenheit.
+
+                        Der laufende Fall hat jetzt seine eigene Karte
+                        (einrichtung.aktiv). Damit ist dieser Zweig
+                        praktisch unerreichbar geworden: Ein verbundenes
+                        Konto ohne Erfolg ist entweder in Einrichtung,
+                        oder sein letzter Job steht auf succeeded bzw.
+                        failed — und dann greift 'ok' oder 'error'. Ohne
+                        Verbindung kommt die Seite hier gar nicht an, sie
+                        kehrt weiter oben mit der Verbinden-Karte zurueck.
+
+                        Er bleibt als Netz stehen, aber mit einem Satz,
+                        der auch dann stimmt, wenn wirklich nichts
+                        laeuft. */}
                     {syncState === 'reauth' ? 'Verbindung zu Google muss erneuert werden'
                       : syncState === 'error' ? 'Letzter Abgleich fehlgeschlagen'
-                      : syncState === 'never' ? 'Einrichtung läuft'
+                      : syncState === 'never' ? 'Noch kein Abgleich gelaufen'
                       : 'Dein Google-Unternehmensprofil wird automatisch aktualisiert'}
                   </p>
                   <p>
@@ -582,7 +753,7 @@ export default function DashboardGoogleBusiness() {
                       : syncState === 'error'
                         ? `Fehler: ${lastFailedJob.error_code ?? 'unbekannt'} · Versuch ${lastFailedJob.attempts} von ${lastFailedJob.max_attempts}`
                         : syncState === 'never'
-                          ? 'Die ersten Daten werden geladen. Das dauert einen Moment — du musst nichts tun.'
+                          ? 'Sobald dein Google-Unternehmensprofil verbunden ist, lädt WERKRUF die ersten Daten automatisch.'
                           : `Zuletzt erfolgreich abgeglichen: ${formatRelative(lastSyncedAt)}`}
                   </p>
                 </SyncText>
@@ -598,12 +769,21 @@ export default function DashboardGoogleBusiness() {
               aber nicht mehr den aktuellen Zustand — genau das war der
               Fehler: Ein Fehlversuch von vor Wochen meldete dauerhaft
               einen Fehler, den es nicht mehr gab. */}
-          {stalledJobs.length > 0 && (
+          {/* NICHT waehrend der Einrichtung. Ein zweiter offener
+              Auftrag ist dort der Normalfall — der Erstimport und der
+              stuendliche Scheduler koennen beide eingereiht sein. Am
+              20.10.2026 stand diese Zeile einem Kunden in seiner
+              ersten Minute unter der Fortschrittsanzeige: eine
+              Stoerungsmeldung ueber den planmaessigen Betrieb.
+
+              Und die Grammatik war kaputt: "Ein älterer Auftrag ... sie
+              bestimmen". */}
+          {!einrichtung.aktiv && stalledJobs.length > 0 && (
             <HistorieZeile>
               {stalledJobs.length === 1
-                ? 'Ein älterer Auftrag steht noch offen'
-                : `${stalledJobs.length} ältere Aufträge stehen noch offen`}
-              {' — '}sie bestimmen den Status oben nicht. Häufen sie sich, werden Aufträge eingereiht, aber nicht abgearbeitet.
+                ? 'Ein älterer Auftrag steht noch offen — er bestimmt den Status oben nicht.'
+                : `${stalledJobs.length} ältere Aufträge stehen noch offen — sie bestimmen den Status oben nicht.`}
+              {' '}Sie werden beim nächsten Lauf mit abgearbeitet.
             </HistorieZeile>
           )}
 

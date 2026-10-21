@@ -146,7 +146,11 @@ describe('Automatischer Erstimport', () => {
     expect(triggerSync).toHaveBeenCalledWith(null);
   });
 
-  it('zeigt waehrend des Imports einen begrenzten Fortschritt und laedt nach', () => {
+  /* Geaendert am 20.10.2026. Vorher: gleichmaessig alle 2,5 s, 48 Mal,
+     danach eine rote Meldung. Die Stufen sind jetzt Teil der Zusage —
+     deshalb prueft dieser Test sie einzeln und nicht nur eine
+     Gesamtzahl. Ein gleichmaessiges Raster wuerde hier auffallen. */
+  it('fragt gestuft nach: dicht am Anfang, danach sparsam', () => {
     useGoogleBusinessData.mockReturnValue(zustand({
       locations: [], lastSyncedAt: null,
       locationImport: { status: 'running', job: { id: 'imp' }, keineBetriebe: false },
@@ -154,8 +158,38 @@ describe('Automatischer Erstimport', () => {
     render(<DashboardGoogleBusiness />);
     expect(screen.getByText(/Deine Betriebe werden geladen/i)).toBeInTheDocument();
 
-    vorspulen(7500);
+    /* Stufe 1 — alle 3 s */
+    vorspulen(9000);
     expect(refresh).toHaveBeenCalledTimes(3);
+    vorspulen(21000);                       // insgesamt 30 s
+    expect(refresh).toHaveBeenCalledTimes(10);
+
+    /* Stufe 2 — alle 10 s. Dieselbe Spanne, deutlich weniger Abfragen.
+       Bliebe es beim 3-Sekunden-Takt, staenden hier 20 statt 3. */
+    vorspulen(30000);                       // insgesamt 60 s
+    expect(refresh).toHaveBeenCalledTimes(13);
+  });
+
+  /* Der eigentliche Fehler vom 20.10.2026. Die Seite gab nach 120 s
+     auf und meldete rot eine Stoerung — der Worker laeuft aber im
+     Fuenf-Minuten-Takt und war zu dem Zeitpunkt noch gar nicht dran.
+     Zwei Minuten spaeter waren beide Betriebe da. */
+  it('gibt nicht nach zwei Minuten auf und meldet dort keinen Fehler', () => {
+    useGoogleBusinessData.mockReturnValue(zustand({
+      locations: [], lastSyncedAt: null,
+      locationImport: { status: 'running', job: { id: 'imp' }, keineBetriebe: false },
+    }));
+    render(<DashboardGoogleBusiness />);
+
+    vorspulen(120000);
+    expect(screen.queryByText(/dauert ungewöhnlich lange/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sieh in ein paar Minuten erneut nach/i)).not.toBeInTheDocument();
+
+    /* Und sie fragt weiter nach — sonst bemerkt sie das Ergebnis nicht
+       und der Kunde muss von Hand neu laden. Genau das ist passiert. */
+    const bisher = refresh.mock.calls.length;
+    vorspulen(120000);
+    expect(refresh.mock.calls.length).toBeGreaterThan(bisher);
   });
 
   it('hoert auf nachzuladen, sobald der Import ein Ergebnis hat', () => {
