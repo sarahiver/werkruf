@@ -230,6 +230,9 @@ serve(async (req) => {
       case 'set_support_status':
         return json(await setzeSupportStatus(admin, adminId, parameter));
 
+      case 'reply_support_request':
+        return json(await beantworteSupportAnfrage(admin, adminId, parameter));
+
       default:
         /* Unerreichbar: pruefeAnfrage laesst nur die Allowlist durch.
            Steht hier, damit eine neue Aktion in adminOps.js ohne
@@ -728,5 +731,46 @@ async function setzeSupportStatus(
     erfolg: true, ergebnis,
   }));
   log('support_status_gesetzt', { adminId, requestId, status: ergebnis.status });
+  return ergebnis;
+}
+
+/* Antwort auf eine Supportanfrage (22.10.2026). Alles Fachliche —
+   Speichern, Status, Mail — passiert in reply_support_request() in
+   EINER Transaktion. Hier nur Aufruf und Audit. Der Antworttext steht
+   nicht im Audit: Er steht in der Anfrage selbst. */
+async function beantworteSupportAnfrage(
+  admin: SupabaseClient,
+  adminId: string,
+  p: Record<string, unknown>,
+) {
+  const requestId = p.requestId as string;
+
+  const { data: zeile, error } = await admin.rpc('reply_support_request', {
+    p_request_id: requestId,
+    p_reply:      p.reply as string,
+  });
+
+  if (error) {
+    await auditiere(admin, baueAuditEintrag({
+      aktion: 'reply_support_request', adminId, userId: null, erfolg: false, fehler: error.message,
+      ergebnis: { requestId },
+    }));
+    throw error;
+  }
+
+  const ergebnis = {
+    ok: true,
+    requestId,
+    status: (zeile as { status?: string } | null)?.status ?? 'answered',
+    beantwortetAm: (zeile as { replied_at?: string } | null)?.replied_at ?? null,
+    zeichen: String(p.reply ?? '').length,
+  };
+
+  await auditiere(admin, baueAuditEintrag({
+    aktion: 'reply_support_request', adminId,
+    userId: (zeile as { user_id?: string } | null)?.user_id ?? null,
+    erfolg: true, ergebnis,
+  }));
+  log('support_beantwortet', { adminId, requestId, zeichen: ergebnis.zeichen });
   return ergebnis;
 }

@@ -110,6 +110,7 @@ describe('das Tor', () => {
       /* 21.10.2026: Direkter Draht. Lesen und Statuswechsel — kein
          Loeschen, kein freier Schreibzugriff. */
       'list_support_requests',
+      'reply_support_request',
       'set_founding_partner',
       'set_support_status',
       'trigger_customer_sync',

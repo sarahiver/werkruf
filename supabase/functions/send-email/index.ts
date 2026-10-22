@@ -29,7 +29,8 @@ import {
 type EmailTemplate =
   | 'welcome' | 'trial_reminder' | 'trial_ended'
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
-  | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed';
+  | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed'
+  | 'support_reply';
 
 interface EmailRow {
   id: string;
@@ -616,6 +617,32 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         p('<strong>Bis zur Erneuerung läuft die Überwachung nicht weiter.</strong> Neue Bewertungen kommen nicht im Dashboard an, freigegebene Antworten werden nicht übertragen.') +
         p('Neu verbinden dauert keine Minute.'),
         { label: 'Jetzt neu verbinden', url: `${brand.appUrl}/dashboard/google` },
+      );
+      return { subject: title, html, text: toPlainText(html) };
+    }
+
+    /* Antwort des Anbieters auf eine Supportanfrage (22.10.2026).
+       Eingereiht von reply_support_request(); Empfaenger und Text
+       kommen aus der Datenbank, nicht aus dem Admin-Formular.
+       Kein Plan-Tor: Wer gefragt hat, bekommt die Antwort. */
+    case 'support_reply': {
+      const betreff = escapeHtml(String(payload.betreff ?? 'deine Anfrage'));
+      const antwort = escapeHtml(String(payload.antwort ?? '')).replace(/\n/g, '<br>');
+      const frage   = escapeHtml(String(payload.frage ?? '')).replace(/\n/g, '<br>');
+      const title   = `Antwort auf deine Anfrage: ${String(payload.betreff ?? '').slice(0, 80)}`;
+      const html = layout(brand, `Antwort auf deine Anfrage`,
+        p(greeting) +
+        p(`du hattest uns über den Direkten Draht geschrieben — hier ist die Antwort.`) +
+        `<div style="margin:18px 0;padding:16px 18px;background:#F4F6F8;border-left:3px solid ${brand.accent};border-radius:4px;">` +
+          `<p style="margin:0 0 6px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#5A6B7B;">Deine Frage · ${betreff}</p>` +
+          `<p style="margin:0;font-size:14px;line-height:1.55;color:#5A6B7B;">${frage}</p>` +
+        `</div>` +
+        `<div style="margin:18px 0;padding:16px 18px;border:1px solid #D0D8E0;border-radius:4px;">` +
+          `<p style="margin:0 0 6px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:${brand.primary};">Antwort</p>` +
+          `<p style="margin:0;font-size:15px;line-height:1.6;color:#1A1A1A;">${antwort}</p>` +
+        `</div>` +
+        p('Du kannst direkt auf diese E-Mail antworten oder im Dashboard eine neue Anfrage stellen.'),
+        { label: 'Zum Direkten Draht', url: `${brand.appUrl}/dashboard/support` },
       );
       return { subject: title, html, text: toPlainText(html) };
     }

@@ -44,7 +44,7 @@ import { Card, SectionTitle, PrimaryBtn, formatRelative } from './gb/GbUi';
 /* Die eine Zusage, die diese Karte macht. Bewusst eine Konstante und
    kein Fliesstext im Markup: Wer sie aendert, soll sie suchen muessen
    und dabei lesen, dass es eine Zusage ist. */
-export const ANTWORT_ZUSAGE = 'Du bekommst eine Antwort per E-Mail — persönlich, nicht automatisch.';
+export const ANTWORT_ZUSAGE = 'Du bekommst eine Antwort hier und per E-Mail — persönlich, nicht automatisch.';
 
 export const BETREFF_MIN = 3;
 export const BETREFF_MAX = 140;
@@ -133,6 +133,17 @@ const Wann = styled.p`
   color: var(--color-text-muted); margin: 0;
 `;
 
+/* Die Antwort des Anbieters, unter der Anfrage (22.10.2026). Nimmt
+   beide Spalten des Rasters ein. */
+const Antwort = styled.div`
+  grid-column: 1 / -1; margin-top: 6px;
+  padding: 10px 12px; border-left: 3px solid #1E7E34;
+  background: var(--color-surface, #F6F8F7); border-radius: 0 var(--radius-button) var(--radius-button) 0;
+  font-family: var(--font-body); font-size: .86rem; line-height: 1.6;
+  color: var(--color-text); white-space: pre-wrap;
+  & > small { display: block; font-size: .72rem; color: var(--color-text-muted); margin-bottom: 4px; }
+`;
+
 const Marke = styled.span`
   display: inline-flex; align-items: center; gap: 5px; align-self: start;
   font-family: var(--font-body); font-size: .72rem; font-weight: 700;
@@ -155,7 +166,7 @@ export default function DirekterDraht() {
     if (!user?.id) return;
     const { data, error } = await supabase
       .from('support_requests')
-      .select('id, subject, status, created_at, answered_at')
+      .select('id, subject, status, created_at, answered_at, admin_reply, replied_at')
       .order('created_at', { ascending: false })
       .limit(20);
     if (!error) setAnfragen(data ?? []);
@@ -246,6 +257,12 @@ export default function DirekterDraht() {
                   Gesendet {formatRelative(a.created_at)}
                   {a.answered_at ? ` · beantwortet ${formatRelative(a.answered_at)}` : ''}
                 </Wann>
+                {a.admin_reply && (
+                  <Antwort data-testid="support-antwort">
+                    <small>Antwort von WERKRUF{a.replied_at ? ` · ${formatRelative(a.replied_at)}` : ''}</small>
+                    {a.admin_reply}
+                  </Antwort>
+                )}
               </Eintrag>
             );
           })}

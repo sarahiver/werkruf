@@ -181,3 +181,39 @@ describe('DirekterDraht — Senden', () => {
     expect(screen.getByText('Beantwortet')).toBeInTheDocument();
   });
 });
+
+/* ─────────────────────────────────────────────────────────────
+   TEIL 4 — Antwort des Anbieters (22.10.2026)
+   ───────────────────────────────────────────────────────────── */
+
+describe('DirekterDraht — Antwort unter der Anfrage', () => {
+  it('zeigt die Antwort, wenn eine da ist, und fragt die Spalten dafuer ab', async () => {
+    mockAuth.mockReturnValue(FP);
+    const selectMock = jest.fn(() => ({ order: () => ({ limit: () => Promise.resolve(listeErgebnis) }) }));
+    mockFrom.mockImplementation(() => ({ select: selectMock, insert: () => Promise.resolve(insertErgebnis) }));
+    listeErgebnis = { data: [
+      { id: 'a1', subject: 'Feiertage', status: 'answered', created_at: '2026-10-22T08:00:00Z',
+        answered_at: '2026-10-22T09:00:00Z', admin_reply: 'Unter Öffnungszeiten → Sonderzeiten.', replied_at: '2026-10-22T09:00:00Z' },
+      { id: 'a2', subject: 'Noch offen', status: 'open', created_at: '2026-10-22T10:00:00Z',
+        answered_at: null, admin_reply: null, replied_at: null },
+    ], error: null };
+    render(<DirekterDraht />);
+    const antworten = await screen.findAllByTestId('support-antwort');
+    expect(antworten).toHaveLength(1);
+    expect(antworten[0]).toHaveTextContent('Unter Öffnungszeiten → Sonderzeiten.');
+    expect(antworten[0]).toHaveTextContent(/Antwort von WERKRUF/);
+    expect(selectMock.mock.calls[0][0]).toMatch(/admin_reply/);
+    expect(selectMock.mock.calls[0][0]).toMatch(/replied_at/);
+  });
+
+  /* ── GEGENPROBE ── */
+  it('zeigt ohne Antwort keinen Antwortblock', async () => {
+    mockAuth.mockReturnValue(FP);
+    listeErgebnis = { data: [
+      { id: 'a2', subject: 'Noch offen', status: 'open', created_at: '2026-10-22T10:00:00Z', answered_at: null, admin_reply: null, replied_at: null },
+    ], error: null };
+    render(<DirekterDraht />);
+    await screen.findByText('Noch offen');
+    expect(screen.queryByTestId('support-antwort')).not.toBeInTheDocument();
+  });
+});

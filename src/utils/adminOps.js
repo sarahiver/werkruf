@@ -163,6 +163,14 @@ export const ADMIN_AKTIONEN = {
     parameter: ['requestId', 'status', 'note'],
     auditAktion: 'admin.support_status_gesetzt',
   },
+  /* 22.10.2026: Antwort im Produkt statt per Mailprogramm. Die
+     Funktion reply_support_request() speichert, setzt answered und
+     reiht die Mail ein — in einer Transaktion. */
+  reply_support_request: {
+    schreibt: true,
+    parameter: ['requestId', 'reply'],
+    auditAktion: 'admin.support_beantwortet',
+  },
 };
 
 /* Zustaende einer Supportanfrage — dieselben wie
@@ -268,7 +276,7 @@ function pruefeParameter(aktion, roh) {
      Liste der Supportanfragen. Der Statuswechsel identifiziert ueber
      requestId; die zugehoerige userId holt der Server fuer das Audit
      selbst aus der Zeile. */
-  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status'].includes(aktion);
+  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request'].includes(aktion);
 
   if (brauchtUser) {
     if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -343,6 +351,18 @@ function pruefeParameter(aktion, roh) {
     } else {
       werte.note = null;
     }
+  }
+
+  if (aktion === 'reply_support_request') {
+    const requestId = roh?.requestId;
+    if (typeof requestId !== 'string' || !UUID.test(requestId)) {
+      return { fehler: 'requestId fehlt oder ist keine UUID' };
+    }
+    werte.requestId = requestId.toLowerCase();
+    const reply = typeof roh?.reply === 'string' ? roh.reply.trim() : '';
+    if (reply.length < 1)    return { fehler: 'Antwort ist leer' };
+    if (reply.length > 4000) return { fehler: 'Antwort darf höchstens 4000 Zeichen haben' };
+    werte.reply = reply;
   }
 
   if (aktion === 'clear_founding_partner') {

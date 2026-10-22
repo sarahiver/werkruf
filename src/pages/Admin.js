@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle } from 'lucide-react';
+import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle, Send } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
@@ -176,6 +176,14 @@ const Btn = styled.button`
   &:disabled { opacity: .55; cursor: default; }
 `;
 
+const Antwortfeld = styled.textarea`
+  width: 100%; box-sizing: border-box; min-height: 120px; resize: vertical;
+  padding: 10px 12px; margin: 0 0 10px;
+  font-family: var(--font-body); font-size: .88rem; line-height: 1.55;
+  border: 1px solid var(--color-border); border-radius: var(--radius-button);
+  background: var(--color-white); color: var(--color-text);
+`;
+
 const Ampel = styled.span`
   display: inline-flex; align-items: center; gap: 6px;
   font-family: var(--font-body); font-weight: 700; font-size: .72rem;
@@ -244,6 +252,8 @@ export default function Admin() {
   const [supportAnfragen, setSupportAnfragen] = useState([]);
   const [supportFehler, setSupportFehler]     = useState('');
   const [supportLaeuft, setSupportLaeuft]     = useState(null); // requestId waehrend eines Statuswechsels
+  const [antwortText, setAntwortText]         = useState({});   // requestId → Entwurf
+  const [antwortOk, setAntwortOk]             = useState('');
 
   /* Ein Weg zum Server, eine Stelle fuer Fehler. Jede Aktion geht
      ueber admin-ops; das Frontend kennt keine Tabelle und keine RPC. */
@@ -311,6 +321,28 @@ export default function Admin() {
       setSupportAnfragen((liste) => liste.filter((a) => a.id !== requestId));
     } catch (e) {
       setSupportFehler(e.message || 'Statuswechsel fehlgeschlagen.');
+    } finally {
+      setSupportLaeuft(null);
+    }
+  };
+
+  /* Antworten (22.10.2026). Speichert die Antwort beim Kunden, setzt
+     den Status und reiht die Mail ein — alles in reply_support_request()
+     in einer Transaktion. Der Entwurf bleibt stehen, wenn es scheitert;
+     nichts ist aergerlicher als ein verschwundener Text. */
+  const beantworteAnfrage = async (anfrage) => {
+    const text = (antwortText[anfrage.id] ?? '').trim();
+    if (text.length < 1) { setSupportFehler('Die Antwort ist leer.'); return; }
+    setSupportLaeuft(anfrage.id);
+    setSupportFehler('');
+    setAntwortOk('');
+    try {
+      await rufeAdminOps('reply_support_request', { requestId: anfrage.id, reply: text });
+      setSupportAnfragen((liste) => liste.filter((a) => a.id !== anfrage.id));
+      setAntwortText((e) => { const n = { ...e }; delete n[anfrage.id]; return n; });
+      setAntwortOk(`Antwort an ${anfrage.betrieb || anfrage.email || 'den Kunden'} gespeichert — die Mail ist eingereiht.`);
+    } catch (e) {
+      setSupportFehler(e.message || 'Antwort konnte nicht gespeichert werden.');
     } finally {
       setSupportLaeuft(null);
     }
@@ -415,13 +447,13 @@ export default function Admin() {
           )}
         </StatsGrid>
 
-        {/* ── DIREKTER DRAHT (21.10.2026) ──
-            Offene Supportanfragen der Founding Partner. Antworten
-            geschieht per Mail an die angezeigte Adresse; hier wird nur
-            der Status gefuehrt. Kein Antwortfeld — ein zweiter Kanal
-            neben der Mail waere ein zweiter Ort, an dem Gespraeche
-            verloren gehen. */}
-        {(supportAnfragen.length > 0 || supportFehler) && (
+        {/* ── DIREKTER DRAHT (21.10.2026, Antwortfeld 22.10.) ──
+            Offene Supportanfragen der Founding Partner. Die Antwort
+            wird HIER geschrieben: Sie landet beim Kunden unter seiner
+            Anfrage und als Mail in seinem Postfach. Die Mailadresse
+            steht nur noch zur Information da. "Erledigt" bleibt fuer
+            Anfragen, die keine Antwort brauchen (Doppel, Versehen). */}
+        {(supportAnfragen.length > 0 || supportFehler || antwortOk) && (
           <Section data-testid="admin-support">
             <SectionHead>
               <SectionTitle>
@@ -429,7 +461,8 @@ export default function Admin() {
                 Direkter Draht — {supportAnfragen.length} offene Anfrage{supportAnfragen.length === 1 ? '' : 'n'}
               </SectionTitle>
             </SectionHead>
-            {supportFehler && <Reason style={{ color: '#B3261E' }}>{supportFehler}</Reason>}
+            {supportFehler && <Reason role="alert" style={{ color: '#B3261E' }}>{supportFehler}</Reason>}
+            {antwortOk && <Reason role="status" style={{ color: '#1E7E34' }}>{antwortOk}</Reason>}
             {supportAnfragen.map((a) => (
               <Block key={a.id} style={{ marginBottom: 12 }}>
                 <BlockTitel>
@@ -439,25 +472,36 @@ export default function Admin() {
                   </span>
                 </BlockTitel>
                 <Zeile>
-                  <span>Antwort an</span>
-                  <span>
-                    {a.email
-                      ? <a href={`mailto:${a.email}?subject=${encodeURIComponent('Re: ' + a.betreff)}`}>{a.email}</a>
-                      : '—'}
-                  </span>
+                  <span>Kunde</span>
+                  <span>{a.email || '—'}</span>
                 </Zeile>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: '.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: '10px 0 14px' }}>
                   {a.text}
                 </p>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <Btn type="button" $haupt disabled={supportLaeuft === a.id}
-                       onClick={() => setzeSupportStatus(a.id, 'answered')}>
-                    Als beantwortet markieren
+                <label htmlFor={`antwort-${a.id}`} style={{ display: 'block', fontFamily: 'var(--font-body)', fontSize: '.78rem', fontWeight: 700, marginBottom: 6 }}>
+                  Deine Antwort
+                </label>
+                <Antwortfeld
+                  id={`antwort-${a.id}`}
+                  value={antwortText[a.id] ?? ''}
+                  maxLength={4000}
+                  disabled={supportLaeuft === a.id}
+                  placeholder="Der Kunde sieht diesen Text auf seiner Support-Seite und bekommt ihn per Mail."
+                  onChange={(e) => setAntwortText((alt) => ({ ...alt, [a.id]: e.target.value }))}
+                />
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Btn type="button" $haupt
+                       disabled={supportLaeuft === a.id || (antwortText[a.id] ?? '').trim().length < 1}
+                       onClick={() => beantworteAnfrage(a)}>
+                    <Send size={13} /> Antworten &amp; senden
                   </Btn>
                   <Btn type="button" disabled={supportLaeuft === a.id}
                        onClick={() => setzeSupportStatus(a.id, 'closed')}>
-                    Erledigt
+                    Erledigt ohne Antwort
                   </Btn>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: '.74rem', color: 'var(--color-text-muted)' }}>
+                    {(antwortText[a.id] ?? '').length}/4000
+                  </span>
                 </div>
               </Block>
             ))}
