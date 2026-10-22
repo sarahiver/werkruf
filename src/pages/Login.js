@@ -119,6 +119,16 @@ const SubmitBtn = styled.button`
   cursor:${({ disabled }) => disabled?'not-allowed':'pointer'};
   transition:filter .2s,transform .1s;margin-top:4px;
   &:hover:not(:disabled){filter:brightness(.9);transform:translateY(-1px);}
+  /* Die Drehung gehoert HIERHER, ins styled-Template — nicht in ein
+     Inline-style. keyframes von styled-components lassen sich nur in
+     getaggte Templates interpolieren; in einem gewoehnlichen String
+     wirft die Bibliothek beim Rendern. Genau das tat Zeile 253 bis
+     zum 22.10.2026: Bei jedem Klick auf einen Anmeldeknopf sprang
+     loading auf true, der Render warf, und die Seite war weiss. Mit
+     Google ging es trotzdem weiter, weil die Weiterleitung den
+     Absturz ueberholte — darum fiel es erst mit der Fehlergrenze auf.
+     Signup.js hatte es von Anfang an richtig. */
+  .spin { animation: ${spin} .8s linear infinite; }
 `;
 
 const ErrorBanner = styled.div`
@@ -250,7 +260,7 @@ export default function Login() {
 
           <SubmitBtn type="submit" disabled={loading}>
             {loading
-              ? <><span style={{ display:'inline-block',width:16,height:16,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'white',borderRadius:'50%',animation:`${spin} .8s linear infinite` }} />Einloggen…</>
+              ? <><span className="spin" style={{ display:'inline-block',width:16,height:16,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'white',borderRadius:'50%' }} />Einloggen…</>
               : <>Einloggen <ArrowRight size={16} /></>
             }
           </SubmitBtn>
