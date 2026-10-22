@@ -61,6 +61,7 @@ const GETEILT = 'src/utils/accessGate.js';
 const SCHREIBHANDLER = [
   'handleLocationUpdate',
   'handleMediaCreate',
+  'handleMediaDelete',
   'handleReplyUpdate',
   'handleReplyApprove',
   'handleReplyRetract',

@@ -44,6 +44,89 @@ async function uploadToCloudinary(file, supabaseClient) {
 }
 
 /* ─────────────────────────────────────────────
+   GOOGLE-MEDIEN — ANZEIGEN UND LÖSCHEN (21./22.10.2026)
+
+   Bis hierher zeigte diese Seite ausschliesslich die Uploads ueber
+   WERKRUF (business_photos) — mit einem Abzeichen "Google-Upload
+   angefordert", das nie wieder seinen Zustand aenderte, und einem
+   Loeschknopf, der nur die WERKRUF-Zeile entfernte. Was bei Google
+   tatsaechlich stand, sah niemand.
+
+   Jetzt ist Google die Wahrheit: media/list holt die Medien des
+   ausgewaehlten Standorts, media/delete loescht dort — endgueltig.
+   Die WERKRUF-Uploads bleiben als das sichtbar, was sie sind: eine
+   Kopie bei uns, kein Spiegel von Google.
+
+   Welcher Standort: bestimmeZielstandort(), dieselbe Regel wie beim
+   Hochladen. Mehrere Betriebe ohne Auswahl → keine Anzeige und kein
+   Loeschen. Ein Foto beim falschen Betrieb zu loeschen waere
+   unumkehrbar.
+───────────────────────────────────────────── */
+
+const KATEGORIEN = {
+  PROFILE:    { label: 'Profilbild',  heikel: true },
+  COVER:      { label: 'Titelbild',   heikel: true },
+  LOGO:       { label: 'Logo',        heikel: true },
+  ADDITIONAL: { label: 'Weiteres Foto', heikel: false },
+};
+
+/** Lesbares Etikett fuer die Google-Kategorie. Unbekanntes bleibt sichtbar. */
+export function kategorieLabel(category) {
+  return KATEGORIEN[category]?.label ?? (category ? String(category) : 'Foto');
+}
+
+/** Profil-, Titelbild und Logo sind nicht "ein Foto unter vielen" —
+    ihr Fehlen faellt im Google-Eintrag sofort auf. */
+export function istHeikel(category) {
+  return Boolean(KATEGORIEN[category]?.heikel);
+}
+
+/**
+ * Ein Google-MediaItem (v4) auf das reduzieren, was die Seite braucht.
+ * Reine Funktion, exportiert fuer den Test. Die Google-URLs sind
+ * zeitlich begrenzt signiert — deshalb nie zwischenspeichern.
+ */
+export function medienAnzeige(item) {
+  if (!item || typeof item !== 'object' || !item.name) return null;
+  const category = item.locationAssociation?.category ?? null;
+  return {
+    name:      item.name,
+    bild:      item.thumbnailUrl || item.googleUrl || null,
+    gross:     item.googleUrl || item.thumbnailUrl || null,
+    kategorie: category,
+    label:     kategorieLabel(category),
+    heikel:    istHeikel(category),
+    erstellt:  item.createTime ?? null,
+    format:    item.mediaFormat ?? null,
+  };
+}
+
+/** Aufruf der google-business-Function mit der Sitzung des Nutzers. */
+async function rufeMedia(pfad, { method = 'GET', body, query } = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Keine aktive Sitzung');
+  const url = new URL(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/media/${pfad}`);
+  for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, v);
+  const response = await fetch(url.toString(), {
+    method,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!response.ok) {
+    let code = 'unbekannt';
+    try { code = (await response.json())?.error?.code ?? code; } catch { /* kein JSON */ }
+    const fehler = new Error(`media/${pfad} fehlgeschlagen`);
+    fehler.code = code;
+    throw fehler;
+  }
+  return response.json();
+}
+
+/* ─────────────────────────────────────────────
    STYLED
 ───────────────────────────────────────────── */
 const Page = styled.div`animation: ${fadeUp} .4s ease both;`;
@@ -219,6 +302,44 @@ const ErrorBanner = styled.div`
 
 const SpinnerIcon = styled(Loader)`animation: ${spin} .8s linear infinite;`;
 
+/* ── Google-Abschnitt ── */
+const KategorieMarke = styled.span`
+  position: absolute; top: 8px; left: 8px;
+  background: rgba(0,44,81,.85); color: #fff;
+  font-family: var(--font-body); font-size: .68rem; font-weight: 700;
+  letter-spacing: .4px; text-transform: uppercase;
+  border-radius: 3px; padding: 3px 7px;
+`;
+
+const Bestaetigung = styled.div`
+  position: absolute; inset: 0; background: rgba(255,255,255,.96);
+  display: flex; flex-direction: column; justify-content: center; gap: 8px;
+  padding: 14px; text-align: center;
+  p { font-family: var(--font-body); font-size: .8rem; line-height: 1.45; color: var(--color-text); margin: 0; }
+  p strong { color: #B3261E; }
+`;
+
+const KnopfZeile = styled.div`display: flex; gap: 8px; justify-content: center;`;
+
+const GefahrKnopf = styled.button`
+  font-family: var(--font-body); font-size: .78rem; font-weight: 700;
+  background: #B3261E; color: #fff; border: 0; border-radius: 5px;
+  padding: 8px 12px; cursor: pointer;
+  &:disabled { opacity: .6; cursor: wait; }
+`;
+
+const RuhigKnopf = styled.button`
+  font-family: var(--font-body); font-size: .78rem; font-weight: 700;
+  background: #fff; color: var(--color-primary);
+  border: 1px solid var(--color-border); border-radius: 5px;
+  padding: 8px 12px; cursor: pointer;
+`;
+
+const Hinweis = styled.p`
+  font-family: var(--font-body); font-size: .8rem; line-height: 1.55;
+  color: var(--color-text-muted); margin: 0 0 16px;
+`;
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
@@ -260,6 +381,70 @@ export default function DashboardFotos() {
   const [loading, setLoading] = useState(true);
 
   const profileId = user?.id;
+
+  /* ── Google-Medien ── */
+  const [standort, setStandort]       = useState(undefined); // undefined = noch nicht bestimmt, null = keiner
+  const [google, setGoogle]           = useState([]);
+  const [googleLaedt, setGoogleLaedt] = useState(true);
+  const [googleFehler, setGoogleFehler] = useState('');
+  const [loeschFrage, setLoeschFrage] = useState(null);   // media name, fuer das die Bestaetigung offen ist
+  const [loescht, setLoescht]         = useState(null);   // media name, das gerade geloescht wird
+
+  const ladeGoogle = useCallback(async (ort) => {
+    if (!ort) { setGoogle([]); setGoogleLaedt(false); return; }
+    setGoogleLaedt(true); setGoogleFehler('');
+    try {
+      const { media } = await rufeMedia('list', { query: { locationId: ort.id } });
+      setGoogle((media ?? []).map(medienAnzeige).filter(Boolean));
+    } catch (err) {
+      setGoogleFehler(err.code === 'not_connected' || err.code === 'reauth_required'
+        ? 'Die Google-Verbindung muss erneuert werden — unter „Dein Profil".'
+        : 'Die Fotos bei Google konnten gerade nicht geladen werden.');
+    } finally {
+      setGoogleLaedt(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!profileId) return;
+    let abgebrochen = false;
+    bestimmeZielstandort().then((ort) => {
+      if (abgebrochen) return;
+      setStandort(ort ?? null);
+      ladeGoogle(ort ?? null);
+    });
+    return () => { abgebrochen = true; };
+  }, [profileId, ladeGoogle]);
+
+  /*
+   * Loeschen bei Google — endgueltig.
+   *
+   * Zwei Klicks, nie einer: Der erste oeffnet die Bestaetigung auf der
+   * Karte, der zweite loescht. Kein window.confirm — das laesst sich
+   * weder gestalten noch testen, und sein Text ist zu kurz fuer das,
+   * was hier passiert.
+   *
+   * Die Antwort des Servers traegt die neue Medienliste; damit zeigt
+   * die Seite sofort den echten Stand, nicht eine lokale Vermutung.
+   */
+  const loescheBeiGoogle = async (eintrag) => {
+    if (!standort) return;
+    setLoescht(eintrag.name); setGoogleFehler('');
+    try {
+      const { media } = await rufeMedia('delete', {
+        method: 'POST',
+        body: { locationId: standort.id, mediaName: eintrag.name },
+      });
+      setGoogle((media ?? []).map(medienAnzeige).filter(Boolean));
+      setLoeschFrage(null);
+    } catch (err) {
+      setGoogleFehler(err.code === 'bad_request'
+        ? 'Dieses Foto gehört nicht zum ausgewählten Betrieb.'
+        : 'Das Foto konnte bei Google nicht gelöscht werden. Es ist unverändert.');
+    } finally {
+      setLoescht(null);
+    }
+  };
 
   /* ── Load photos from Supabase ── */
   useEffect(() => {
@@ -371,8 +556,10 @@ export default function DashboardFotos() {
     }
   }, [profileId]);
 
+  /* Entfernt NUR die Kopie bei WERKRUF. Das Foto bei Google bleibt —
+     dafuer ist der Abschnitt oben zustaendig, mit eigener Bestaetigung. */
   const handleDelete = async (photo) => {
-    if (!window.confirm('Foto löschen?')) return;
+    if (!window.confirm('Kopie bei WERKRUF entfernen? Das Foto bei Google bleibt davon unberührt.')) return;
     await supabase.from('business_photos').delete().eq('id', photo.id);
     setPhotos(prev => prev.filter(p => p.id !== photo.id));
   };
@@ -387,9 +574,84 @@ export default function DashboardFotos() {
     <ProGate feature="Fotos & Galerie">
     <Page>
       <PageTitle>Fotos & Galerie</PageTitle>
-      <PageSub>Lade Bilder hoch. WERKRUF bringt sie ins richtige Format für dein Google-Profil.</PageSub>
+      <PageSub>Was Kunden bei Google sehen — und neue Bilder dazu. WERKRUF bringt sie ins richtige Format.</PageSub>
 
       {error && <ErrorBanner>{error}</ErrorBanner>}
+
+      {/* ── BEI GOOGLE SICHTBAR ── */}
+      <GalleryHeader>
+        <GalleryTitle>Bei Google sichtbar</GalleryTitle>
+        {standort && !googleLaedt && (
+          <PhotoCount>{google.length} Foto{google.length !== 1 ? 's' : ''} · {standort.title || 'Betrieb'}</PhotoCount>
+        )}
+      </GalleryHeader>
+
+      {googleFehler && <ErrorBanner role="alert">{googleFehler}</ErrorBanner>}
+
+      {standort === null ? (
+        <EmptyState data-testid="google-kein-standort">
+          <EmptyIcon><Image size={24} /></EmptyIcon>
+          <p style={{ fontFamily: 'var(--font-body)', color: 'var(--color-text-muted)', fontSize: '.9rem' }}>
+            Wähle unter „Dein Profil" einen Betrieb aus — dann siehst du hier, welche Fotos bei Google stehen.
+          </p>
+        </EmptyState>
+      ) : googleLaedt ? (
+        <EmptyState>
+          <SpinnerIcon size={28} color="var(--color-text-muted)" style={{ margin: '0 auto 12px', display: 'block' }} />
+        </EmptyState>
+      ) : google.length === 0 ? (
+        <EmptyState data-testid="google-leer">
+          <EmptyIcon><Image size={24} /></EmptyIcon>
+          <p style={{ fontFamily: 'var(--font-body)', color: 'var(--color-text-muted)', fontSize: '.9rem' }}>
+            Bei Google liegen für diesen Betrieb noch keine Fotos.
+          </p>
+        </EmptyState>
+      ) : (
+        <>
+          <Hinweis>
+            Das sind die Fotos, die Kunden bei Google sehen. Löschen wirkt direkt bei Google
+            und lässt sich nicht rückgängig machen.
+          </Hinweis>
+          <Grid data-testid="google-galerie">
+            {google.map((g) => (
+              <PhotoCard key={g.name} data-media={g.name}>
+                {g.bild && <Photo src={g.bild} alt={g.label} loading="lazy" />}
+                <KategorieMarke>{g.label}</KategorieMarke>
+                {loeschFrage === g.name ? (
+                  <Bestaetigung role="dialog" aria-label="Löschen bestätigen">
+                    <p>
+                      <strong>Bei Google endgültig löschen?</strong>
+                      {g.heikel && <> Das ist dein <strong>{g.label}</strong> — es fehlt danach im Google-Eintrag.</>}
+                    </p>
+                    <KnopfZeile>
+                      <GefahrKnopf
+                        type="button"
+                        disabled={loescht === g.name}
+                        onClick={() => loescheBeiGoogle(g)}
+                      >
+                        {loescht === g.name ? 'Wird gelöscht…' : 'Ja, bei Google löschen'}
+                      </GefahrKnopf>
+                      <RuhigKnopf type="button" onClick={() => setLoeschFrage(null)} disabled={loescht === g.name}>
+                        Abbrechen
+                      </RuhigKnopf>
+                    </KnopfZeile>
+                  </Bestaetigung>
+                ) : (
+                  <PhotoOverlay>
+                    <DeleteBtn
+                      type="button"
+                      aria-label={`${g.label} bei Google löschen`}
+                      onClick={() => setLoeschFrage(g.name)}
+                    >
+                      <Trash2 size={15} />
+                    </DeleteBtn>
+                  </PhotoOverlay>
+                )}
+              </PhotoCard>
+            ))}
+          </Grid>
+        </>
+      )}
 
       {/* Drop Zone */}
       <DropZone
@@ -434,9 +696,11 @@ export default function DashboardFotos() {
         </UploadQueue>
       )}
 
-      {/* Gallery */}
+      {/* ── UEBER WERKRUF HOCHGELADEN ──
+          Die Kopie bei uns. Ob ein Foto bei Google angekommen ist,
+          zeigt der Abschnitt oben — nicht dieses Abzeichen. */}
       <GalleryHeader>
-        <GalleryTitle>Galerie</GalleryTitle>
+        <GalleryTitle>Über WERKRUF hochgeladen</GalleryTitle>
         <PhotoCount>{photos.length} Foto{photos.length !== 1 ? 's' : ''}</PhotoCount>
       </GalleryHeader>
 
@@ -461,10 +725,15 @@ export default function DashboardFotos() {
                 loading="lazy"
               />
               <SyncBadge>
-                <PulseDot /> Google-Upload angefordert
+                <PulseDot /> Kopie bei WERKRUF
               </SyncBadge>
               <PhotoOverlay>
-                <DeleteBtn onClick={() => handleDelete(photo)}>
+                <DeleteBtn
+                  type="button"
+                  aria-label="Kopie bei WERKRUF entfernen"
+                  title="Entfernt nur die Kopie bei WERKRUF — nicht bei Google"
+                  onClick={() => handleDelete(photo)}
+                >
                   <Trash2 size={15} />
                 </DeleteBtn>
               </PhotoOverlay>

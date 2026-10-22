@@ -1873,6 +1873,21 @@ class GbpApiClient {
     );
   }
 
+  /**
+   * Löscht ein Medium — bei Google, endgültig.
+   *
+   * mediaName ist der volle Ressourcenname
+   * accounts/…/locations/…/media/…, so wie listMedia ihn liefert.
+   * Dass er zum Standort des Aufrufers gehört, prüft der Handler,
+   * nicht diese Methode — hier ist nur der Transport.
+   */
+  async deleteMedia(mediaName: string): Promise<void> {
+    await this.transport.request<void>(
+      GBP_LEGACY_API, mediaName.replace(/^\//, ''),
+      { operation: 'deleteMedia', method: 'DELETE' },
+    );
+  }
+
   /* ── Bewertungen (v4) ── */
 
   /**
@@ -5705,6 +5720,65 @@ async function handleMediaCreate(request: Request): Promise<Response> {
 }
 
 /**
+ * POST /media/delete
+ *
+ * Löscht ein Foto des Standorts — bei Google, endgültig. Es gibt
+ * keinen Papierkorb und kein Zurück; die Oberfläche sagt das vor dem
+ * Klick, und dieser Handler verlässt sich nicht darauf, dass sie es
+ * getan hat.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * DIE EIGENTUMSPRÜFUNG IST DER PUNKT
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * loadOwnLocation stellt sicher, dass der Standort dem Aufrufer
+ * gehört. Das reicht hier NICHT: Der Medienname kommt aus dem Body,
+ * und ein Nutzer könnte den Namen eines Fotos eines FREMDEN Standorts
+ * mitschicken — Google würde ihn mit dem Token dieses Nutzers nur
+ * dann ablehnen, wenn der Nutzer dort keine Rechte hat. Verwaltet
+ * derselbe Google-Account mehrere Betriebe, hätte er sie.
+ *
+ * Deshalb: Der Medienname MUSS mit dem Ressourcennamen genau dieses
+ * Standorts beginnen. Alles andere ist bad_request, bevor irgendetwas
+ * Google erreicht.
+ *
+ * Body: { locationId: string, mediaName: string }
+ */
+async function handleMediaDelete(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; mediaName?: string }>(request);
+  if (!body.locationId || !body.mediaName) throw new GbpError('bad_request', 'locationId oder mediaName fehlt');
+
+  const location = await loadOwnLocation(body.locationId, user.id);
+
+  const mediaName = String(body.mediaName).replace(/^\//, '');
+  const standort  = `${normalizeName(location.account_resource_name, 'accounts')}/${normalizeName(location.location_resource_name, 'locations')}`;
+  const erlaubt   = `${standort}/media/`;
+  if (!mediaName.startsWith(erlaubt) || mediaName.length <= erlaubt.length || mediaName.includes('..')) {
+    throw new GbpError('bad_request', 'Das Foto gehört nicht zu diesem Standort');
+  }
+
+  const client = createGbpClient(user.id, location.account_id);
+  await client.deleteMedia(mediaName);
+
+  /* Cache nachziehen, damit die Fotoseite sofort den neuen Stand zeigt
+     statt auf den nächsten Abruf zu warten. */
+  const media = await client.listMedia(location.account_resource_name, location.location_resource_name);
+  await adminClient().from('google_locations').update({ google_media: media }).eq('id', location.id);
+
+  await writeAuditLog({
+    userId: user.id, action: 'media.deleted',
+    entityType: 'google_locations', entityId: location.id,
+    /* Nur der Name, nie eine URL — die Foto-URLs von Google sind
+       zeitlich begrenzt signiert und gehören nicht ins Protokoll. */
+    metadata: { mediaName, verbleibend: media.length },
+  });
+
+  return jsonResponse(request, { media, deleted: mediaName });
+}
+
+/**
  * POST /sync/run
  *
  * Der Worker. Wird per pg_cron oder externem Scheduler aufgerufen,
@@ -7683,6 +7757,10 @@ const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
 const MEDIA_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   list: { method: 'GET', handler: handleMediaList },
   create: { method: 'POST', handler: handleMediaCreate },
+  /* POST, nicht DELETE: dieselbe Methode wie alle anderen Schreibwege
+     dieser Function, damit CORS-Preflight und Rate-Limit-Schlüssel
+     gleich bleiben. Die Absicht steht im Pfad. */
+  delete: { method: 'POST', handler: handleMediaDelete },
 };
 
 Deno.serve(async (request: Request): Promise<Response> => {

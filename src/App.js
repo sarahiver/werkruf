@@ -31,6 +31,7 @@ import ResetPassword  from './pages/ResetPassword';
 import DashboardLayout      from './pages/dashboard/DashboardLayout';
 import DashboardHome        from './pages/dashboard/DashboardHome';
 import DashboardSettings       from './pages/dashboard/DashboardSettings';
+import DashboardSupport        from './pages/dashboard/DashboardSupport';
 import DashboardBewertungen    from './pages/dashboard/DashboardBewertungen';
 import DashboardGoogleBusiness from './pages/dashboard/DashboardGoogleBusiness';
 import DashboardFotos          from './pages/dashboard/DashboardFotos';
@@ -157,6 +158,9 @@ function App() {
                   statt auf einer leeren Seite oder einem 404. */}
               <Route path="reporting" element={<Navigate to="/dashboard" replace />} />
               <Route path="einstellungen" element={<DashboardSettings />} />
+              {/* Nur Founding Partner; die Seite leitet andere auf die
+                  Uebersicht. Menuepunkt siehe DashboardLayout. */}
+              <Route path="support" element={<DashboardSupport />} />
             </Route>
 
             {/* ── STANDALONE (ohne PublicLayout) ── */}

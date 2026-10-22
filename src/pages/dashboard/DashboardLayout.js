@@ -3,8 +3,9 @@ import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  Settings, LogOut, Menu, X, Users, MapPin
+  Settings, LogOut, Menu, X, Users, MapPin, MessageCircle
 } from 'lucide-react';
+import { isFoundingPartner } from '../../utils/subscription';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 
@@ -230,8 +231,21 @@ const NAV_ITEMS = [
      auf der Seite ("Monatliche Reports") war aus genau dem Grund schon
      am 16.10. gegangen. Die Dateien (DashboardReporting, FahrplanPDF)
      bleiben fuer einen spaeteren Monatsbericht aus echten Daten. */
+  /* Nur fuer Founding Partner — die Karte "Direkter Draht" lag am
+     21.10.2026 auf der Uebersicht und war dort zu weit unten, um
+     gefunden zu werden. Ein Menuepunkt ist auffindbar. Die Regel
+     dahinter steht in der Datenbank (support_requests-Policy), nicht
+     in diesem Flag. */
+  { to: '/dashboard/support',          icon: MessageCircle,   label: 'Support', nurFoundingPartner: true },
   { to: '/dashboard/einstellungen',    icon: Settings,        label: 'Einstellungen'      },
 ];
+
+/** Welche Menuepunkte dieses Profil sieht. Reine Funktion, exportiert
+    fuer den Test. */
+export function sichtbareNavItems(profile, items = NAV_ITEMS) {
+  const fp = isFoundingPartner(profile);
+  return items.filter((item) => !item.nurFoundingPartner || fp);
+}
 
 /* ─────────────────────────────────────────────
    COMPONENT
@@ -297,7 +311,7 @@ export default function DashboardLayout() {
         </SidebarTop>
 
         <Nav>
-          {NAV_ITEMS.map(({ to, icon: Icon, label, end, badge }) => (
+          {sichtbareNavItems(profile).map(({ to, icon: Icon, label, end, badge }) => (
             <NavItem
               key={to}
               to={to}
