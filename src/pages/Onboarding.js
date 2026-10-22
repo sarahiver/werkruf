@@ -170,11 +170,17 @@ export default function Onboarding() {
    * Kein Re-Consent: Wer schon zugestimmt hat, sieht den Haken nicht
    * mehr. Eine neue Fassung fragt NICHT erneut.
    *
-   * Hierher kommt man auf zwei Weisen: ueber den Bestaetigungslink
-   * nach der Registrierung, und ueber getPostAuthDestination — die
-   * Weiche schickt jede Anmeldung ohne accepted_terms_at hierher,
-   * einmalig auch bestehende Konten. Sie prueft ausschliesslich das
-   * FEHLEN der Zustimmung, nie die Fassung.
+   * Hierher kommt man auf drei Weisen: ueber den Bestaetigungslink
+   * nach der Registrierung; ueber getPostAuthDestination, die Weiche
+   * nach /login und /signup; und ueber das ZustimmungsTor vor
+   * /dashboard, das jeden Aufruf ohne accepted_terms_at hierher
+   * schickt — auch per Lesezeichen oder Kopf-CTA, einmalig auch
+   * bestehende Konten. Alle drei pruefen ausschliesslich das FEHLEN
+   * der Zustimmung, nie die Fassung.
+   *
+   * (Bis 22.10.2026 stand hier, die Weiche fange "jede Anmeldung"
+   * ab. Das stimmte nur fuer die zwei Seiten, die sie aufrufen; wer
+   * das Dashboard anders erreichte, kam ohne Zustimmung hinein.)
    */
   const [fassung, setFassung]   = React.useState(null);
   const [haken, setHaken]       = React.useState(false);

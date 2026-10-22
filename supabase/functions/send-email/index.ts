@@ -30,7 +30,8 @@ type EmailTemplate =
   | 'welcome' | 'trial_reminder' | 'trial_ended'
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
   | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed'
-  | 'support_reply';
+  | 'support_reply'
+  | 'consent_reminder';
 
 interface EmailRow {
   id: string;
@@ -625,6 +626,22 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
        Eingereiht von reply_support_request(); Empfaenger und Text
        kommen aus der Datenbank, nicht aus dem Admin-Formular.
        Kein Plan-Tor: Wer gefragt hat, bekommt die Antwort. */
+    /* 22.10.2026 — einmalige Erinnerung, drei Tage nach der
+       Registrierung, wenn AGB/Datenschutz noch nicht zugestimmt wurde.
+       Eingereiht von schedule_consent_reminders(). Kein Druck, kein
+       Countdown: Wer nicht will, muss nichts tun. */
+    case 'consent_reminder': {
+      const title = `Ein Klick fehlt noch bei ${brand.name}`;
+      const html = layout(brand, title,
+        p(greeting) +
+        p(`du hast dich vor ein paar Tagen bei ${escapeHtml(brand.name)} registriert${payload.companyName ? ` — für ${company}` : ''}. Die Einrichtung ist noch nicht abgeschlossen: Es fehlt deine Zustimmung zu den AGB und der Datenschutzerklärung.`) +
+        p('Das ist ein Haken und ein Klick. Danach verbindest du dein Google-Unternehmensprofil, und es geht los.') +
+        p(`Wenn du ${escapeHtml(brand.name)} nicht nutzen möchtest, musst du nichts tun — ohne Zustimmung bleibt das Konto inaktiv, und wir schreiben dir deswegen nicht noch einmal.`),
+        { label: 'Einrichtung abschließen', url: `${brand.appUrl}/onboarding` },
+      );
+      return { subject: title, html, text: toPlainText(html) };
+    }
+
     case 'support_reply': {
       const betreff = escapeHtml(String(payload.betreff ?? 'deine Anfrage'));
       const antwort = escapeHtml(String(payload.antwort ?? '')).replace(/\n/g, '<br>');

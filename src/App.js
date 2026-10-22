@@ -11,6 +11,7 @@ import ThemeInjector        from './components/ThemeInjector';
 import ProtectedRoute       from './components/auth/ProtectedRoute';
 import AdminRoute           from './components/auth/AdminRoute';
 import OnboardingWeiche     from './components/auth/OnboardingWeiche';
+import ZustimmungsTor       from './components/auth/ZustimmungsTor';
 import Fehlergrenze         from './components/Fehlergrenze';
 
 /* Global shell */
@@ -137,9 +138,15 @@ function App() {
                 Prueft serverseitig, ob die Sitzung zum Link passt. */}
             <Route path="/einstieg" element={<Einstieg />} />
 
+            {/* ProtectedRoute: angemeldet? ZustimmungsTor: AGB zugestimmt?
+                Das Tor steht HIER und nicht nur in der Weiche nach dem
+                Login, weil das Dashboard auch ueber Lesezeichen, Kopf-CTA
+                oder wiedergeoeffneten Tab erreicht wird (22.10.2026). */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
-                <DashboardLayout />
+                <ZustimmungsTor>
+                  <DashboardLayout />
+                </ZustimmungsTor>
               </ProtectedRoute>
             }>
               {/* index = /dashboard */}

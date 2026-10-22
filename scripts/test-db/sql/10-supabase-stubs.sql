@@ -53,8 +53,14 @@ create schema if not exists auth authorization supabase_auth_admin;
  * verweisen mit references auth.users(id) darauf.
  */
 create table if not exists auth.users (
-  id    uuid primary key default gen_random_uuid(),
-  email text
+  id                 uuid primary key default gen_random_uuid(),
+  email              text,
+  /* 22.10.2026: schedule_consent_reminders() liest email_confirmed_at —
+     wie on_user_confirmed_send_welcome() in der Baseline. Spalten wie
+     in Produktion (timestamptz, jsonb); in Tests setzt man sie
+     ausdruecklich, der Helfer test.benutzer() laesst sie leer. */
+  email_confirmed_at timestamptz,
+  raw_user_meta_data jsonb
 );
 
 /*
