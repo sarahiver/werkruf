@@ -402,3 +402,66 @@ begin
       for each row execute function public.anonymise_user_on_delete();
   end if;
 end $$;
+
+/* ═══════════════════════════════════════════════════════════════
+   FREMDSCHLUESSEL AUF auth.users — WIE IN PRODUKTION GEMESSEN
+   ═══════════════════════════════════════════════════════════════
+
+   Der Baseline-Export enthaelt keine einzige FOREIGN-KEY-Zeile. Die
+   Testdatenbank hatte deshalb bis zum 22.10.2026 KEINE Loeschregeln
+   fuer die Tabellen aus der Zeit vor der Migrationshistorie — und
+   kontoloeschungVollstaendig.test.sql fand nach einer Loeschung Reste
+   in google_reviews, notification_preferences, events, user_profiles.
+
+   Am 23.10.2026 in Produktion gemessen (pg_constraint, Regel je
+   Spalte). Hier exakt gespiegelt, damit die Testdatenbank beim
+   Loeschen dasselbe tut wie Produktion. Tabellen, deren FK schon aus
+   einer Migration kommt (action_tokens, action_auth_states,
+   support_requests), bleiben aussen vor — doppelt waere falsch.
+
+   Jede Zeile: Tabelle, Spalte, Ziel, Regel — wie gemessen. */
+do $$
+declare
+  v record;
+  v_name text;
+begin
+  for v in
+    select * from (values
+      ('user_profiles',            'id',         'auth.users',          'cascade'),
+      ('business_photos',          'profile_id', 'public.user_profiles','cascade'),
+      ('ai_usage_log',             'user_id',    'auth.users',          'cascade'),
+      ('google_accounts',          'user_id',    'auth.users',          'cascade'),
+      ('google_locations',         'user_id',    'auth.users',          'cascade'),
+      ('google_oauth_states',      'user_id',    'auth.users',          'cascade'),
+      ('oauth_tokens',             'user_id',    'auth.users',          'cascade'),
+      ('google_reviews',           'user_id',    'auth.users',          'cascade'),
+      ('review_replies',           'created_by', 'auth.users',          'set null'),
+      ('review_replies',           'user_id',    'auth.users',          'cascade'),
+      ('sync_jobs',                'user_id',    'auth.users',          'cascade'),
+      ('audit_logs',               'user_id',    'auth.users',          'set null'),
+      ('email_queue',              'user_id',    'auth.users',          'cascade'),
+      ('notification_preferences', 'user_id',    'auth.users',          'cascade'),
+      ('events',                   'user_id',    'auth.users',          'cascade'),
+      ('weekly_snapshots',         'user_id',    'auth.users',          'cascade'),
+      ('recommendation_events',    'user_id',    'auth.users',          'cascade')
+    ) as f(tabelle, spalte, ziel, regel)
+  loop
+    /* Nur, wenn Tabelle und Spalte existieren und noch kein FK auf
+       dieser Spalte liegt. */
+    if not exists (select 1 from information_schema.columns
+                    where table_schema = 'public' and table_name = v.tabelle and column_name = v.spalte) then
+      raise notice '[testaufbau] FK uebersprungen: %.% fehlt', v.tabelle, v.spalte;
+      continue;
+    end if;
+    if exists (select 1 from pg_constraint c
+                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+               where c.contype = 'f' and c.conrelid = format('public.%I', v.tabelle)::regclass
+                 and a.attname = v.spalte) then
+      continue;
+    end if;
+    v_name := format('%s_%s_fkey_prod', v.tabelle, v.spalte);
+    execute format('alter table public.%I add constraint %I foreign key (%I) references %s(id) on delete %s',
+                   v.tabelle, v_name, v.spalte, v.ziel, v.regel);
+    raise notice '[testaufbau] FK wie Produktion: %.% → % on delete %', v.tabelle, v.spalte, v.ziel, v.regel;
+  end loop;
+end $$;

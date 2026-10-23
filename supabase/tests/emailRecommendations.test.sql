@@ -23,15 +23,17 @@ insert into public.events
   (user_id, location_id, type, category, priority, title, summary,
    estimated_effort, estimated_minutes, action_url, in_weekly_email)
 values
-  ((select id from t where name='si'), (select id from t where name='si'),
+  ((select id from t where name='user'), (select id from t where name='si'),
    'profile.photos_missing', 'profile', 29, 'S&I Fotos', 'Keine Fotos hinterlegt.',
    '5 Minuten', 5, '/dashboard/fotos', true),
   ((select id from t where name='user'), (select id from t where name='werkruf'),
    'profile.photos_missing', 'profile', 29, 'WERKRUF Fotos', 'Keine Fotos hinterlegt.',
    '5 Minuten', 5, '/dashboard/fotos', true);
 
-update public.events set user_id = (select id from t where name='user')
- where title = 'S&I Fotos';
+/* 23.10.2026: Hier stand ein Insert mit der Standort-ID als user_id und
+   ein korrigierendes UPDATE danach. Seit die Testdatenbank die
+   Produktions-Fremdschluessel traegt, weist events.user_id → auth.users
+   das ab — wie Produktion es immer getan haette. Jetzt direkt richtig. */
 
 /* ═══════════════════════════════════════════════════════
    1 — Nur ein Betrieb in der Mail

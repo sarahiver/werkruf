@@ -31,7 +31,8 @@ type EmailTemplate =
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
   | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed'
   | 'support_reply'
-  | 'consent_reminder';
+  | 'consent_reminder'
+  | 'account_deleted';
 
 interface EmailRow {
   id: string;
@@ -638,6 +639,25 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         p('Das ist ein Haken und ein Klick. Danach verbindest du dein Google-Unternehmensprofil, und es geht los.') +
         p(`Wenn du ${escapeHtml(brand.name)} nicht nutzen möchtest, musst du nichts tun — ohne Zustimmung bleibt das Konto inaktiv, und wir schreiben dir deswegen nicht noch einmal.`),
         { label: 'Einrichtung abschließen', url: `${brand.appUrl}/onboarding` },
+      );
+      return { subject: title, html, text: toPlainText(html) };
+    }
+
+    /* 22.10.2026 (WP1) — Bestaetigung der Kontoloeschung. Wird NACH
+       dem erfolgreichen Loeschen eingereiht, user_id ist null. Sagt,
+       was weg ist und was bleibt — und nennt die Erstattungsfrage
+       nicht beschoenigend. */
+    case 'account_deleted': {
+      const title = `Dein ${brand.name}-Konto ist gelöscht`;
+      const html = layout(brand, title,
+        p(greeting) +
+        p(`dein Konto bei ${escapeHtml(brand.name)}${payload.companyName ? ` für ${company}` : ''} ist gelöscht — sofort und endgültig, so wie du es bestätigt hast.`) +
+        p(`<strong>Weg sind:</strong> dein Zugang, deine Daten bei ${escapeHtml(brand.name)}, die Kopien deiner Fotos. Die Berechtigung für dein Google-Konto haben wir zurückgegeben.`) +
+        p('<strong>Unverändert bleibt dein Google-Unternehmensprofil.</strong> Alles, was du dort freigegeben hast — Antworten, Öffnungszeiten, Fotos — gehört deinem Google-Konto und steht weiter online.') +
+        (payload.stripeCancelled
+          ? p('Dein Abo wurde zum selben Zeitpunkt beendet. Es wird nichts mehr abgebucht; eine Erstattung für den bereits bezahlten Restzeitraum erfolgt nicht.')
+          : '') +
+        p(`Diese Nachricht ist die letzte, die du von ${escapeHtml(brand.name)} bekommst. Wenn du zurückkommen möchtest, bist du jederzeit willkommen.`),
       );
       return { subject: title, html, text: toPlainText(html) };
     }

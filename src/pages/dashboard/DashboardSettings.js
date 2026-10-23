@@ -8,6 +8,7 @@ import { useAuthContext } from '../../context/AuthContext';
 import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
+import KontoLoeschen, { AboKuendigenHinweis } from '../../components/dashboard/KontoLoeschen';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
 import {
@@ -212,34 +213,10 @@ export default function DashboardSettings() {
     founding_partner:  'Founding Partner',
   };
 
-  /* ── Delete Account (GDPR Right to be Forgotten) ── */
-  const handleDeleteAccount = async () => {
-    const confirmed = window.confirm(
-      'Konto wirklich löschen?\n\n' +
-      '• Alle deine Daten werden gelöscht\n' +
-      '• Dein Abo wird sofort gekündigt\n' +
-      '• Dein Google Business Profil bleibt erhalten\n\n' +
-      'Diese Aktion kann nicht rückgängig gemacht werden.'
-    );
-    if (!confirmed) return;
-
-    // Second confirmation
-    const confirmed2 = window.confirm('Bist du absolut sicher? Alle Daten werden unwiderruflich gelöscht.');
-    if (!confirmed2) return;
-
-    setPortalLoading(true);
-    setPortalError('');
-    try {
-      const { data, error } = await supabase.functions.invoke('delete-account');
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
-      // User is deleted — redirect to homepage
-      window.location.href = '/';
-    } catch (err) {
-      setPortalError('Fehler beim Löschen: ' + err.message);
-      setPortalLoading(false);
-    }
-  };
+  /* Konto loeschen: seit 22.10.2026 (WP1) in
+     components/dashboard/KontoLoeschen.js — eigener Dialog statt
+     window.confirm, mit vollstaendiger Folgenliste und
+     Tipp-Bestaetigung. Die Abo-Alternative steht davor. */
 
   /* ── Open Stripe Customer Portal ── */
   const handlePortal = async () => {
@@ -473,21 +450,22 @@ export default function DashboardSettings() {
           Steht vor dem Löschbereich, weil sie öfter gebraucht wird. */}
       <NotificationSettings />
 
-      <Card $d=".16s" style={{ borderColor: '#FFCDD2' }}>
-        <CardTitle style={{ color: '#D93025' }}>Konto löschen</CardTitle>
-        <CardSub>
-          Dein Konto und alle Daten werden dauerhaft gelöscht.
-          Dein Google Business Profil bleibt davon unberührt — es gehört dir.
-        </CardSub>
-        <PortalBtn
-          style={{ background: 'none', border: '1px solid #D93025', color: '#D93025' }}
-          onClick={handleDeleteAccount}
-          disabled={portalLoading}
-        >
-          Konto & alle Daten löschen (DSGVO)
-        </PortalBtn>
-        {portalError && <ErrorBanner style={{ marginTop: 10 }}>{portalError}</ErrorBanner>}
-      </Card>
+      {/* ── ABO KUENDIGEN (Alternative) → KONTO LOESCHEN ──
+          Reihenfolge ist Absicht: Wer nur nicht mehr zahlen will,
+          soll den milderen Weg zuerst sehen. */}
+      <AboKuendigenHinweis
+        sichtbar={!foundingPartner && hasStripeCustomer && !cancellationScheduled
+          && ['active', 'trialing', 'past_due'].includes(profile?.stripe_subscription_status)}
+        periodeEndet={periodEnd}
+        onPortal={handlePortal}
+        laeuft={portalLoading}
+      />
+      <KontoLoeschen
+        aboAktiv={!!profile?.stripe_subscription_id
+          && ['active', 'trialing', 'past_due'].includes(profile?.stripe_subscription_status)}
+        foundingPartner={foundingPartner}
+        email={user?.email}
+      />
     </Page>
   );
 }
