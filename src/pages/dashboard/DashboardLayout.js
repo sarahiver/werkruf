@@ -8,6 +8,7 @@ import {
 import { isFoundingPartner } from '../../utils/subscription';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
+import BetriebsKontext, { BetriebsKopf } from '../../components/dashboard/BetriebsKontext';
 
 /* ─────────────────────────────────────────────
    SHELL
@@ -180,6 +181,10 @@ const TopBarTitle = styled.p`
   font-family: var(--font-display); font-weight: var(--heading-weight);
   font-size: .95rem; text-transform: var(--text-transform);
   color: var(--color-primary); letter-spacing: .04em;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  /* WP3: Betriebszeile im Kopf — sichtbar auf jeder Breite, auch wenn
+     die Sidebar mobil eingeklappt ist. */
+  & > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 
 const Overlay = styled.div`
@@ -220,7 +225,7 @@ const NAV_ITEMS = [
   /* Benannt nach dem Ergebnis, nicht nach dem Werkzeug.
      "Fotos & Galerie" und "Reporting" sagten, was die Seite IST.
      Jetzt sagen sie, wozu man sie öffnet. */
-  { to: '/dashboard/google',           icon: MapPin,          label: 'Dein Profil'        },
+  { to: '/dashboard/google',           icon: MapPin,          label: 'Dein Google-Profil' },
   { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen'        },
   { to: '/dashboard/fotos',            icon: Image,           label: 'Fotos'              },
   { to: '/dashboard/kunden-gewinnung', icon: Users,           label: 'Mehr Bewertungen'   },
@@ -311,6 +316,9 @@ export default function DashboardLayout() {
         </SidebarTop>
 
         <Nav>
+          {/* WP3 (23.10.2026): Der ausgewaehlte Betrieb steht ueber der
+              Navigation — auf jeder Seite, auch im Mobile-Menue. */}
+          <BetriebsKontext onNavigate={() => setOpen(false)} />
           {sichtbareNavItems(profile).map(({ to, icon: Icon, label, end, badge }) => (
             <NavItem
               key={to}
@@ -339,7 +347,10 @@ export default function DashboardLayout() {
           <MobileBtn onClick={() => setOpen(!open)}>
             {open ? <X size={22} /> : <Menu size={22} />}
           </MobileBtn>
-          <TopBarTitle>{brand.name} Dashboard</TopBarTitle>
+          <TopBarTitle>
+            <span style={{ opacity: .6 }}>{brand.name}</span>
+            <BetriebsKopf />
+          </TopBarTitle>
         </TopBar>
         {checkoutState === 'checking' && <CheckoutBanner role="status">Zahlung bestätigt. Dein Zugang wird freigeschaltet…</CheckoutBanner>}
         {checkoutState === 'active' && <CheckoutBanner role="status">Dein Abo ist aktiv.</CheckoutBanner>}

@@ -527,9 +527,9 @@ export default function DashboardGoogleBusiness() {
   if (!connectionLoading && !isConnected) {
     return (
       <Page>
-        <PageTitle>Google Business Profil</PageTitle>
+        <PageTitle>Dein Google-Profil</PageTitle>
         <PageSub>
-          Verbinde dein Profil, damit {brand.name} Bewertungen, Standortdaten
+          Verbinde dein Profil, damit {brand.name} Bewertungen, Betriebsdaten
           und Sichtbarkeit auswerten kann.
         </PageSub>
         <GoogleBusinessConnect googleBusiness={googleBusiness} />
@@ -604,8 +604,8 @@ export default function DashboardGoogleBusiness() {
 
   return (
     <Page>
-      <PageTitle>Google Business Profil</PageTitle>
-      <PageSub>Standorte, Bewertungen und Antworten auf einen Blick.</PageSub>
+      <PageTitle>Dein Google-Profil</PageTitle>
+      <PageSub>Dein Betrieb bei Google — Angaben, Bewertungen und Antworten auf einen Blick.</PageSub>
 
       <GoogleBusinessConnect googleBusiness={googleBusiness} />
 
@@ -677,7 +677,7 @@ export default function DashboardGoogleBusiness() {
               value={scopedStats?.unanswered ?? '—'}
               label="Unbeantwortet"
               accent={scopedStats?.unanswered > 0 ? '#D48A00' : '#1E7E34'}
-              hint={scopedStats?.unanswered === null ? 'Nur über alle Standorte'
+              hint={scopedStats?.unanswered === null ? 'Nur über alle Betriebe'
                 : scopedStats?.unanswered > 0 ? 'Warten auf eine Antwort' : 'Alles beantwortet'}
             />
           </StatsRow>
@@ -832,7 +832,7 @@ export default function DashboardGoogleBusiness() {
           )}
 
           {/* ── STANDORTE ── */}
-          <SectionTitle><MapPin size={15} /> Standorte</SectionTitle>
+          <SectionTitle><MapPin size={15} /> Ausgewählter Betrieb</SectionTitle>
 
           {loading ? <SkeletonList count={2} height={140} />
             : visibleLocations.length === 0 ? (

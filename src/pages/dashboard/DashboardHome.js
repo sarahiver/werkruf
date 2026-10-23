@@ -174,7 +174,7 @@ export default function DashboardHome() {
             {locations.length > 1 && (
               <Insight
                 value={locations.length}
-                text="Standorte werden überwacht. Der Umschalter im Profil zeigt sie einzeln."
+                text="Betriebe sind verbunden. Diese Seite zeigt den ausgewählten — wechseln kannst du unter „Dein Google-Profil“."
               />
             )}
           </Card>
@@ -235,7 +235,7 @@ export default function DashboardHome() {
           </Caption>
 
           <QuietLink to="/dashboard/google">
-            Profil und Standorte ansehen <ArrowRight size={14} />
+            Google-Profil und Betriebe ansehen <ArrowRight size={14} />
           </QuietLink>
         </>
       )}

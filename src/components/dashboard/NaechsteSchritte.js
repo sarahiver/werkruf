@@ -192,7 +192,7 @@ export default function NaechsteSchritte({
           <h3>Welchen Betrieb möchtest du ansehen?</h3>
           <p>
             Wähle zuerst einen Betrieb aus. Danach zeigt WERKRUF dir Score und
-            nächste Schritte für genau diesen Standort.
+            nächste Schritte für genau diesen Betrieb.
           </p>
           {/* Ein echter Link, kein Knopf mit Navigation im Klick —
               so funktionieren Mittelklick und "in neuem Tab öffnen". */}

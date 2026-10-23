@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from '../supabaseClient';
+import { meldeBetriebswechsel } from './useAusgewaehlterStandort';
 import { leiteImportZustandAb } from '../utils/adminOps';
 
 /* Nur fuer den Fall, dass die Antwort keinen lesbaren Text enthaelt —
@@ -309,6 +310,11 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
        das es keinen Anlass gab. "Jetzt abgleichen" bleibt als eigene
        Aktion bestehen. */
     await load();
+    /* WP3: Sidebar und Kopfzeile lesen die Auswahl ueber
+       useAusgewaehlterStandort — eine andere Hook-Instanz. Ihr sagen,
+       dass sich etwas geaendert hat; sie laedt dann dieselbe Abfrage
+       neu. */
+    meldeBetriebswechsel();
   }, [load]);
 
   /* Zuletzt erfolgreich synchronisiert.

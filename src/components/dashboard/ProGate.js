@@ -97,8 +97,8 @@ const ErrorText = styled.p`
 const PRO_FEATURES = [
   'Google Bewertungen verwalten & beantworten',
   'KI-Antwort-Assistent (Claude)',
-  'Foto-Upload & Galerie',
-  'Kunden-Gewinnung (QR-Code & Review-Link)',
+  'Fotos — hochladen und bei Google verwalten',
+  'Mehr Bewertungen (QR-Code & Bewertungslink)',
   'Monatliche PDF-Reports',
   'Profil-Monitoring & Wettbewerber-Check',
 ];

@@ -244,7 +244,7 @@ export default function DashboardKundenGewinnung() {
      entscheidet hasPaidAccess in src/utils/subscription.js. */
   const zustandsSeite = (titel, text) => (
     <Page>
-      <PageTitle>Kunden-Gewinnung</PageTitle>
+      <PageTitle>Mehr Bewertungen</PageTitle>
       <NoBusiness>
         <Star size={36} color="var(--color-accent)" style={{ marginBottom: 14, display: 'block', margin: '0 auto 14px' }} />
         <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem',
@@ -260,7 +260,7 @@ export default function DashboardKundenGewinnung() {
   );
 
   return (
-    <ProGate feature="Kunden-Gewinnung">
+    <ProGate feature="Mehr Bewertungen">
     {standortLaedt ? zustandsSeite(
       'Einen Moment',
       'Wir holen gerade deinen Betrieb.',
@@ -276,7 +276,7 @@ export default function DashboardKundenGewinnung() {
         : 'Verbinde zuerst dein Google-Unternehmensprofil in der Übersicht, dann steht dein Bewertungslink bereit.',
     ) : (
     <Page>
-      <PageTitle>Kunden-Gewinnung</PageTitle>
+      <PageTitle>Mehr Bewertungen</PageTitle>
       <PageSub>
         Mehr Bewertungen heißt mehr Sichtbarkeit. Teile deinen Link — jede neue
         Bewertung zählt.

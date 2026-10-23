@@ -93,19 +93,42 @@ import supabase from '../supabaseClient';
  * gesetzt, nur gelesen. Die Auswahl selbst bleibt
  * select_google_location (RPC) und selected_at.
  *
+ * 23.10.2026 (WP3): Dieser Hook ist jetzt auch die Quelle fuer die
+ * Betriebsanzeige in Sidebar und Kopfzeile. Damit dort nach einem
+ * Wechsel auf /dashboard/google nicht der alte Betrieb stehen bleibt,
+ * hoert er auf das Ereignis BETRIEB_GEWECHSELT, das selectLocation()
+ * in useGoogleBusinessData nach erfolgreichem RPC ausloest — und laedt
+ * dann neu. Kein globaler Store, keine zweite Auswahl: dieselbe
+ * Abfrage, nur einmal mehr.
+ *
  * @returns {{
- *   standort: {id: string, place_id: string|null, title: string|null}|null,
+ *   standort: {id: string, place_id: string|null, title: string|null, locality: string|null}|null,
  *   grund: 'ausgewaehlt'|'ohne_auswahl'|'keine'|null,
  *   anzahl: number,
  *   loading: boolean,
  *   fehler: boolean
  * }}
  */
+/** Name des Ereignisses, mit dem ein Betriebswechsel bekannt gemacht wird. */
+export const BETRIEB_GEWECHSELT = 'werkruf:betrieb-gewechselt';
+
+/** Betriebswechsel bekannt machen — fuer jeden Hook-Aufrufer auf der Seite. */
+export function meldeBetriebswechsel() {
+  if (typeof window === 'undefined') return;
+  try { window.dispatchEvent(new Event(BETRIEB_GEWECHSELT)); } catch (_) { /* egal */ }
+}
+
 export function useAusgewaehlterStandort() {
   const { user } = useAuthContext();
   const [zustand, setZustand] = React.useState({
     standort: null, grund: null, anzahl: 0, loading: true, fehler: false,
   });
+  const [lauf, setLauf] = React.useState(0);
+  React.useEffect(() => {
+    const neu = () => setLauf((n) => n + 1);
+    window.addEventListener(BETRIEB_GEWECHSELT, neu);
+    return () => window.removeEventListener(BETRIEB_GEWECHSELT, neu);
+  }, []);
 
   React.useEffect(() => {
     if (!user?.id) {
@@ -122,7 +145,7 @@ export function useAusgewaehlterStandort() {
            typisch einer bis drei Zeilen. */
         const { data, error } = await supabase
           .from('google_locations')
-          .select('id, place_id, title, selected_at')
+          .select('id, place_id, title, locality, selected_at')
           .eq('user_id', user.id)
           .is('deleted_at', null)
           .order('selected_at', { ascending: false, nullsFirst: false });
@@ -143,7 +166,7 @@ export function useAusgewaehlterStandort() {
     })();
 
     return () => { abgebrochen = true; };
-  }, [user?.id]);
+  }, [user?.id, lauf]);
 
   return zustand;
 }

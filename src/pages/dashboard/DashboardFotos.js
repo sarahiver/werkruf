@@ -571,9 +571,9 @@ export default function DashboardFotos() {
   };
 
   return (
-    <ProGate feature="Fotos & Galerie">
+    <ProGate feature="Fotos">
     <Page>
-      <PageTitle>Fotos & Galerie</PageTitle>
+      <PageTitle>Fotos</PageTitle>
       <PageSub>Was Kunden bei Google sehen — und neue Bilder dazu. WERKRUF bringt sie ins richtige Format.</PageSub>
 
       {error && <ErrorBanner>{error}</ErrorBanner>}

@@ -197,7 +197,7 @@ export default function DashboardBewertungen() {
     <Page>
       <PageTitle>Bewertungen</PageTitle>
       <PageSub>
-        Alle Google-Bewertungen deiner Standorte. Antworten schlägt {brand.name} vor —
+        Alle Google-Bewertungen deiner Betriebe. Antworten schlägt {brand.name} vor —
         veröffentlicht wird erst nach deiner Freigabe.
       </PageSub>
 
@@ -236,7 +236,7 @@ export default function DashboardBewertungen() {
 
         {locations.length > 1 && (
           <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-            <option value="all">Alle Standorte</option>
+            <option value="all">Alle Betriebe</option>
             {locations.map((l) => (
               <option key={l.id} value={l.id}>{l.title || 'Ohne Namen'}</option>
             ))}
