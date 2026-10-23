@@ -94,13 +94,18 @@ const ErrorText = styled.p`
   font-size: .8rem; line-height: 1.45;
 `;
 
+/* Nur, was es gibt (WP4, 23.10.2026). Hier standen „Monatliche
+   PDF-Reports“ (am 21.10. aus dem Produkt genommen) und
+   „Wettbewerber-Check“ (nie gebaut). Ein Versprechen hinter einer
+   Bezahlschranke, das nicht eingeloest wird, ist das Gegenteil von
+   dem, was die Schranke rechtfertigt. */
 const PRO_FEATURES = [
-  'Google Bewertungen verwalten & beantworten',
-  'KI-Antwort-Assistent (Claude)',
+  'Bewertungen mit Antwortvorschlägen — veröffentlicht wird nur, was du freigibst',
   'Fotos — hochladen und bei Google verwalten',
   'Mehr Bewertungen (QR-Code & Bewertungslink)',
-  'Monatliche PDF-Reports',
-  'Profil-Monitoring & Wettbewerber-Check',
+  'Wochenmail mit deinen Aufgaben, direkt erledigbar',
+  'Sofortmeldung bei kritischen Bewertungen',
+  'Priorisierte Aufgaben aus deinem echten Google-Profil',
 ];
 
 /* ─────────────────────────────────────────────

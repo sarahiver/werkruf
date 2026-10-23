@@ -567,6 +567,82 @@ async function ergaenzeMailLinks(
   return { ...payload, [feldname]: mitLinks };
 }
 
+/**
+ * Sofortmail (critical_review_alert): Ziel praezisieren, Token-Weg
+ * nutzen (WP4, 23.10.2026).
+ *
+ * Bis dahin trug die Sofortmail einen nackten Link auf
+ * /dashboard/bewertungen — ohne Token, ohne Betrieb, ohne Bewertung.
+ * Die Wochenmail hatte den sicheren /einstieg-Weg laengst; die Mail
+ * mit der dringendsten Aufgabe nicht.
+ *
+ * Jetzt: EIN Action-Token wie bei der Wochenmail (gleiches Hashing,
+ * gleiche Laufzeit, einmalig, nutzer- und standortgebunden; die
+ * Einloesung stellt den Betrieb um und prueft das Fremdkonto), mit
+ * einem praeziseren target_path:
+ *
+ *   /dashboard/bewertungen?betrieb=<locationId>&status=offen[&review=<id>]
+ *
+ * Die Review-ID kommt aus dem Ereignis, das die Meldung ausgeloest
+ * hat (events.subject_id bei review.negative_unanswered) — nur bei
+ * genau einer Bewertung; bei mehreren fuehrt der Link auf die offene
+ * Liste des Betriebs. Gelingt das Token nicht, bleibt der bisherige
+ * Link: schlechter, nicht kaputt.
+ */
+async function ergaenzeSofortmailLink(
+  row: { user_id: string | null; payload: Record<string, unknown> },
+): Promise<Record<string, unknown>> {
+  const payload = row.payload;
+  const userId = row.user_id;
+  const locationId = typeof payload.locationId === 'string' ? payload.locationId : null;
+  if (!userId || !locationId) return payload;
+
+  const db = adminClient();
+  const basis = Deno.env.get('SUPABASE_URL') ?? '';
+  let eventId: string | null = null;
+  let reviewId: string | null = null;
+
+  if (Number(payload.count ?? 1) === 1) {
+    const { data } = await db
+      .from('events')
+      .select('id, subject_id')
+      .eq('user_id', userId)
+      .eq('location_id', locationId)
+      .eq('type', 'review.negative_unanswered')
+      .in('lifecycle', ['new', 'seen'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const e = (data ?? [])[0] as { id?: string; subject_id?: string | null } | undefined;
+    eventId = e?.id ?? null;
+    reviewId = e?.subject_id ?? null;
+  }
+
+  const ziel = `/dashboard/bewertungen?betrieb=${encodeURIComponent(locationId)}&status=offen`
+    + (reviewId ? `&review=${encodeURIComponent(reviewId)}` : '');
+  if (!zielErlaubt(ziel)) return payload;
+
+  try {
+    const { klartext, hash } = await erzeugeToken();
+    const { error } = await db.rpc('create_action_token', {
+      p_token_hash:  hash,
+      p_user_id:     userId,
+      p_purpose:     eventId ? ZWECKE.EVENT_OEFFNEN : ZWECKE.DASHBOARD,
+      p_target_path: ziel,
+      p_location_id: locationId,
+      p_event_id:    eventId,
+      p_ttl:         laufzeitIntervall(),
+    });
+    if (error) {
+      console.warn(JSON.stringify({ scope: 'sofortmail', event: 'token_failed', code: error.code }));
+      return payload;
+    }
+    return { ...payload, ctaUrl: `${basis}/functions/v1/google-business/a/${klartext}` };
+  } catch (err) {
+    console.warn(JSON.stringify({ scope: 'sofortmail', event: 'token_error', message: String(err).slice(0, 200) }));
+    return payload;
+  }
+}
+
 function render(template: EmailTemplate, payload: Record<string, unknown>, toName: string | null): RenderedEmail {
   const brand = brandFor(payload.industryKey);
   const company = escapeHtml(payload.companyName ?? toName ?? 'dein Betrieb');
@@ -734,7 +810,11 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
           'Wer vergleicht, achtet weniger auf die Kritik als darauf, wie ein Betrieb damit umgeht.') +
         p(`Der Antwortvorschlag liegt im Dashboard bereit. Lesen, anpassen, freigeben — veröffentlicht wird nur, was du bestätigst.`),
         { label: count === 1 ? 'Jetzt antworten' : 'Antworten ansehen',
-          url: `${brand.appUrl}/dashboard/bewertungen` },
+          /* Ein Knopf, ein Link: der Token-Weg, wenn er zustande kam —
+             sonst die offene Liste. Nie beides. */
+          url: typeof payload.ctaUrl === 'string' && payload.ctaUrl
+            ? payload.ctaUrl
+            : `${brand.appUrl}/dashboard/bewertungen?status=offen` },
       );
 
       return { subject: title, html, text: toPlainText(html) };
@@ -1093,7 +1173,9 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
          Wochenmail — andere Vorlagen haben keine Aufgabenliste. */
       const nutzlast = row.template === 'weekly_summary'
         ? await ergaenzeMailLinks(row.payload as Record<string, unknown>)
-        : row.payload;
+        : row.template === 'critical_review_alert'
+          ? await ergaenzeSofortmailLink(row as { user_id: string | null; payload: Record<string, unknown> })
+          : row.payload;
 
       const rendered = render(row.template, nutzlast, row.to_name);
       const result = await sendViaBrevo(row, rendered, brand);

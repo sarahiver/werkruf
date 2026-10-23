@@ -55,7 +55,19 @@ export function useReviews(initialFilters = {}) {
   const [rating, setRating]           = useState(initialFilters.rating ?? 'all');
   const [answered, setAnswered]       = useState(initialFilters.answered ?? 'all');
   const [locationId, setLocationId]   = useState(initialFilters.locationId ?? 'all');
-  const [sort, setSort]               = useState('newest');
+  const [sort, setSort]               = useState(initialFilters.sort ?? 'newest');
+
+  /* ── Verlinkte Bewertung (WP4, 23.10.2026) ──
+     Kommt der Nutzer mit ?review=<id> (Uebersicht, Sofortmail ueber den
+     Token-Weg), soll genau diese Bewertung sichtbar sein — auch wenn
+     sie nicht auf Seite 1 liegt oder die Filter sie ausschliessen
+     (inzwischen beantwortet). Dafuer EINE gezielte Abfrage nach id,
+     RLS-gefiltert wie alles hier; kein Blaettern durch Seiten.
+       status: 'offen' (noch nicht geprueft) | 'gefunden' | 'fehlt'
+       inListe: steht sie ohnehin auf der aktuellen Seite?
+       review/reply: die Zeile, wenn sie nicht in der Liste steht */
+  const reviewId = typeof initialFilters.reviewId === 'string' && initialFilters.reviewId ? initialFilters.reviewId : null;
+  const [verlinkt, setVerlinkt] = useState(reviewId ? { status: 'offen', inListe: false, review: null, reply: null } : null);
 
   // Antwort-Entwürfe je Bewertung, aus review_replies geladen.
   const [replies, setReplies]   = useState({});
@@ -123,6 +135,9 @@ export function useReviews(initialFilters = {}) {
       /* Antworten zu den sichtbaren Bewertungen nachladen — nur zu
          diesen zwölf, nicht zu allen. */
       const ids = (data ?? []).map((r) => r.id);
+      /* Die verlinkte Bewertung (falls ausserhalb der Seite) haengt mit
+         dran, damit ihre Antwort nach Freigabe/Reload nicht fehlt. */
+      if (verlinkt?.review?.id && !ids.includes(verlinkt.review.id)) ids.push(verlinkt.review.id);
       if (ids.length > 0) {
         const { data: replyRows } = await supabase
           .from('review_replies')
@@ -143,13 +158,47 @@ export function useReviews(initialFilters = {}) {
         setReplies({});
       }
 
+      /* Verlinkte Bewertung nachziehen — nur beim ersten Laden, nicht
+         bei jedem Filterwechsel. Ein Link ist Navigation, keine
+         Zustandswahrheit: Was die Abfrage liefert, zaehlt. */
+      if (reviewId && verlinkt?.status === 'offen') {
+        if ((data ?? []).some((r) => r.id === reviewId)) {
+          setVerlinkt({ status: 'gefunden', inListe: true, review: null, reply: null });
+        } else {
+          const { data: einzeln, error: einzelFehler } = await supabase
+            .from('google_reviews')
+            .select('id, location_id, star_rating, comment, reviewer_display_name, google_created_at, is_answered, answered_at, status')
+            .eq('id', reviewId)
+            .eq('status', 'active')
+            .maybeSingle();
+          if (!mountedRef.current) return;
+          if (einzelFehler || !einzeln) {
+            setVerlinkt({ status: 'fehlt', inListe: false, review: null, reply: null });
+          } else {
+            const { data: antwort } = await supabase
+              .from('review_replies')
+              .select('id, review_id, body, source, status, published_at, error_code, created_at')
+              .eq('review_id', reviewId)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (!mountedRef.current) return;
+            setVerlinkt({ status: 'gefunden', inListe: false, review: einzeln, reply: antwort?.[0] ?? null });
+            if (antwort?.[0]) setReplies((prev) => ({ ...prev, [reviewId]: antwort[0] }));
+          }
+        }
+      }
+
     } catch (err) {
       console.error('[useReviews]', err);
       if (mountedRef.current) setError(GENERIC_ERROR);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [page, rating, answered, locationId, sort, debouncedSearch]);
+  // verlinkt bewusst nicht in den Abhaengigkeiten: Es wird in load()
+  // selbst gesetzt; als Abhaengigkeit ergaebe das eine Schleife.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, rating, answered, locationId, sort, debouncedSearch, reviewId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -261,6 +310,7 @@ export function useReviews(initialFilters = {}) {
     setPage, reload: load,
     generateReply, saveDraft, approveReply,
     dismissActionError: () => setActionError(null),
+    verlinkt,
   };
 }
 

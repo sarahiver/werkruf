@@ -3690,7 +3690,10 @@ const RULES: Rule[] = [
           : 'Sie ist neu und noch unbeantwortet.',
         expectedBenefit: 'Interessenten sehen, dass der Betrieb auf Kritik eingeht',
         estimatedMinutes: 2,
-        actionUrl: '/dashboard/bewertungen',
+        /* WP4 (23.10.2026): direkt zur Bewertung — die Seite oeffnet und
+           markiert sie. status=offen, damit der Filter passt; der Betrieb
+           kommt aus der Auswahl (der Token-Weg stellt ihn vorher um). */
+        actionUrl: `/dashboard/bewertungen?status=offen&review=${subject?.id ?? ''}`,
         /* Frisch heisst dringend: eine Bewertung von gestern kann man
            noch einfangen, eine von vor drei Monaten hat ihren Schaden
            angerichtet. */
@@ -3732,7 +3735,7 @@ const RULES: Rule[] = [
       reason: 'Unbeantwortete Kritik wirkt auf Leser stärker als beantwortete.',
       expectedBenefit: 'Zu jeder liegt ein Vorschlag bereit',
       estimatedMinutes: facts.reviews.negativeOpen.length * 2,
-      actionUrl: '/dashboard/bewertungen',
+      actionUrl: '/dashboard/bewertungen?status=offen',
       priority: 'critical',
       confidence: 1.0,
       sourceFacts: ['reviews.negativeOpen'],
@@ -3777,7 +3780,7 @@ const RULES: Rule[] = [
         reason: `Der Zielwert liegt bei ${Math.round(t('review.response_rate_target') * 100)} Prozent. Wer das Profil öffnet, sieht unbeantwortete Bewertungen sofort.`,
         expectedBenefit: 'Vorschläge liegen bereit, du gibst nur frei',
         estimatedMinutes: Math.max(2, remaining * 2),
-        actionUrl: '/dashboard/bewertungen',
+        actionUrl: '/dashboard/bewertungen?status=offen',
         priority: many ? 'high' : 'medium',
         confidence: 1.0,
         sourceFacts: ['reviews.responseRate', 'reviews.unanswered'],
@@ -3813,7 +3816,7 @@ const RULES: Rule[] = [
       reason: 'Die Übertragung an Google ist gescheitert. Ein zweiter Versuch genügt meistens.',
       expectedBenefit: 'Die Antwort wird öffentlich sichtbar',
       estimatedMinutes: 1,
-      actionUrl: '/dashboard/bewertungen',
+      actionUrl: '/dashboard/bewertungen?status=offen',
       priority: 'high',
       confidence: 1.0,
       sourceFacts: ['replies.failed'],
@@ -3846,7 +3849,7 @@ const RULES: Rule[] = [
       reason: 'Veröffentlicht wird nichts ohne deine Freigabe.',
       expectedBenefit: 'Lesen, anpassen, freigeben',
       estimatedMinutes: facts.replies.draft,
-      actionUrl: '/dashboard/bewertungen',
+      actionUrl: '/dashboard/bewertungen?status=offen',
       priority: 'low',
       confidence: 1.0,
       sourceFacts: ['replies.draft'],
