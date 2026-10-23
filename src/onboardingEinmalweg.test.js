@@ -40,13 +40,18 @@ const OnboardingWeiche = require('./components/auth/OnboardingWeiche').default;
 const {
   setzeOnboardingAbsicht, hatOnboardingAbsicht, absichtDarfStarten,
   vermerkeVersuch, loescheOnboardingAbsicht, darfAutoStarten,
-  ABSICHT_SCHLUESSEL,
+  onboardingOffen, ABSICHT_SCHLUESSEL,
 } = require('./utils/onboardingAbsicht');
+
+/* 23.10.2026 (WP2): Die Absicht kommt aus dem Profil. OFFEN ist ein
+   geladenes Profil ohne onboarding_completed_at; FERTIG eines mit. */
+const OFFEN  = { isAuthenticated: true, profile: { id: 'u', onboarding_completed_at: null }, profileLoading: false, profileError: null };
+const FERTIG = { isAuthenticated: true, profile: { id: 'u', onboarding_completed_at: '2026-10-01T00:00:00Z' }, profileLoading: false, profileError: null };
 
 beforeEach(() => {
   jest.clearAllMocks();
   window.sessionStorage.clear();
-  useAuthContext.mockReturnValue({ isAuthenticated: true });
+  useAuthContext.mockReturnValue(OFFEN);
   getPostAuthDestination.mockResolvedValue('/onboarding');
 });
 
@@ -79,6 +84,22 @@ describe('T1 — der Flow kehrt nicht auf die oeffentliche Startseite zurueck', 
     expect(await screen.findByText('SEITE:onboarding')).toBeInTheDocument();
   });
 
+  it('T2/T3 — holt ihn auch OHNE sessionStorage ab (neuer Tab aus der Bestaetigungsmail)', async () => {
+    /* Der E-Mail-Weg: Der Bestaetigungslink oeffnet einen neuen Tab.
+       Dort gibt es keinen sessionStorage-Eintrag. Die Weiche muss
+       trotzdem greifen — das ist der Kern von WP2. */
+    window.sessionStorage.clear();
+    zeige('/');
+    expect(await screen.findByText('SEITE:onboarding')).toBeInTheDocument();
+  });
+
+  it('wartet, solange das Profil noch laedt — und wirft niemanden hinaus', async () => {
+    useAuthContext.mockReturnValue({ ...OFFEN, profile: null, profileLoading: true });
+    zeige('/');
+    expect(screen.getByText('SEITE:start')).toBeInTheDocument();
+    await waitFor(() => expect(getPostAuthDestination).not.toHaveBeenCalled());
+  });
+
   it('holt ihn auch von einer anderen oeffentlichen Seite ab', async () => {
     setzeOnboardingAbsicht();
     zeige('/pricing');
@@ -101,6 +122,10 @@ describe('T1 — der Flow kehrt nicht auf die oeffentliche Startseite zurueck', 
 
 describe('T7 — ohne Absicht passiert nichts', () => {
   it('laesst einen angemeldeten Nutzer ohne Absicht auf der Startseite', async () => {
+    /* Bestandskunde: Profil als fertig markiert. Selbst ein
+       liegengebliebener sessionStorage-Eintrag darf nichts ausloesen. */
+    useAuthContext.mockReturnValue(FERTIG);
+    setzeOnboardingAbsicht();
     zeige('/');
     expect(screen.getByText('SEITE:start')).toBeInTheDocument();
     await waitFor(() => expect(getPostAuthDestination).not.toHaveBeenCalled());
@@ -109,7 +134,7 @@ describe('T7 — ohne Absicht passiert nichts', () => {
   it('laesst einen ausgeloggten Besucher mit Absicht in Ruhe', async () => {
     /* Die Absicht allein genuegt nicht. Ohne Sitzung ist niemand da,
        den man weiterleiten koennte. */
-    useAuthContext.mockReturnValue({ isAuthenticated: false });
+    useAuthContext.mockReturnValue({ ...OFFEN, isAuthenticated: false });
     setzeOnboardingAbsicht();
     zeige('/');
     expect(screen.getByText('SEITE:start')).toBeInTheDocument();
@@ -186,13 +211,26 @@ describe('die Onboarding-Absicht', () => {
     expect(absichtDarfStarten()).toBe(false);
   });
 
-  it('ist nach dem Loeschen weg — Leitplanke 1', () => {
+  it('ist nach dem Loeschen weg — der Zaehler faengt neu an, das Profil entscheidet', () => {
     setzeOnboardingAbsicht();
+    vermerkeVersuch();
     expect(hatOnboardingAbsicht()).toBe(true);
+    expect(absichtDarfStarten()).toBe(false);
     loescheOnboardingAbsicht();
     expect(hatOnboardingAbsicht()).toBe(false);
-    expect(absichtDarfStarten()).toBe(false);
     expect(window.sessionStorage.getItem(ABSICHT_SCHLUESSEL)).toBeNull();
+    /* Kein Eintrag = null Versuche in diesem Tab. Ob ueberhaupt
+       gestartet werden darf, sagt onboardingOffen() — siehe
+       darfAutoStarten. */
+    expect(absichtDarfStarten()).toBe(true);
+  });
+
+  it('ein neuer Tab ohne Eintrag darf genau einen Versuch — dann keinen mehr', () => {
+    window.sessionStorage.clear();
+    expect(absichtDarfStarten()).toBe(true);
+    vermerkeVersuch();
+    expect(absichtDarfStarten()).toBe(false);
+    expect(JSON.parse(window.sessionStorage.getItem(ABSICHT_SCHLUESSEL)).versuche).toBe(1);
   });
 
   it('verfaellt nach einer halben Stunde', () => {
@@ -203,7 +241,8 @@ describe('die Onboarding-Absicht', () => {
       versuche: 0,
     }));
     expect(hatOnboardingAbsicht()).toBe(false);
-    expect(absichtDarfStarten()).toBe(false);
+    /* Verfallen = wie kein Eintrag: ein frischer Versuch. */
+    expect(absichtDarfStarten()).toBe(true);
   });
 
   it('gibt einem erneuten Klick einen frischen Versuch', () => {
@@ -223,8 +262,10 @@ describe('die Onboarding-Absicht', () => {
     expect(hatOnboardingAbsicht()).toBe(false);
   });
 
-  it('startet nur bei Schrott im Speicher nicht', () => {
+  it('wertet unlesbaren Speicher wie keinen Eintrag, aber falsche Typen als Sperre', () => {
     window.sessionStorage.setItem(ABSICHT_SCHLUESSEL, '{');
+    expect(absichtDarfStarten()).toBe(true);
+    window.sessionStorage.setItem(ABSICHT_SCHLUESSEL, JSON.stringify({ gesetztAm: Date.now(), versuche: 'x' }));
     expect(absichtDarfStarten()).toBe(false);
   });
 
@@ -256,6 +297,7 @@ describe('die Onboarding-Absicht', () => {
 
 describe('darfAutoStarten', () => {
   const ruhe = {
+    absichtAktiv: true,
     laeuft: false, beschaeftigt: false, verbunden: false,
     fehler: null, callbackFehler: false,
   };
@@ -265,10 +307,19 @@ describe('darfAutoStarten', () => {
     expect(darfAutoStarten(ruhe)).toBe(true);
   });
 
-  it('T7 — startet ohne Absicht nie', () => {
+  it('T4/T7 — startet ohne offene Einrichtung nie — auch mit freiem Zaehler', () => {
     /* Der wichtigste Fall: Ein bestehender Kunde meldet sich an, um
        seine Bewertungen zu lesen. Er darf keinen Google-Dialog
-       vorgesetzt bekommen. */
+       vorgesetzt bekommen — egal, was im sessionStorage liegt. */
+    setzeOnboardingAbsicht();
+    expect(darfAutoStarten({ ...ruhe, absichtAktiv: false })).toBe(false);
+    expect(darfAutoStarten({ ...ruhe, absichtAktiv: undefined })).toBe(false);
+  });
+
+  it('T6 — startet im neuen Tab (Mail-Weg) ohne sessionStorage genau einmal', () => {
+    window.sessionStorage.clear();
+    expect(darfAutoStarten(ruhe)).toBe(true);
+    vermerkeVersuch();
     expect(darfAutoStarten(ruhe)).toBe(false);
   });
 
@@ -309,9 +360,27 @@ describe('darfAutoStarten', () => {
     expect(darfAutoStarten(ruhe)).toBe(false);
   });
 
-  it('startet nach dem Loeschen der Absicht nicht mehr — Leitplanke 1', () => {
-    setzeOnboardingAbsicht();
+  it('T12 — nach Abschluss (Profil fertig) startet nichts mehr, auch nach Reload mit leerem Speicher', () => {
     loescheOnboardingAbsicht();
-    expect(darfAutoStarten(ruhe)).toBe(false);
+    expect(darfAutoStarten({ ...ruhe, absichtAktiv: onboardingOffen(FERTIG) })).toBe(false);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   onboardingOffen — die Absicht aus dem Profil
+   ═══════════════════════════════════════════════════════════════ */
+describe('onboardingOffen', () => {
+  it('ist offen nur bei geladenem Profil ohne Abschluss', () => {
+    expect(onboardingOffen(OFFEN)).toBe(true);
+    expect(onboardingOffen(FERTIG)).toBe(false);
+  });
+
+  /* ── GEGENPROBE ── */
+  it('ist NICHT offen, solange nichts entschieden ist: ladend, Fehler, keine Zeile, Spalte fehlt', () => {
+    expect(onboardingOffen({ profile: null, profileLoading: true,  profileError: null })).toBe(false);
+    expect(onboardingOffen({ profile: null, profileLoading: false, profileError: 'kaputt' })).toBe(false);
+    expect(onboardingOffen({ profile: null, profileLoading: false, profileError: null })).toBe(false);
+    /* Migration noch nicht da: Spalte fehlt im Objekt → nie raten. */
+    expect(onboardingOffen({ profile: { id: 'u' }, profileLoading: false, profileError: null })).toBe(false);
   });
 });

@@ -1,16 +1,17 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import {
   MapPin, Star, MessageSquare, RefreshCw, CheckCircle, Settings,
   AlertTriangle, Clock, ArrowRight, Send, FileText,
 } from 'lucide-react';
 import { useIndustry } from '../../context/IndustryContext';
+import { useAuthContext } from '../../context/AuthContext';
 import { useGoogleBusiness } from '../../hooks/useGoogleBusiness';
 import { useGoogleBusinessData } from '../../hooks/useGoogleBusinessData';
 import GoogleBusinessConnect from '../../components/dashboard/GoogleBusinessConnect';
 import {
-  darfAutoStarten, vermerkeVersuch, loescheOnboardingAbsicht,
+  darfAutoStarten, vermerkeVersuch, loescheOnboardingAbsicht, onboardingOffen, onboardingSchritt,
 } from '../../utils/onboardingAbsicht';
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
@@ -275,10 +276,13 @@ export default function DashboardGoogleBusiness() {
       && new URLSearchParams(window.location.search).get('gbp') === 'error',
   ).current;
   const autoStartRef = React.useRef(false);
+  const { profile, profileLoading, profileError, refreshProfile } = useAuthContext();
+  const einrichtungOffen = onboardingOffen({ profile, profileLoading, profileError });
 
   React.useEffect(() => {
     if (autoStartRef.current) return;
     if (!darfAutoStarten({
+      absichtAktiv:   einrichtungOffen,
       laeuft:         connectionLoading,
       beschaeftigt:   verbindungBusy,
       verbunden:      isConnected,
@@ -289,7 +293,7 @@ export default function DashboardGoogleBusiness() {
     autoStartRef.current = true;
     vermerkeVersuch();
     connect();
-  }, [connectionLoading, verbindungBusy, isConnected, verbindungsFehler,
+  }, [einrichtungOffen, connectionLoading, verbindungBusy, isConnected, verbindungsFehler,
       connect, callbackTrugFehler]);
 
   /*
@@ -304,6 +308,38 @@ export default function DashboardGoogleBusiness() {
   React.useEffect(() => {
     if (isConnected) loescheOnboardingAbsicht();
   }, [isConnected]);
+
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * ENDE DER EINRICHTUNG → DASHBOARD (WP2, 23.10.2026)
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Sobald ein Betrieb ausgewaehlt ist (automatisch bei einem, per
+   * Klick bei mehreren), hat die Datenbank onboarding_completed_at
+   * gesetzt. Profil neu laden, damit Weiche und Auto-Start es sehen,
+   * dann ins Dashboard — der Nutzer soll nach dem Einmalweg nicht auf
+   * der Verbindungsseite stehen bleiben.
+   *
+   * Nur waehrend einer offenen Einrichtung. Wer spaeter hier den
+   * Betrieb wechselt, bleibt auf dieser Seite. Einmal je Seitenaufbau,
+   * damit ein langsames Profil-Reload keinen zweiten Sprung ausloest.
+   */
+  const navigate = useNavigate();
+  const abschlussRef = React.useRef(false);
+  /* Die serverseitig bestaetigte Auswahl — hier schon gebraucht, weiter
+     unten fuer den lokalen Auswahlzustand. */
+  const persistedSelection = locations.find((location) => location.selected_at)?.id ?? '';
+  const einrichtungAbgeschlossen = onboardingSchritt({
+    einrichtungOffen, loading, isConnected,
+    locations, selectedLocationId: persistedSelection,
+    keineBetriebe: locationImport.keineBetriebe,
+  }) === 'fertig';
+
+  React.useEffect(() => {
+    if (!einrichtungAbgeschlossen || abschlussRef.current) return;
+    abschlussRef.current = true;
+    Promise.resolve(refreshProfile?.()).finally(() => navigate('/dashboard', { replace: true }));
+  }, [einrichtungAbgeschlossen, refreshProfile, navigate]);
 
   const [syncing, setSyncing] = React.useState(false);
 
@@ -437,7 +473,6 @@ export default function DashboardGoogleBusiness() {
 
   /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
      Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
-  const persistedSelection = locations.find((location) => location.selected_at)?.id ?? '';
   const [selectedLocation, setSelectedLocation] = React.useState('');
   React.useEffect(() => {
     setSelectedLocation(persistedSelection);
@@ -585,7 +620,7 @@ export default function DashboardGoogleBusiness() {
           <PageSub>
             {selectedLocation
               ? 'Alle Kennzahlen, Bewertungen und Aufgaben unten beziehen sich auf den ausgewählten Betrieb. Du kannst jederzeit wechseln.'
-              : 'Google hat diese Betriebe für dein autorisiertes Konto zurückgegeben. Wähle den Betrieb, den du mit WERKRUF verwalten möchtest.'}
+              : 'Welchen Betrieb möchtest du mit WERKRUF verwalten? Google hat diese Betriebe für dein Konto zurückgegeben — WERKRUF arbeitet immer für genau einen.'}
           </PageSub>
           <LocationGrid>
             {locations.map((location) => {
@@ -811,6 +846,20 @@ export default function DashboardGoogleBusiness() {
                   text={'Google hat für das verbundene Konto kein Unternehmensprofil zurückgegeben, das du verwalten darfst. '
                     + 'Prüfe, ob du im Google-Unternehmensprofil als Inhaber oder Administrator eingetragen bist — '
                     + 'und ob du dich mit dem richtigen Konto verbunden hast.'}
+                  action={
+                    /* Drei Wege hinaus, keiner davon automatisch: Konto
+                       wechseln (Kontowaehler bei Google), noch einmal
+                       nachsehen, oder lesen, woran es liegen kann. */
+                    <div data-testid="keine-betriebe-aktionen" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>
+                      <GhostBtn onClick={() => connect(null)} disabled={verbindungBusy}>
+                        Anderes Google-Konto verbinden
+                      </GhostBtn>
+                      <GhostBtn onClick={() => triggerSync(null).then(() => refresh())} disabled={syncing || refreshing}>
+                        Erneut prüfen
+                      </GhostBtn>
+                      <GhostBtn as="a" href="/hilfe">Hilfe</GhostBtn>
+                    </div>
+                  }
                 />
               ) : locationImport.status === 'failed' ? (
                 <EmptyState

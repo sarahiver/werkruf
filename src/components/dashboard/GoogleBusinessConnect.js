@@ -131,6 +131,12 @@ export default function GoogleBusinessConnect({ googleBusiness }) {
   if (loading) return <Skeleton />;
 
   const state = isConnected ? 'connected' : needsReauth ? 'broken' : 'idle';
+  /* WP2 (23.10.2026): Nach einem abgebrochenen oder gescheiterten
+     Durchlauf (oauth_denied, state mismatch, Token-Fehler) ist das
+     ein eigener Zustand — kein Erstkontakt und kein Automatismus.
+     Die Ueberschrift sagt, was passiert ist; der Knopf, was der
+     Nutzer tun kann. Nichts startet von selbst. */
+  const nichtAbgeschlossen = state === 'idle' && Boolean(error);
   const connection = activeConnection || brokenConnection;
 
   const handleDisconnect = () => {
@@ -152,6 +158,7 @@ export default function GoogleBusinessConnect({ googleBusiness }) {
           <Title>
             {state === 'connected' ? 'Google-Profil verbunden'
               : state === 'broken' ? 'Verbindung unterbrochen'
+              : nichtAbgeschlossen ? 'Google-Verbindung wurde nicht abgeschlossen'
               : 'Google-Profil verbinden'}
           </Title>
           <Sub>
@@ -159,7 +166,9 @@ export default function GoogleBusinessConnect({ googleBusiness }) {
               ? `${brand.name} kann dein Google Business Profil jetzt automatisch pflegen.`
               : state === 'broken'
                 ? 'Der Zugriff wurde bei Google widerrufen oder ist abgelaufen. Bis zur Erneuerung pausieren alle automatischen Aktualisierungen.'
-                : `Verbinde dein Google Business Profil — danach übernimmt ${brand.name} Optimierung, Bewertungsantworten und Monitoring.`}
+                : nichtAbgeschlossen
+                  ? 'Nichts ist kaputt — es wurde nur nichts verbunden. Wenn du möchtest, startest du den Vorgang mit dem Knopf unten noch einmal.'
+                  : `Verbinde dein Google Business Profil — danach übernimmt ${brand.name} Optimierung, Bewertungsantworten und Monitoring.`}
           </Sub>
           {connection?.googleAccountEmail && (
             <Account>{connection.googleAccountEmail}</Account>
@@ -197,7 +206,7 @@ export default function GoogleBusinessConnect({ googleBusiness }) {
           <PrimaryBtn onClick={() => connect(connection?.id || null)} disabled={busy}>
             {busy ? <Spinner size={16} /> : <Link2 size={16} />}
             {state === 'broken' ? 'Neu verbinden'
-              : error ? 'Erneut mit Google verbinden'
+              : nichtAbgeschlossen ? 'Erneut verbinden'
               : 'Mit Google verbinden'}
           </PrimaryBtn>
         )}

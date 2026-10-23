@@ -73,7 +73,59 @@
  * einem Klick mehr. Unbequem, aber nie kaputt.
  */
 
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * 23.10.2026 (WP2): ZWEI SCHICHTEN STATT EINER
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Der sessionStorage hat eine Grenze, die am E-Mail-Weg sichtbar
+ * wurde: Der Bestaetigungslink oeffnet einen NEUEN Tab, und dort gibt
+ * es keine Absicht. Kein Weiterleiten von /, kein Auto-Start — der
+ * zweite Klick war wieder da.
+ *
+ * Deshalb liegt die Frage "ist dieser Nutzer noch in der Einrichtung?"
+ * jetzt am Profil: user_profiles.onboarding_completed_at. NULL heisst
+ * offen. Gesetzt wird sie in der Datenbank bei der ersten
+ * erfolgreichen Betriebsauswahl (apply_google_location_selection) —
+ * fuer jeden Tab, jeden Browser, jede Mail gleich. Bestandsprofile
+ * wurden beim Einspielen pauschal als fertig markiert; ein
+ * bestehender Kunde kommt so nie in den Auto-OAuth.
+ *
+ *   onboardingOffen(profile, …)   ← die Absicht. Aus der Datenbank.
+ *
+ * Der sessionStorage behaelt eine Aufgabe, die nur er erfuellen kann:
+ * den Versuchszaehler. "Hoechstens ein selbst gestarteter OAuth je
+ * Tab und Schritt" muss den Umweg ueber Google ueberleben und darf
+ * NICHT tabuebergreifend sein (zwei Tabs sollen sich nicht gegenseitig
+ * sperren oder anschieben). Fehlt der Eintrag — neuer Tab aus der
+ * Mail —, zaehlt das als null Versuche: genau ein Auto-Start ist dann
+ * erlaubt, danach keiner mehr.
+ *
+ *   absichtDarfStarten() / vermerkeVersuch()   ← der Zaehler. Tab-lokal.
+ *
+ * setzeOnboardingAbsicht() und hatOnboardingAbsicht() bleiben fuer den
+ * CTA-Klick (frischer Zaehler) und als tab-lokale Spur; sie
+ * entscheiden aber nicht mehr allein.
+ */
+
 export const ABSICHT_SCHLUESSEL = 'werkruf_onboarding_absicht';
+
+/**
+ * Die Absicht, aus der Datenbank: Ist die Einrichtung dieses Nutzers
+ * noch offen?
+ *
+ * Dieselbe Vorsicht wie beim ZustimmungsTor: Profil null oder ladend
+ * heisst "noch nicht entschieden", nicht "offen". Ein Fehler beim
+ * Laden heisst auch nicht offen — ein Ausfall darf keinen OAuth
+ * starten. Nur ein geladenes Profil ohne Abschlusszeitpunkt ist offen.
+ */
+export function onboardingOffen({ profile, profileLoading, profileError }) {
+  if (profileLoading) return false;
+  if (profileError) return false;
+  if (!profile) return false;
+  if (!('onboarding_completed_at' in profile)) return false;   // Spalte fehlt (Migration nicht da) → nie raten
+  return profile.onboarding_completed_at == null;
+}
 
 /** Mehr als ein selbst gestarteter OAuth je Absicht ist eine Schleife. */
 const MAX_VERSUCHE = 1;
@@ -130,9 +182,17 @@ export function hatOnboardingAbsicht() {
  * nicht eines davon.
  */
 export function absichtDarfStarten() {
-  if (!hatOnboardingAbsicht()) return false;
   const wert = lies();
-  return (wert?.versuche ?? 0) < MAX_VERSUCHE;
+  /* Kein Eintrag (neuer Tab aus der Bestaetigungsmail) = noch kein
+     Versuch in diesem Tab. Ob ueberhaupt eine Einrichtung laeuft,
+     entscheidet onboardingOffen() — nicht dieser Zaehler. */
+  if (!wert) return true;
+  if (typeof wert.versuche !== 'number') return false;   // Schrott: lieber nicht
+  if (typeof wert.gesetztAm === 'number' && Date.now() - wert.gesetztAm > HOECHSTALTER_MS) {
+    /* Verfallener Eintrag: wie keiner. */
+    return true;
+  }
+  return wert.versuche < MAX_VERSUCHE;
 }
 
 /**
@@ -143,8 +203,12 @@ export function absichtDarfStarten() {
  */
 export function vermerkeVersuch() {
   const wert = lies();
-  if (!wert) return;
-  schreibe({ ...wert, versuche: (wert.versuche ?? 0) + 1 });
+  const alt = (wert && typeof wert.versuche === 'number'
+               && typeof wert.gesetztAm === 'number'
+               && Date.now() - wert.gesetztAm <= HOECHSTALTER_MS)
+    ? wert
+    : { gesetztAm: Date.now(), versuche: 0 };
+  schreibe({ ...alt, versuche: alt.versuche + 1 });
 }
 
 /**
@@ -162,8 +226,13 @@ export function vermerkeVersuch() {
  * @param callbackFehler Der Ruecksprung trug ?gbp=error
  */
 export function darfAutoStarten({
-  laeuft, beschaeftigt, verbunden, fehler, callbackFehler,
+  absichtAktiv, laeuft, beschaeftigt, verbunden, fehler, callbackFehler,
 }) {
+  /* Sperre 0: keine offene Einrichtung laut Profil → nie. Das ist
+     der Schutz fuer Bestandskunden. Ohne Angabe (alter Aufrufer)
+     gilt: nicht aktiv. */
+  if (absichtAktiv !== true) return false;
+
   /* Sperre 3 zuerst: Nach oauth_denied hat der Nutzer bei Google
      ausdruecklich Nein gesagt. Ihm denselben Dialog erneut
      vorzusetzen, waere Noetigung — und eine Schleife. */
@@ -177,7 +246,7 @@ export function darfAutoStarten({
   /* Nichts zu tun. */
   if (verbunden) return false;
 
-  /* Sperren 1 und 2: gueltige Absicht und freier Versuch. */
+  /* Sperre 1: freier Versuch in diesem Tab. */
   return absichtDarfStarten();
 }
 
@@ -187,4 +256,34 @@ export function loescheOnboardingAbsicht() {
   try {
     window.sessionStorage.removeItem(ABSICHT_SCHLUESSEL);
   } catch (_) { /* siehe Dateikopf */ }
+}
+
+/**
+ * Wo steht die Einrichtung? Reine Funktion fuer die Verbindungsseite
+ * und die Tests. Liefert genau einen Zustand:
+ *
+ *   'inaktiv'        keine offene Einrichtung (Bestandskunde) oder noch
+ *                    nicht entscheidbar
+ *   'verbinden'      Business-OAuth fehlt
+ *   'warten'         verbunden, Betriebe werden noch geladen
+ *   'keine_betriebe' verbunden, Google kennt keinen verwaltbaren Betrieb
+ *   'auswahl'        mehrere Betriebe, noch keiner gewaehlt
+ *   'fertig'         ein Betrieb ist ausgewaehlt → Dashboard
+ *
+ * Der Fall "genau ein Betrieb, noch nicht gewaehlt" ist bewusst
+ * 'warten': Die Auswahl trifft die Datenbank (auto_select_single_location)
+ * im Erstimport, nicht die Oberflaeche. Hier wird nie locations[0]
+ * gewaehlt.
+ */
+export function onboardingSchritt({
+  einrichtungOffen, loading, isConnected, locations, selectedLocationId, keineBetriebe,
+}) {
+  if (!einrichtungOffen) return 'inaktiv';
+  if (!isConnected) return 'verbinden';
+  if (loading) return 'warten';
+  if (selectedLocationId) return 'fertig';
+  const anzahl = Array.isArray(locations) ? locations.length : 0;
+  if (anzahl === 0) return keineBetriebe ? 'keine_betriebe' : 'warten';
+  if (anzahl === 1) return 'warten';
+  return 'auswahl';
 }

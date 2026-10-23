@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthContext } from '../../context/AuthContext';
 import { getPostAuthDestination } from '../../utils/postAuthDestination';
-import { hatOnboardingAbsicht } from '../../utils/onboardingAbsicht';
+import { onboardingOffen } from '../../utils/onboardingAbsicht';
 
 /**
  * Das Auffangnetz.
@@ -44,6 +44,14 @@ import { hatOnboardingAbsicht } from '../../utils/onboardingAbsicht';
  * Einrichtung. Danach ist die Absicht geloescht und diese Komponente
  * tut nichts mehr.
  *
+ * 23.10.2026 (WP2): Die Absicht kommt aus dem Profil
+ * (onboarding_completed_at IS NULL), nicht mehr aus dem
+ * sessionStorage. Grund: Der Bestaetigungslink der E-Mail-
+ * Registrierung oeffnet einen neuen Tab — dort gab es keine Absicht,
+ * und der Nutzer blieb auf / stehen. Jetzt gilt sie in jedem Tab.
+ * Bestandsprofile sind in der Datenbank als fertig markiert, deshalb
+ * greift die Weiche fuer sie nie.
+ *
  * ═══════════════════════════════════════════════════════════════
  * WARUM ES NICHT KREISEN KANN
  * ═══════════════════════════════════════════════════════════════
@@ -72,7 +80,8 @@ const OEFFENTLICHE_SEITEN = [
 ];
 
 export default function OnboardingWeiche() {
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, profile, profileLoading, profileError } = useAuthContext();
+  const offen = onboardingOffen({ profile, profileLoading, profileError });
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const schonGeprueft = React.useRef(new Set());
@@ -80,7 +89,7 @@ export default function OnboardingWeiche() {
   React.useEffect(() => {
     if (!isAuthenticated) return undefined;
     if (!OEFFENTLICHE_SEITEN.includes(pathname)) return undefined;
-    if (!hatOnboardingAbsicht()) return undefined;
+    if (!offen) return undefined;
     if (schonGeprueft.current.has(pathname)) return undefined;
 
     schonGeprueft.current.add(pathname);
@@ -100,7 +109,7 @@ export default function OnboardingWeiche() {
       });
 
     return () => { abgebrochen = true; };
-  }, [isAuthenticated, pathname, navigate]);
+  }, [isAuthenticated, offen, pathname, navigate]);
 
   return null;
 }

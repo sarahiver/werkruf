@@ -243,6 +243,22 @@ jest.mock('../../hooks/useGoogleBusiness', () => ({
   useGoogleBusiness: () => mockVerbindung,
   default: () => mockVerbindung,
 }));
+/* 23.10.2026 (WP2): Die Seite liest jetzt das Profil fuer den
+   Onboarding-Zustand. Hier ein Bestandskunde — Einrichtung
+   abgeschlossen —, damit kein Auto-Start und kein Sprung ins
+   Dashboard die bestehenden Pruefungen beeinflusst. */
+/* Die Seite ruft seit WP2 useNavigate() fuer den Sprung ins
+   Dashboard nach der Einrichtung. Diese Tests rendern ohne Router. */
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => jest.fn(),
+}));
+jest.mock('../../context/AuthContext', () => ({
+  useAuthContext: () => ({
+    profile: { id: 'u1', onboarding_completed_at: '2026-10-01T00:00:00Z' },
+    profileLoading: false, profileError: null, refreshProfile: jest.fn(),
+  }),
+}));
 jest.mock('../../context/IndustryContext', () => ({
   useIndustry: () => ({ brand: { name: 'WERKRUF' } }),
 }));
