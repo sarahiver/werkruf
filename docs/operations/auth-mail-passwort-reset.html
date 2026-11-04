@@ -1,0 +1,151 @@
+<!--
+  Supabase Auth — Vorlage "Reset Password"
+
+  ═══════════════════════════════════════════════════════════════
+  WOHIN DAMIT
+  ═══════════════════════════════════════════════════════════════
+
+  Supabase Dashboard → Authentication → Emails → Templates →
+  "Reset Password". Den gesamten Inhalt dieser Datei dort in das
+  Feld "Message body" einfuegen, ohne diesen Kommentar.
+
+  Betreff (Feld "Subject heading") separat setzen auf:
+
+      Neues Passwort fuer WERKRUF
+
+  ═══════════════════════════════════════════════════════════════
+  WARUM (04.11.2026)
+  ═══════════════════════════════════════════════════════════════
+
+  Dieselbe Schwaeche wie bei "Confirm signup" bis zum 21.10.: Der
+  Einmal-Link stand direkt in der Mail. Microsoft Safe Links (jede
+  Firmen-Mail hinter Microsoft 365) ruft ihn vorab auf und verbraucht
+  ihn; der Mensch bekommt danach "Token has expired or is invalid" —
+  ausgerechnet beim Passwort-Reset, wo er ohnehin schon nicht
+  hineinkommt.
+
+  Deshalb zeigen beide Links auf
+
+      {{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}
+
+  src/pages/Bestaetigen.js erkennt am Einmal-Link (type=recovery),
+  dass es um ein neues Passwort geht, und zeigt den passenden Knopf.
+  Das Ziel nach dem Klick ist /reset-password — gesetzt von
+  src/pages/ForgotPassword.js ueber redirectTo; Voraussetzung ist der
+  Eintrag https://www.werkruf.com/** unter Authentication → URL
+  Configuration → Redirect URLs (vorhanden, geprueft 04.11.2026).
+
+  Aufbau, Farben, Tabellen-Layout: siehe auth-mail-bestaetigung.html.
+
+  Die Vorlage "Magic Link" wird von der App nicht benutzt (kein
+  signInWithOtp im Code). Sollte sie je in Gebrauch kommen: derselbe
+  Link, dieselbe Seite.
+-->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F2F2;margin:0;padding:24px 0;">
+  <tr>
+    <td align="center">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#FFFFFF;border-top:5px solid #FF8C00;">
+
+        <!-- Kopf -->
+        <tr>
+          <td style="padding:32px 32px 0 32px;">
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-weight:bold;font-size:15px;letter-spacing:3px;color:#002C51;">
+              WERKRUF
+            </p>
+          </td>
+        </tr>
+
+        <!-- Anrede und Zweck -->
+        <tr>
+          <td style="padding:24px 32px 0 32px;">
+            <p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:28px;font-weight:bold;color:#002C51;">
+              Neues Passwort festlegen
+            </p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:24px;color:#1A1A1A;">
+              Du hast ein neues Passwort für WERKRUF angefordert. Klick auf den
+              Knopf, dann kannst du es festlegen. Der Link ist eine Stunde
+              gültig.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Knopf -->
+        <tr>
+          <td style="padding:28px 32px 0 32px;">
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td bgcolor="#FF8C00" style="border-radius:4px;">
+                  <a href="{{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}"
+                     style="display:inline-block;padding:14px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#FFFFFF;text-decoration:none;">
+                    Neues Passwort festlegen
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--
+          Derselbe Link als Text. Manche Postfaecher und
+          Sicherheitsprogramme entfernen Knoepfe oder schreiben sie um;
+          dann bleibt wenigstens etwas zum Kopieren. Und wer
+          misstrauisch ist, will sehen, wohin es geht, bevor er klickt
+          — bei einer Mail, die zur Anmeldung auffordert, ist das die
+          richtige Haltung.
+        -->
+        <tr>
+          <td style="padding:24px 32px 0 32px;">
+            <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Falls der Knopf nicht funktioniert, kopiere diese Adresse in deinen Browser:
+            </p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#002C51;word-break:break-all;">
+              {{ .SiteURL }}/bestaetigen?confirmation_url={{ .ConfirmationURL }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- Abgrenzung -->
+        <tr>
+          <td style="padding:28px 32px 0 32px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="border-top:1px solid #D0D8E0;font-size:0;line-height:0;">&nbsp;</td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--
+          Der Satz fuer den Fall, dass die Mail jemanden erreicht, der
+          kein Passwort angefordert hat. Ohne ihn wirkt sie wie ein
+          Angriffsversuch — mit ihm wie ein Versehen, und das ist sie
+          dann ja auch.
+        -->
+        <tr>
+          <td style="padding:20px 32px 32px 32px;">
+            <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Du hast kein neues Passwort angefordert? Dann ignoriere diese Mail — dein Passwort bleibt, wie es ist.</p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#5A6B7B;">
+              Fragen? Antworte einfach auf diese E-Mail oder schreib an
+              <a href="mailto:info@werkruf.com" style="color:#002C51;">info@werkruf.com</a>.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+      <!-- Fusszeile ausserhalb der weissen Karte -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr>
+          <td style="padding:18px 32px;">
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#7A8894;">
+              WERKRUF &middot;
+              <a href="https://www.werkruf.com/impressum" style="color:#7A8894;">Impressum</a> &middot;
+              <a href="https://www.werkruf.com/datenschutz" style="color:#7A8894;">Datenschutz</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+
+    </td>
+  </tr>
+</table>

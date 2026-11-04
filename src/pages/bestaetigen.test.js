@@ -25,10 +25,11 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import Bestaetigen, { leseBestaetigungsLink } from './Bestaetigen';
+import Bestaetigen, { leseBestaetigungsLink, zweckAus, TEXTE } from './Bestaetigen';
 
 const SUPABASE = 'https://kueoozsfkevmncucrdjd.supabase.co';
 const ECHT = `${SUPABASE}/auth/v1/verify?token=abc123&type=signup&redirect_to=https://www.werkruf.com/onboarding`;
+const RESET = `${SUPABASE}/auth/v1/verify?token=xyz789&type=recovery&redirect_to=https://www.werkruf.com/reset-password`;
 
 jest.mock('../context/IndustryContext', () => ({
   useIndustry: () => ({ brand: { name: 'WERKRUF' } }),
@@ -144,5 +145,34 @@ describe('Bestaetigen — Seite', () => {
     seite('');
     expect(screen.queryByTestId('bestaetigen-knopf')).not.toBeInTheDocument();
     expect(screen.getByText(/unvollständig/i)).toBeInTheDocument();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   TEIL 3 — Passwort-Reset ueber dieselbe Seite (04.11.2026)
+   ───────────────────────────────────────────────────────────── */
+describe('Bestaetigen — Passwort-Reset', () => {
+  it('erkennt den Zweck aus dem Einmal-Link; Unbekanntes zaehlt als signup', () => {
+    expect(zweckAus(new URL(RESET))).toBe('recovery');
+    expect(zweckAus(new URL(ECHT))).toBe('signup');
+    expect(zweckAus(new URL(`${SUPABASE}/auth/v1/verify?token=1`))).toBe('signup');
+    expect(zweckAus(new URL(`${SUPABASE}/auth/v1/verify?token=1&type=magiclink`))).toBe('signup');
+    expect(leseBestaetigungsLink(`?confirmation_url=${RESET}`, SUPABASE)).toEqual({ url: RESET, zweck: 'recovery' });
+  });
+
+  it('zeigt beim Reset-Link den passenden Text und denselben Schutz: Knopf, kein Auto-Redirect', () => {
+    seite(`?confirmation_url=${RESET}`);
+    const knopf = screen.getByTestId('bestaetigen-knopf');
+    expect(knopf).toHaveAttribute('href', RESET);
+    expect(knopf).toHaveTextContent(TEXTE.recovery.knopf);
+    expect(screen.getByRole('heading', { name: TEXTE.recovery.titel })).toBeInTheDocument();
+    expect(screen.queryByText(/Ohne Bestätigung entsteht kein Konto/)).not.toBeInTheDocument();
+    expect(window.location.href).toBe(urlVorher);
+  });
+
+  /* ── GEGENPROBE ── */
+  it('ein Reset-Link auf ein fremdes Ziel bekommt auch mit type=recovery keinen Knopf', () => {
+    seite(`?confirmation_url=https://boese.example/auth/v1/verify?token=1&type=recovery`);
+    expect(screen.queryByTestId('bestaetigen-knopf')).not.toBeInTheDocument();
   });
 });

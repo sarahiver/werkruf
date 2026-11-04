@@ -56,7 +56,18 @@
  * WARUM NICHT URLSearchParams.get('confirmation_url')
  * ═══════════════════════════════════════════════════════════════
  *
- * Der Einmal-Link hat selbst Parameter: ?token=…&type=signup&
+ * ═══════════════════════════════════════════════════════════════
+ * 04.11.2026: AUCH FUER PASSWORT-RESET
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Dieselbe Schwaeche hatte die Vorlage "Reset Password": Einmal-Link
+ * direkt in der Mail, vom Scanner verbraucht, Nutzer bekommt "Token
+ * has expired". Die Seite liest jetzt den Zweck aus dem Einmal-Link
+ * selbst (Parameter type=signup | recovery | …) und passt Ueberschrift
+ * und Knopf an. Die Pruefung des Ziels ist fuer alle Zwecke dieselbe.
+ * Magic Link und E-Mail-Aenderung nutzt die App nicht; kaeme eine
+ * solche Vorlage dazu, greift derselbe Weg.
+ *
  * redirect_to=…. Steht er unkodiert in unserer Adresse, zerlegt
  * URLSearchParams ihn an jedem "&" — und get() lieferte nur den Teil
  * bis zum ersten. Deshalb wird alles ab "confirmation_url=" roh
@@ -99,8 +110,32 @@ export function leseBestaetigungsLink(search, supabaseUrl) {
   if (ziel.origin !== erlaubt.origin)       return { fehler: 'fremd' };
   if (ziel.pathname !== '/auth/v1/verify')  return { fehler: 'fremd' };
 
-  return { url: ziel.toString() };
+  return { url: ziel.toString(), zweck: zweckAus(ziel) };
 }
+
+/** Zweck aus dem Einmal-Link: 'recovery' fuer Passwort-Reset, sonst
+    'signup'. Unbekannte oder fehlende Werte zaehlen als signup — der
+    Knopf funktioniert so oder so, nur der Text waere dann allgemeiner. */
+export function zweckAus(ziel) {
+  const type = ziel?.searchParams?.get('type');
+  return type === 'recovery' ? 'recovery' : 'signup';
+}
+
+/** Texte je Zweck — exportiert fuer die Tests. */
+export const TEXTE = {
+  signup: {
+    titel: 'Nur noch ein Klick',
+    text:  'Bestätige deine E-Mail-Adresse. Danach geht es direkt mit der Einrichtung deines Betriebs weiter.',
+    knopf: 'E-Mail-Adresse bestätigen',
+    klein: 'Du hast dich nicht bei WERKRUF angemeldet? Dann schließe diese Seite einfach. Ohne Bestätigung entsteht kein Konto.',
+  },
+  recovery: {
+    titel: 'Neues Passwort festlegen',
+    text:  'Du hast ein neues Passwort angefordert. Mit dem Knopf unten kommst du zur Seite, auf der du es setzt.',
+    knopf: 'Neues Passwort festlegen',
+    klein: 'Du hast kein neues Passwort angefordert? Dann schließe diese Seite einfach — dein Passwort bleibt, wie es ist.',
+  },
+};
 
 /* ── Darstellung ── */
 
@@ -162,23 +197,18 @@ export default function Bestaetigen() {
   const ergebnis = leseBestaetigungsLink(search, process.env.REACT_APP_SUPABASE_URL);
 
   if (ergebnis.url) {
+    const t = TEXTE[ergebnis.zweck] ?? TEXTE.signup;
     return (
       <Seite>
-        <Karte>
+        <Karte data-zweck={ergebnis.zweck}>
           <Marke>WERKRUF</Marke>
           <Symbol aria-hidden="true"><MailCheck size={26} /></Symbol>
-          <Titel>Nur noch ein Klick</Titel>
-          <Text>
-            Bestätige deine E-Mail-Adresse. Danach geht es direkt mit der
-            Einrichtung deines Betriebs weiter.
-          </Text>
+          <Titel>{t.titel}</Titel>
+          <Text>{t.text}</Text>
           <Knopf href={ergebnis.url} data-testid="bestaetigen-knopf">
-            E-Mail-Adresse bestätigen <ArrowRight size={18} />
+            {t.knopf} <ArrowRight size={18} />
           </Knopf>
-          <Klein>
-            Du hast dich nicht bei WERKRUF angemeldet? Dann schließe diese
-            Seite einfach. Ohne Bestätigung entsteht kein Konto.
-          </Klein>
+          <Klein>{t.klein}</Klein>
         </Karte>
       </Seite>
     );
