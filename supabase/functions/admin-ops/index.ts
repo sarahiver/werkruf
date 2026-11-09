@@ -233,6 +233,16 @@ serve(async (req) => {
       case 'reply_support_request':
         return json(await beantworteSupportAnfrage(admin, adminId, parameter));
 
+      /* WP6: Founding-Partner-Cockpit */
+      case 'fp_cockpit_overview':
+        return json(await fpCockpitUebersicht(admin));
+
+      case 'fp_cockpit_detail':
+        return json(await fpCockpitDetail(admin, parameter.userId as string));
+
+      case 'set_fp_feedback':
+        return json(await setzeFpFeedback(admin, adminId, parameter));
+
       default:
         /* Unerreichbar: pruefeAnfrage laesst nur die Allowlist durch.
            Steht hier, damit eine neue Aktion in adminOps.js ohne
@@ -640,6 +650,62 @@ async function entzieheFoundingPartner(
    Der Statuswechsel laeuft ueber set_support_request_status() in der
    Datenbank, nicht ueber ein freies UPDATE (§19): Die Funktion prueft
    den Uebergang und setzt answered_at genau einmal. */
+
+/* ═══════════════════════════════════════════════════════════════
+   FOUNDING-PARTNER-COCKPIT (WP6, 09.11.2026)
+
+   Drei duenne Handler. Die Zahlen entstehen in der Datenbank
+   (fp_cockpit_overview, fp_cockpit_detail) nach den Definitionen im
+   Kopf der Migration 20261109140000 — hier wird nur durchgereicht,
+   damit Cockpit, Tests und Doku dieselbe Quelle haben.
+═══════════════════════════════════════════════════════════════ */
+
+async function fpCockpitUebersicht(admin: SupabaseClient) {
+  const { data, error } = await admin.rpc('fp_cockpit_overview');
+  if (error) throw error;
+  return data ?? { kpis: {}, partners: [] };
+}
+
+async function fpCockpitDetail(admin: SupabaseClient, userId: string) {
+  const { data, error } = await admin.rpc('fp_cockpit_detail', { p_user_id: userId });
+  if (error) throw error;
+  /* null = kein Founding Partner. Kein 404 — der Admin soll sehen,
+     dass es den Nutzer gibt, aber nicht im Programm. */
+  return { partner: data ?? null };
+}
+
+async function setzeFpFeedback(
+  admin: SupabaseClient,
+  adminId: string,
+  p: Record<string, unknown>,
+) {
+  const userId = p.userId as string;
+  const { data, error } = await admin.rpc('set_founding_partner_feedback', {
+    p_user_id:    userId,
+    p_intent:     p.paymentIntent as string,
+    p_note:       (p.note as string | null) ?? null,
+    p_updated_by: adminId,
+  });
+
+  if (error) {
+    await auditiere(admin, baueAuditEintrag({
+      aktion: 'set_fp_feedback', adminId, userId, erfolg: false, fehler: error.message,
+    }));
+    /* Kein Founding Partner → 400 statt 500: Der Fehler liegt in der
+       Anfrage, nicht im System. */
+    if ((error as { code?: string }).code === '22023') {
+      throw Object.assign(new Error('Kein Founding Partner'), { code: 'kein_founding_partner' });
+    }
+    throw error;
+  }
+
+  const ergebnis = { ok: true, paymentIntent: p.paymentIntent, hatNotiz: Boolean(p.note) };
+  await auditiere(admin, baueAuditEintrag({
+    aktion: 'set_fp_feedback', adminId, userId, erfolg: true, ergebnis,
+  }));
+  log('fp_feedback_gesetzt', { adminId, userId, paymentIntent: p.paymentIntent });
+  return { ok: true, feedback: data ?? null };
+}
 
 async function listeSupportAnfragen(
   admin: SupabaseClient,

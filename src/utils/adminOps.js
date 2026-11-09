@@ -171,7 +171,29 @@ export const ADMIN_AKTIONEN = {
     parameter: ['requestId', 'reply'],
     auditAktion: 'admin.support_beantwortet',
   },
+  /* Founding-Partner-Cockpit (WP6, 09.11.2026). Lesen ohne Parameter
+     bzw. je Nutzer; alles kommt aus fp_cockpit_overview() /
+     fp_cockpit_detail() in der Datenbank — admin-ops rechnet nichts.
+     Das „49 €?"-Feedback schreibt set_founding_partner_feedback(),
+     nur fuer Founding Partner, mit Audit. */
+  fp_cockpit_overview: {
+    schreibt: false,
+    parameter: [],
+  },
+  fp_cockpit_detail: {
+    schreibt: false,
+    parameter: ['userId'],
+  },
+  set_fp_feedback: {
+    schreibt: true,
+    parameter: ['userId', 'paymentIntent', 'note'],
+    auditAktion: 'admin.fp_feedback_gesetzt',
+  },
 };
+
+/* „Wuerde 49 EUR zahlen?" — dieselben Werte wie
+   founding_partner_feedback_intent_check in der Datenbank. */
+export const FP_ZAHLUNGSBEREITSCHAFT = ['unbekannt', 'ja', 'eher_ja', 'eher_nein', 'nein'];
 
 /* Zustaende einer Supportanfrage — dieselben wie
    support_requests_status_check in der Datenbank. */
@@ -276,7 +298,7 @@ function pruefeParameter(aktion, roh) {
      Liste der Supportanfragen. Der Statuswechsel identifiziert ueber
      requestId; die zugehoerige userId holt der Server fuer das Audit
      selbst aus der Zeile. */
-  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request'].includes(aktion);
+  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request', 'fp_cockpit_overview'].includes(aktion);
 
   if (brauchtUser) {
     if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -363,6 +385,23 @@ function pruefeParameter(aktion, roh) {
     if (reply.length < 1)    return { fehler: 'Antwort ist leer' };
     if (reply.length > 4000) return { fehler: 'Antwort darf höchstens 4000 Zeichen haben' };
     werte.reply = reply;
+  }
+
+  if (aktion === 'set_fp_feedback') {
+    const intent = roh?.paymentIntent;
+    if (!FP_ZAHLUNGSBEREITSCHAFT.includes(intent)) {
+      return { fehler: `Zahlungsbereitschaft nicht erlaubt: ${String(intent)}` };
+    }
+    werte.paymentIntent = intent;
+    const note = roh?.note;
+    if (note !== undefined && note !== null) {
+      if (typeof note !== 'string' || note.length > 2000) {
+        return { fehler: 'Notiz muss Text unter 2000 Zeichen sein' };
+      }
+      werte.note = note.trim() || null;
+    } else {
+      werte.note = null;
+    }
   }
 
   if (aktion === 'clear_founding_partner') {

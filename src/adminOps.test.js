@@ -105,6 +105,11 @@ describe('das Tor', () => {
     expect(namen).not.toMatch(/delete|loesch|drop|truncate|purge|refund|cancel_subscription/i);
     expect(Object.keys(ADMIN_AKTIONEN).sort()).toEqual([
       'clear_founding_partner',
+      /* 09.11.2026 (WP6): Founding-Partner-Cockpit. Zwei Lesezugriffe,
+         ein Schreibzugriff auf eine eigene Tabelle (49-€-Feedback) —
+         kein Loeschen, kein Plan-/Stripe-Eingriff. */
+      'fp_cockpit_detail',
+      'fp_cockpit_overview',
       'get_customer_support_state',
       'list_customers',
       /* 21.10.2026: Direkter Draht. Lesen und Statuswechsel — kein
@@ -112,6 +117,7 @@ describe('das Tor', () => {
       'list_support_requests',
       'reply_support_request',
       'set_founding_partner',
+      'set_fp_feedback',
       'set_support_status',
       'trigger_customer_sync',
     ]);

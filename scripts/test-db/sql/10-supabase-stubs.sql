@@ -60,7 +60,11 @@ create table if not exists auth.users (
      in Produktion (timestamptz, jsonb); in Tests setzt man sie
      ausdruecklich, der Helfer test.benutzer() laesst sie leer. */
   email_confirmed_at timestamptz,
-  raw_user_meta_data jsonb
+  raw_user_meta_data jsonb,
+  /* 09.11.2026 (WP6): fp_cockpit_overview() liest last_sign_in_at —
+     „letzte Anmeldung" im Founding-Partner-Cockpit. Wie in Produktion
+     timestamptz, lokal leer, bis ein Test es setzt. */
+  last_sign_in_at    timestamptz
 );
 
 /*
