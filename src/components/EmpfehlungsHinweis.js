@@ -24,10 +24,15 @@ async function codeGueltig(code) {
   return response.ok && payload?.valid === true;
 }
 
+/* Der oeffentliche Header ist position: fixed (72px, transparent ueber
+   dem Hero). Ein Band im normalen Fluss laege dahinter — deshalb
+   ebenfalls fixiert, direkt unter der Navigation, eine Ebene darunter. */
 const Band = styled.div`
+  position: fixed; top: 72px; left: 0; right: 0; z-index: 99;
   background: #FFF7ED; border-bottom: 1px solid #FED7AA;
-  padding: 12px 16px; text-align: center;
-  font-family: var(--font-body); font-size: .9rem; color: var(--color-text);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .12);
+  padding: 10px 16px; text-align: center;
+  font-family: var(--font-body); font-size: .88rem; line-height: 1.4; color: var(--color-text);
   strong { display: block; color: var(--color-primary); }
 `;
 
