@@ -130,7 +130,7 @@ describe('T10 — ProGate: Upgrade statt Fehler, ehrlich zum Trial', () => {
     expect(screen.queryByText('GEHEIM')).toBeNull();
     expect(screen.getByText('Pro wieder aktivieren')).toBeInTheDocument();
     expect(screen.queryByText(/30 Tage/)).toBeNull();
-    expect(screen.getByText(/49 € \/ Monat/)).toBeInTheDocument();
+    expect(screen.getAllByText(/49 € \/ Monat/).length).toBeGreaterThan(0);   // WP13: auch in der Tarifwahl
     expect(screen.getByText(/WERKRUF Free/)).toBeInTheDocument();
   });
   it('Neukunde: 30 Tage gratis, danach 49 €', () => {

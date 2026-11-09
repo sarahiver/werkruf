@@ -20,12 +20,12 @@
  * heute eine Free-Karte für den "Sichtbarkeits-Check ohne Anmeldung",
  * den es seit dem 28.09.2026 nicht mehr gibt.
  *
- * Keine Quartals- oder Jahrespreise: Der Checkout steht fest auf
- * 'monthly'. Ein Preis auf der Seite, den der Bezahlvorgang nicht
- * annimmt, ist ein Abbruch mit Ansage.
+ * Zwei Intervalle, ein Produkt (WP13, 09.11.2026): 49 € im Monat oder
+ * 490 € im Jahr — der Checkout kennt beide (src/utils/tarife.js). Kein
+ * Quartalspreis. Die Ersparnis steht exakt da (98 € = 2 Monate), nicht
+ * als Prozent.
  *
- * Keine Rechnung mit erfundenen Zahlen. Die einzige Zahl, die hier
- * steht, ist die wahre: 49 € im Monat, 588 € im Jahr.
+ * Keine Rechnung mit erfundenen Zahlen.
  */
 import React from 'react';
 import styled from 'styled-components';
@@ -33,6 +33,7 @@ import { Link } from 'react-router-dom';
 import { Check, ArrowRight } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
 import { useAuthContext } from '../context/AuthContext';
+import { TARIFE, JAHRES_ERSPARNIS_CENTS, JAHRES_ERSPARNIS_MONATE } from '../utils/tarife';
 
 const Section = styled.section`
   background: var(--color-bg);
@@ -165,6 +166,10 @@ export default function Preis() {
             Die ersten {pricing.trialDays} Tage kostenlos · monatlich kündbar ·
             keine Einrichtungsgebühr
           </Unterzeile>
+          <Unterzeile data-testid="preis-jaehrlich">
+            Oder jährlich: <strong>{TARIFE.yearly.betragCents / 100} {pricing.currency} / Jahr</strong> —
+            {' '}{JAHRES_ERSPARNIS_MONATE} Monate geschenkt ({JAHRES_ERSPARNIS_CENTS / 100} {pricing.currency} weniger als 12 × {TARIFE.monthly.betragCents / 100} {pricing.currency})
+          </Unterzeile>
 
           <Trennlinie />
 
@@ -187,7 +192,8 @@ export default function Preis() {
 
           <Einordnung>
             {brand.name} kostet <strong>{pricing.monthlyPrice} {pricing.currency} im Monat</strong>,
-            also <strong>{jahr} {pricing.currency} im Jahr</strong>. Wenn dein besserer
+            also <strong>{jahr} {pricing.currency} im Jahr</strong> — oder im Jahresabo{' '}
+            <strong>{TARIFE.yearly.betragCents / 100} {pricing.currency}</strong>. Wenn dein besserer
             lokaler Auftritt im Jahr auch nur zu einem zusätzlichen Auftrag
             beiträgt, kann sich der Monatsbeitrag bereits rechnen. Versprechen
             können wir das nicht — entscheiden tut am Ende dein Kunde.

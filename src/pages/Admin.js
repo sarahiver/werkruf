@@ -767,6 +767,8 @@ export default function Admin() {
                       <Zeile><span>Status</span><span>{snapshot.billing.stripeStatus || '—'}</span></Zeile>
                       <Zeile><span>Kündigung geplant</span><span>{snapshot.billing.kuendigungGeplant ? 'ja' : 'nein'}</span></Zeile>
                       <Zeile><span>Periode endet</span><span>{fmt(snapshot.billing.periodeEndet)}</span></Zeile>
+                      <Zeile><span>Abrechnung</span><span data-testid="support-intervall">{snapshot.billing.billingIntervall === 'year' ? 'jährlich' : snapshot.billing.billingIntervall === 'month' ? 'monatlich' : '—'}</span></Zeile>
+                      <Zeile><span>Betriebsferien</span><span data-testid="support-pause">{snapshot.pause?.aktiv ? `pausiert bis ${snapshot.pause.bis}` : snapshot.pause?.von ? `geplant ${snapshot.pause.von} – ${snapshot.pause.bis}` : 'nein'}</span></Zeile>
                       {snapshot.billing.stripeCustomerId && (
                         <Zeile><span>Customer-ID</span><span style={{ fontSize: '.7rem' }}>{snapshot.billing.stripeCustomerId}</span></Zeile>
                       )}

@@ -10,6 +10,7 @@ import { sichererRueckkehrpfad } from '../../utils/checkoutRegeln';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import BetriebsKontext, { BetriebsKopf } from '../../components/dashboard/BetriebsKontext';
+import { PauseHinweis } from '../../components/dashboard/Betriebsferien';
 
 /* ─────────────────────────────────────────────
    SHELL
@@ -367,6 +368,8 @@ export default function DashboardLayout() {
         {checkoutState === 'active' && <CheckoutBanner role="status">Dein Abo ist aktiv.</CheckoutBanner>}
         {checkoutState === 'cancelled' && <CheckoutBanner $error>Checkout abgebrochen — es wurde nichts berechnet.</CheckoutBanner>}
         {checkoutState === 'delayed' && <CheckoutBanner $error>Stripe verarbeitet den Abschluss noch. Lade die Seite in Kürze erneut.</CheckoutBanner>}
+        {/* WP13 — Betriebsferien: Kommunikationspause, Tasks bleiben sichtbar */}
+        <PauseHinweis />
         <Content>
           <Outlet />
         </Content>

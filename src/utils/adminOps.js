@@ -33,6 +33,7 @@
  */
 
 import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
+import { istPausiert } from './betriebsferien.js';
 
 /* ═══════════════════════════════════════════════════════════════
    0 — DARSTELLUNG FUER DIE KUNDENLISTE
@@ -698,6 +699,14 @@ export function baueSupportSnapshot({
       kuendigungGeplant: profil.stripe_cancel_at_period_end === true,
       periodeEndet: profil.stripe_current_period_end || null,
       trialEndetAm: profil.trial_ends_at || null,
+      /* WP13: Spiegel aus Stripe (month | year), nie geraten. */
+      billingIntervall: profil.stripe_billing_interval || null,
+    },
+    /* WP13 — Betriebsferien: Kommunikationspause, Account-weit. */
+    pause: {
+      aktiv: istPausiert(profil),
+      von: profil.pause_from || null,
+      bis: profil.pause_until || null,
     },
   };
 

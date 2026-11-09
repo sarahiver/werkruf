@@ -40,6 +40,7 @@ import {
 } from '../../../src/utils/feiertage.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
+import { pruefePause, heuteBerlin } from '../../../src/utils/betriebsferien.js';
 import {
   LEISTUNGS_METRIKEN, parseLeistungsantwort, deutetAufDeaktivierteApi,
 } from '../../../src/utils/googlePerformance.js';
@@ -8752,6 +8753,52 @@ const REFERRAL_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
   lookup: { method: 'GET',  handler: handleReferralLookup },   // oeffentlich, nur boolean
 };
 
+/* ─────────────────────────────────────────────────────────────
+   WP13 — Betriebsferien-Pause (Account-weit).
+
+   Pause = Kommunikationszustand, nicht Billing: Wochenmail und
+   Abwesenheitserinnerung ruhen (plan_communications), Kritisches,
+   Sync, Engine und Abrechnung laufen weiter. Nur Pro/FP
+   (requirePaidAccess), Nutzer aus dem JWT, Zeitraum vom Client als
+   YYYY-MM-DD; Validierung hier (pruefePause) UND in account_pause_set().
+   ───────────────────────────────────────────────────────────── */
+async function handleAccountPause(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ von?: string; bis?: string }>(request);
+  const von = typeof body.von === 'string' ? body.von.trim() : '';
+  const bis = typeof body.bis === 'string' ? body.bis.trim() : '';
+  const pruefung = pruefePause({ von, bis }, heuteBerlin()) as { ok: boolean; grund?: string; maxTage?: number };
+  if (!pruefung.ok) {
+    throw new GbpError('bad_request', `Pause ungueltig: ${pruefung.grund}`);
+  }
+  const { data, error } = await adminClient().rpc('account_pause_set', { p_user_id: user.id, p_from: von, p_until: bis });
+  if (error) throw new GbpError('internal_error', 'Pause konnte nicht gespeichert werden', { cause: error });
+  const r = (data ?? {}) as { ok?: boolean; reason?: string; paused?: boolean };
+  if (!r.ok) {
+    if (r.reason === 'kein_pro') throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
+    throw new GbpError('bad_request', `Pause ungueltig: ${r.reason}`);
+  }
+  await writeAuditLog({ userId: user.id, action: 'account.pause_started', entityType: 'user_profile', entityId: user.id, metadata: { pauseFrom: von, pauseUntil: bis } });
+  return jsonResponse(request, { ok: true, pauseFrom: von, pauseUntil: bis, paused: Boolean(r.paused) });
+}
+
+async function handleAccountPauseEnd(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const { data, error } = await adminClient().rpc('account_pause_end', { p_user_id: user.id });
+  if (error) throw new GbpError('internal_error', 'Pause konnte nicht beendet werden', { cause: error });
+  if (data === true) {
+    await writeAuditLog({ userId: user.id, action: 'account.pause_ended', entityType: 'user_profile', entityId: user.id });
+  }
+  return jsonResponse(request, { ok: true, ended: data === true });
+}
+
+const ACCOUNT_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  'pause':     { method: 'POST', handler: handleAccountPause },
+  'pause-end': { method: 'POST', handler: handleAccountPauseEnd },
+};
+
+
 const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   update: { method: 'POST', handler: handleLocationUpdate },
   /* WP8 — Diff uebernehmen / eigenen Wert wiederherstellen. */
@@ -8816,6 +8863,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
                                    : { method: 'GET' as const, handler: handleRepliesList }) :
     routeName === 'location' && sub ? LOCATION_ROUTES[sub] :
     routeName === 'referral' && sub ? REFERRAL_ROUTES[sub] :
+    routeName === 'account' && sub ? ACCOUNT_ROUTES[sub] :
     routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
     routeName === 'categories' && sub ? CATEGORY_ROUTES[sub] :
     routeName === 'attributes' && sub ? ATTRIBUTE_ROUTES[sub] :

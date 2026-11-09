@@ -313,14 +313,13 @@ export const INDUSTRIES = {
          Report-Mail lesen genau diese Felder. Unter pathA vergraben
          zeigte das Signup "undefined€ / Monat". */
       monthlyPrice:    49,
-      /* quarterPrice und annualPrice liest KEINE Datei (gemessen am
-         16.10.2026). Der Checkout steht fest auf 'monthly'. Die Werte
-         bleiben als Platzhalter stehen, dürfen aber nirgends angezeigt
-         werden, solange der Checkout sie nicht annimmt — ein Preis auf
-         der Seite, den der Bezahlvorgang nicht kennt, ist ein
-         Abbruch mit Ansage. */
+      /* annualPrice: seit WP13 (09.11.2026) echt — der Checkout nimmt
+         'yearly' an (STRIPE_PRICE_YEARLY, 490 € / Jahr, src/utils/tarife.js)
+         und die Preisseite zeigt ihn. 12 × 49 = 588, Ersparnis 98 € =
+         „2 Monate geschenkt". quarterPrice liest weiterhin keine Datei
+         und wird nicht beworben. */
       quarterPrice:    129,   // nicht beworben
-      annualPrice:     449,   // nicht beworben
+      annualPrice:     490,
       setupFee:        0,
 
       /* Der ROI-Block stand bis zum 16.10.2026 hier und trug einen
