@@ -153,8 +153,11 @@ Feld, kein Wert vom Client.** Server:
 1. `requireUser`, `requirePaidAccess` (Pro/FP)
 2. Diff laden mit `user_id = auth` und `resolved_at is null`
 3. `loadOwnLocation(diff.location_id, user)`
-4. Katalog `DIFF_FELDER[fieldPath].patch` muss `true` sein (title,
-   serviceArea, attributes, Kategorien → Editor/Google)
+4. Katalog `DIFF_FELDER[fieldPath].patch` muss `true` sein. `false`
+   (title, Kategorien, serviceArea, attributes) → UI zeigt nur den
+   Hinweis „nur direkt im Google-Unternehmensprofil“, keine Knöpfe;
+   Server weist ab. Kategorien: im Diff liegt der Anzeigename, Google
+   braucht die stabile ID — kein Mapping, kein Raten.
 5. `pending` → abgelehnt (Google rät von Re-Submit ab); `rejected` +
    `wiederherstellen` → abgelehnt
 6. `baueAenderungAusDiff()` — explizit je Feld; phoneNumbers ergänzt
