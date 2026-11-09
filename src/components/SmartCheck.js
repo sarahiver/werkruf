@@ -327,9 +327,11 @@ const TItem = styled.div`
 /* ─────────────────────────────────────────────
    SCAN STEP LABELS
 ───────────────────────────────────────────── */
+/* Bis 09.11.2026 stand hier ein Schritt „Wettbewerb in <Stadt>
+   prüfen…" — hinter dem Label steckte kein Vergleich. Entfernt, kein
+   Ersatz. Die Schritte benennen nur, was der Check wirklich tut. */
 const SCAN = [
   { lbl: ()   => 'Google Business Profil abrufen…',              ms: 800  },
-  { lbl: (c)  => `Wettbewerb in ${c||'deiner Region'} prüfen…`,  ms: 900  },
   { lbl: ()   => 'Bewertungs-Qualität analysieren…',             ms: 600  },
   { lbl: ()   => 'Sichtbarkeits-Score berechnen…',               ms: 400  },
 ];
@@ -643,7 +645,7 @@ export default function SmartCheck() {
                       <LTit>Dein vollständiger 4-seitiger Report</LTit>
                       <LSub>
                         An welche Adresse soll der Befund gehen?
-                        Inkl. Wettbewerber-Analyse, Umsatzpotenzial und konkreten Maßnahmen.
+                        Inkl. Umsatzpotenzial und konkreten Maßnahmen.
                       </LSub>
                       <ERow>
                         <EInput
