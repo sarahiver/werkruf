@@ -49,6 +49,7 @@ export const SYNC_ALT_AB_STUNDEN = 72;
 export const GEPRUEFT = Object.freeze([
   'Bewertungen und Antwortentwürfe',
   'Pflichtangaben: Telefon, Website, Adresse, Kategorie',
+  'Öffentlich sichtbare Angaben gegen deine hinterlegten (Profil-Wächter)',
   'Öffnungszeiten',
   'Fotos',
   'Google-Verbindung und Datenabgleich',
@@ -116,6 +117,22 @@ export function wasPassiertIst(happened) {
   if (antworten > 0) zeilen.push(plural(antworten, 'Antwort veröffentlicht', 'Antworten veröffentlicht'));
   const erledigt = zahl('tasksCompleted');
   if (erledigt > 0) zeilen.push(plural(erledigt, 'Aufgabe erledigt', 'Aufgaben erledigt'));
+
+  /* WP8 — Profilaenderungen (der Waechter). Eine Zeile je Diff, in
+     ehrlicher Formulierung: aufgeloest → "wieder wie hinterlegt";
+     pending → "wird geprueft"; sonst "Google zeigt eine andere …".
+     Kritische offene stehen ohnehin in der Sofortmeldung — hier
+     trotzdem, damit die Wochenmail vollstaendig ist. */
+  const aenderungen = Array.isArray(h.profileChanges) ? h.profileChanges : [];
+  for (const a of aenderungen.slice(0, 4)) {
+    const label = a?.label || a?.fieldPath || 'Profilangabe';
+    if (a?.resolvedAt) zeilen.push(`${label}: öffentlich wieder wie hinterlegt`);
+    else if (a?.changeType === 'pending') zeilen.push(`${label}: deine Änderung wird von Google noch geprüft`);
+    else if (a?.changeType === 'rejected') zeilen.push(`${label}: Google hat deine Änderung nicht übernommen`);
+    else if (a?.changeType === 'closed_by_google') zeilen.push('Google zeigt deinen Betrieb aktuell als geschlossen');
+    else if (a?.origin === 'updated_by_google') zeilen.push(`Google hat deine ${label} aktualisiert`);
+    else zeilen.push(`Google zeigt eine andere ${label}`);
+  }
 
   return zeilen.length > 0 ? zeilen : null;
 }

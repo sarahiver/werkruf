@@ -706,6 +706,18 @@ export default function Admin() {
                       )}
                     </Block>
 
+                    {snapshot.profilWaechter?.offen > 0 && (
+                      <Block data-testid="support-profil-waechter">
+                        <BlockTitel>Profil-Wächter — {snapshot.profilWaechter.offen} offen</BlockTitel>
+                        {snapshot.profilWaechter.diffs.map((d) => (
+                          <Zeile key={d.id}>
+                            <span>{d.betrieb ? `${d.betrieb} · ` : ''}{d.feld}</span>
+                            <span>{d.status}{d.prio === 'kritisch' ? ' · kritisch' : ''} · seit {fmt(d.seit)}</span>
+                          </Zeile>
+                        ))}
+                      </Block>
+                    )}
+
                     <Block>
                       <BlockTitel>Engine</BlockTitel>
                       <Zeile><span>Offene Events</span><span>{snapshot.engine.offeneEvents}</span></Zeile>

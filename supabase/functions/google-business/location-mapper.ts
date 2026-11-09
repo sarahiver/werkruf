@@ -17,6 +17,7 @@ export interface GoogleLocationForPersistence {
   moreHours?: unknown[];
   serviceArea?: unknown;
   profile?: { description?: string };
+  openInfo?: { status?: string; canReopen?: boolean; openingDate?: unknown };
   serviceItems?: unknown[];
   attributes?: unknown[];
   metadata?: Record<string, unknown> & { placeId?: string };
@@ -45,6 +46,7 @@ export function mapGoogleLocationFields(location: GoogleLocationForPersistence) 
       moreHours: location.moreHours ?? [],
       serviceArea: location.serviceArea ?? null,
       profile: location.profile ?? null,
+      openInfo: location.openInfo ?? null,
       serviceItems: location.serviceItems ?? [],
       attributes: location.attributes ?? [],
       metadata: location.metadata ?? null,

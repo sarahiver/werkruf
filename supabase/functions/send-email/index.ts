@@ -31,6 +31,8 @@ import {
 } from '../../../src/utils/wochenstatus.js';
 /* WP6: Brevo-Zustellereignisse → feste Ereignismenge. */
 import { normalisierePayload } from '../../../src/utils/zustellEreignisse.js';
+/* WP8 — Profil-Waechter: Werte und ehrliche Ueberschrift je Diff. */
+import { formatWert as formatDiffWert, diffUeberschrift } from '../../../src/utils/profilDiff.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -41,6 +43,7 @@ type EmailTemplate =
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
   | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed'
   | 'critical_review_free'
+  | 'profile_change_alert'
   | 'support_reply'
   | 'consent_reminder'
   | 'account_deleted';
@@ -666,6 +669,50 @@ async function ergaenzeSofortmailLink(
   }
 }
 
+/**
+ * WP8 — Token-Link fuer die Profilmeldung: /dashboard/google mit
+ * Betrieb und erstem Diff. Derselbe Mechanismus wie die
+ * Bewertungsmeldung (create_action_token, Zweck DASHBOARD) — der Token
+ * ist Navigation, kein Zugriffsrecht; ob der Nutzer Pro ist,
+ * entscheidet ProGate bzw. der Server beim Schreiben.
+ */
+async function ergaenzeProfilDiffLink(
+  row: { user_id: string | null; payload: Record<string, unknown> },
+): Promise<Record<string, unknown>> {
+  const payload = row.payload;
+  const userId = row.user_id;
+  const locationId = typeof payload.locationId === 'string' ? payload.locationId : null;
+  if (!userId || !locationId) return payload;
+  const diffs = Array.isArray(payload.diffs) ? payload.diffs as Array<{ id?: string }> : [];
+  const diffId = typeof diffs[0]?.id === 'string' ? diffs[0].id : null;
+
+  const ziel = `/dashboard/google?betrieb=${encodeURIComponent(locationId)}`
+    + (diffId ? `&diff=${encodeURIComponent(diffId)}` : '');
+  if (!zielErlaubt(ziel)) return payload;
+
+  const basis = Deno.env.get('SUPABASE_URL') ?? '';
+  try {
+    const { klartext, hash } = await erzeugeToken();
+    const { error } = await adminClient().rpc('create_action_token', {
+      p_token_hash:  hash,
+      p_user_id:     userId,
+      p_purpose:     ZWECKE.DASHBOARD,
+      p_target_path: ziel,
+      p_location_id: locationId,
+      p_event_id:    null,
+      p_ttl:         laufzeitIntervall(),
+    });
+    if (error) {
+      console.warn(JSON.stringify({ scope: 'profilmail', event: 'token_failed', code: error.code }));
+      return payload;
+    }
+    return { ...payload, ctaUrl: `${basis}/functions/v1/google-business/a/${klartext}` };
+  } catch (err) {
+    console.warn(JSON.stringify({ scope: 'profilmail', event: 'token_error', message: String(err).slice(0, 200) }));
+    return payload;
+  }
+}
+
 function render(template: EmailTemplate, payload: Record<string, unknown>, toName: string | null): RenderedEmail {
   const brand = brandFor(payload.industryKey);
   const company = escapeHtml(payload.companyName ?? toName ?? 'dein Betrieb');
@@ -881,6 +928,44 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
       );
 
       return { subject: title, html, text: toPlainText(html) };
+    }
+
+    case 'profile_change_alert': {
+      /*
+       * WP8 — kritische Profilaenderung.
+       *
+       * Sachlich (§16): was hinterlegt ist, was oeffentlich steht, ein
+       * Knopf "Pruefen". Herkunft nur, wenn die Quelle sie traegt —
+       * diffUeberschrift() entscheidet das aus origin/changeType.
+       * Kein "manipuliert", keine Frist, kein Ausrufezeichen.
+       */
+      type Diff = { id?: string; fieldPath: string; label?: string; changeType?: string; origin?: string;
+        merchantValue?: unknown; consumerValue?: unknown; rejectionReason?: string | null };
+      const diffs = (Array.isArray(payload.diffs) ? payload.diffs : []) as Diff[];
+      const erster = diffs[0];
+      const title = erster
+        ? diffUeberschrift(erster as Parameters<typeof diffUeberschrift>[0]).replace(/\.$/, '')
+        : 'Google zeigt eine andere Angabe';
+
+      const zeilen = diffs.slice(0, 5).map((d) => {
+        const label = escapeHtml(d.label ?? d.fieldPath);
+        return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;"><strong>${label}</strong><br>` +
+          `Hinterlegt: ${escapeHtml(formatDiffWert(d.fieldPath, d.merchantValue))}<br>` +
+          `Öffentlich sichtbar: <strong>${escapeHtml(formatDiffWert(d.fieldPath, d.consumerValue))}</strong></td></tr>`;
+      }).join('');
+
+      const html = layout(brand, title,
+        p(greeting) +
+        p(`bei ${company} ist aktuell öffentlich eine andere Angabe sichtbar als die von dir hinterlegte.`) +
+        `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 16px;">${zeilen}</table>` +
+        p('Im Dashboard siehst du beide Werte nebeneinander und entscheidest: die öffentliche Angabe übernehmen oder deinen Wert wiederherstellen. WERKRUF ändert nichts von selbst.'),
+        { label: 'Prüfen',
+          url: typeof payload.ctaUrl === 'string' && payload.ctaUrl
+            ? payload.ctaUrl
+            : `${brand.appUrl}/dashboard/google${erster?.id ? `?diff=${erster.id}` : ''}` },
+      );
+
+      return { subject: `${title} — ${company}`, html, text: toPlainText(html) };
     }
 
     case 'payment_failed': {
@@ -1291,6 +1376,8 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
         ? await ergaenzeMailLinks(row.payload as Record<string, unknown>)
         : row.template === 'critical_review_alert' || row.template === 'critical_review_free'
           ? await ergaenzeSofortmailLink(row as { user_id: string | null; payload: Record<string, unknown> })
+        : row.template === 'profile_change_alert'
+          ? await ergaenzeProfilDiffLink(row as { user_id: string | null; payload: Record<string, unknown> })
           : row.payload;
 
       const rendered = render(row.template, nutzlast, row.to_name);

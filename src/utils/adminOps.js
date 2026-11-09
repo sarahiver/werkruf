@@ -496,6 +496,7 @@ export function leiteImportZustandAb(importJobs = [], anzahlStandorte = 0) {
  * @param {Zeile[]} [eingabe.jobs]
  * @param {Zeile[]} [eingabe.mails]
  * @param {Zeile[]} [eingabe.events]
+ * @param {Zeile[]} [eingabe.profilDiffs]
  * @param {Date} [eingabe.jetzt]
  * @returns {Zeile|null}
  */
@@ -507,6 +508,7 @@ export function baueSupportSnapshot({
   jobs = [],
   mails = [],
   events = [],
+  profilDiffs = [],
   jetzt = new Date(),
 } = {}) {
   if (!profil?.id) return null;
@@ -651,6 +653,21 @@ export function baueSupportSnapshot({
       letzteNachVorlage: letzteNachVorlage(mails),
       offeneInQueue: (mails || []).filter((m) => m.status === 'queued' || m.status === 'sending').length,
       fehlgeschlagen: (mails || []).filter((m) => m.status === 'failed').length,
+    },
+    /* WP8 — offene Profil-Differenzen je Betrieb: Feld, seit wann, Status. */
+    profilWaechter: {
+      offen: (profilDiffs || []).length,
+      kritisch: (profilDiffs || []).filter((d) => d.prio === 'kritisch' && d.change_type !== 'pending').length,
+      diffs: (profilDiffs || []).slice(0, 10).map((d) => ({
+        id: d.id,
+        locationId: d.location_id,
+        betrieb: aktiveStandorte.find((s) => s.id === d.location_id)?.title ?? null,
+        feld: d.label || d.field_path,
+        prio: d.prio,
+        status: d.change_type,
+        herkunft: d.origin,
+        seit: d.first_seen_at,
+      })),
     },
     billing: {
       /* WP7: die kanonische Stufe, nicht aus Stripe-Feldern im Admin

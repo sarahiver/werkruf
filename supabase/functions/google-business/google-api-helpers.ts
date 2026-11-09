@@ -6,6 +6,10 @@ export const LOCATION_READ_MASK = [
   'name', 'title', 'phoneNumbers', 'websiteUri', 'storefrontAddress',
   'categories', 'regularHours', 'specialHours', 'moreHours', 'serviceArea',
   'profile', 'serviceItems', 'metadata',
+  /* WP8: openInfo (OPEN / CLOSED_TEMPORARILY / CLOSED_PERMANENTLY) —
+     ohne das Feld in der Maske waere ein oeffentlich "geschlossener"
+     Betrieb fuer den Waechter unsichtbar. */
+  'openInfo',
 ].join(',');
 
 /*
