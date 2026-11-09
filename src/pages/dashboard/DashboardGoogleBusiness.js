@@ -16,6 +16,7 @@ import {
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import ProfilWaechter from '../../components/dashboard/ProfilWaechter';
+import FeiertagDialog from '../../components/dashboard/FeiertagDialog';
 import { useProfilDiffs } from '../../hooks/useProfilDiffs';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
 import KategorienEditor from '../../components/dashboard/KategorienEditor';
@@ -238,7 +239,7 @@ export default function DashboardGoogleBusiness() {
     locations, stats, replyCounts, lastSyncedAt, latestJob, lastFailedJob,
     failedJobHistory, stalledJobs, locationImport, runningJob,
     loading, refreshing, error,
-    reload, refresh, triggerSync, updateLocation, selectLocation,
+    reload, refresh, triggerSync, updateLocation, selectLocation, setzeFeiertag,
   } = useGoogleBusinessData({ enabled: !connectionLoading && isConnected });
 
   /*
@@ -333,6 +334,10 @@ export default function DashboardGoogleBusiness() {
      nur durch Navigation von aussen. */
   const hervorgehobenerDiff = (() => {
     try { return new URLSearchParams(window.location.search).get('diff'); } catch { return null; }
+  })();
+  /* WP9: ?holiday=YYYY-MM-DD aus der Aufgabe oeffnet den Feiertags-Dialog. */
+  const feiertagIso = (() => {
+    try { return new URLSearchParams(window.location.search).get('holiday'); } catch { return null; }
   })();
   const abschlussRef = React.useRef(false);
   /* Die serverseitig bestaetigte Auswahl — hier schon gebraucht, weiter
@@ -928,6 +933,17 @@ export default function DashboardGoogleBusiness() {
               Steht vor der Verwaltung: wer hier landet (Sofortmeldung,
               ?diff=), soll zuerst sehen, was abweicht. Rendert nichts,
               wenn nichts offen ist. */}
+          {/* ── WP9 FEIERTAG ──
+              Nur mit ?holiday=…: eine Frage, drei Antworten, derselbe
+              Schreibweg wie der Editor. */}
+          {!loading && ausgewaehlterStandort && feiertagIso && (
+            <FeiertagDialog
+              location={ausgewaehlterStandort}
+              iso={feiertagIso}
+              onSave={setzeFeiertag}
+            />
+          )}
+
           {!loading && ausgewaehlterStandort && (
             <ProfilWaechter
               diffs={waechter.diffs}

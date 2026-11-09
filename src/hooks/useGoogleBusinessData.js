@@ -282,6 +282,27 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     return payload;
   }, [load]);
 
+  /* WP9 — Feiertags-Sonderzeit: { locationId, date, mode, hours? }.
+     Server bestimmt den Eintrag; Client schickt kein Feld, keine Maske. */
+  const setzeFeiertag = useCallback(async ({ locationId, date, mode, hours }) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Keine aktive Session');
+    const response = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-business/location/holiday-hours`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationId, date, mode, hours }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(payload?.error?.message || 'Google konnte die Sonderzeit nicht übernehmen.'),
+        { code: payload?.error?.code ?? `http_${response.status}` },
+      );
+    }
+    await load({ silent: true });
+    return payload;
+  }, [load]);
+
   const selectLocation = useCallback(async (locationId) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Keine aktive Session');
@@ -414,6 +435,7 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
     reload: load,
     refresh,
     triggerSync, refreshJobStatus, updateLocation, selectLocation,
+    setzeFeiertag,
   };
 }
 
