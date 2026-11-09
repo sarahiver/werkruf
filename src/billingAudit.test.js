@@ -64,17 +64,23 @@ describe('A — Checkout: wie ein Abo heute startet', () => {
        pro Monat" aus dem Repo belegt, obwohl die Price-ID extern
        liegt. */
     expect(CHECKOUT).toMatch(/prices\.retrieve\(priceId\)/);
-    expect(CHECKOUT).toMatch(/unit_amount !== 4900/);
-    expect(CHECKOUT).toMatch(/currency !== 'eur'/);
-    expect(CHECKOUT).toMatch(/recurring\?\.interval !== 'month'/);
-    expect(CHECKOUT).toMatch(/livemode !== usesLiveSecret/);
+    /* WP13: die Pruefung steht in src/utils/tarife.js (pricePasstZuTarif) —
+       Betrag je Tarif (4900 month / 49000 year), eur, recurring,
+       Live-/Testmodus. Fail closed. */
+    expect(CHECKOUT).toMatch(/if \(!pricePasstZuTarif\(configuredPrice, tarif, usesLiveSecret\)\)/);
+    const T = lies('src/utils/tarife.js');
+    expect(T).toMatch(/price\.livemode === usesLiveSecret/);
+    expect(T).toMatch(/price\.unit_amount === tarif\.betragCents/);
+    expect(T).toMatch(/price\.recurring\?\.interval === tarif\.interval/);
+    expect(T).toMatch(/betragCents: 4900[\s\S]*betragCents: 49000/);
   });
 
-  it('kennt genau einen Plan', () => {
-    /* Die Oberfläche spricht an einer Stelle von quarterly/annual
-       (useCheckout-Kommentar); die Function nimmt nur monthly und
-       antwortet sonst mit 400. */
-    expect(CHECKOUT).toMatch(/const VALID_PLANS: PlanKey\[\] = \['monthly'\];/);
+  it('kennt genau zwei Plaene — monthly und yearly — und keine Price-ID vom Client (WP13)', () => {
+    expect(CHECKOUT).toMatch(/const tarif\s*=\s*tarifAusEingabe\(payload\);/);
+    expect(CHECKOUT).toMatch(/if \(!tarif\) \{\s*return json\(\{ error: `Ungueltiger Plan/);
+    expect(CHECKOUT).toMatch(/const priceId = Deno\.env\.get\(tarif\.env\);/);
+    expect(CHECKOUT).not.toMatch(/payload\.priceId|payload\.price_id|body\.priceId/);
+    expect(lies('src/utils/tarife.js')).toMatch(/TARIF_KEYS = Object\.freeze\(Object\.keys\(TARIFE\)\)/);
   });
 
   it('lässt kein zweites Abo neben einem laufenden entstehen', () => {

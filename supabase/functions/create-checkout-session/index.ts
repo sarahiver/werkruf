@@ -20,13 +20,15 @@
 //
 // Benoetigte Secrets:
 //   STRIPE_SECRET_KEY        sk_test_... oder sk_live_...
-//   STRIPE_PRICE_MONTHLY     price_...
+//   STRIPE_PRICE_MONTHLY     price_...   49 EUR / Monat
+//   STRIPE_PRICE_YEARLY      price_...  490 EUR / Jahr   (WP13)
 //   SITE_URL                 https://werkruf.com
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14?target=deno';
 import { entscheideTrial, baueCheckoutUrls, TRIAL_TAGE } from '../../../src/utils/checkoutRegeln.js';
+import { tarifAusEingabe, pricePasstZuTarif } from '../../../src/utils/tarife.js';
 import { hatteSchonAbo } from '../../../src/utils/subscription.js';
 
 /* ─────────────────────────────────────────────
@@ -48,8 +50,10 @@ import { hatteSchonAbo } from '../../../src/utils/subscription.js';
 // gar nicht gesetzt — dann gilt, was am Price steht. Deshalb darf am
 // Price KEIN Trial konfiguriert sein (siehe Doku).
 
-type PlanKey = 'monthly';
-const VALID_PLANS: PlanKey[] = ['monthly'];
+/* WP13: zwei Intervalle, ein Produkt. Welche Werte gueltig sind und
+   wie die Price auszusehen hat, steht in src/utils/tarife.js. Der
+   Client sendet `plan` ('monthly' | 'yearly') oder `billingInterval`;
+   eine Price-ID vom Client wird nie angenommen. */
 
 const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
@@ -103,7 +107,7 @@ serve(async (req) => {
       return json({ error: 'Ungueltiger Request-Body' }, 400);
     }
 
-    const plan        = String(payload.plan ?? '') as PlanKey;
+    const tarif       = tarifAusEingabe(payload);
     const companyName = typeof payload.companyName === 'string' ? payload.companyName : '';
     const industryKey = typeof payload.industryKey === 'string' ? payload.industryKey : 'handwerk';
     /* Wohin nach dem Bezahlen — validiert in baueCheckoutUrls, nie
@@ -113,18 +117,15 @@ serve(async (req) => {
     // path wird noch vom Frontend mitgeschickt, aber ignoriert.
     // Path B ist gestrichen — es gibt nur noch einen Weg.
 
-    if (!VALID_PLANS.includes(plan)) {
-      return json({ error: `Ungueltiger Plan: ${plan}` }, 400);
+    if (!tarif) {
+      return json({ error: `Ungueltiger Plan: ${String(payload.plan ?? payload.billingInterval ?? '')}` }, 400);
     }
+    const plan = tarif.key;
 
-    /* ── Preis aufloesen ── */
-    const PRICES: Record<PlanKey, string | undefined> = {
-      monthly:   Deno.env.get('STRIPE_PRICE_MONTHLY'),
-    };
-
-    const priceId = PRICES[plan];
+    /* ── Preis aufloesen: Server mappt Tarif → ENV, nie der Client ── */
+    const priceId = Deno.env.get(tarif.env);
     if (!priceId) {
-      console.error(`[checkout] Kein Price hinterlegt fuer Plan "${plan}"`);
+      console.error(`[checkout] Kein Price hinterlegt fuer Plan "${plan}" (${tarif.env})`);
       return json({ error: 'Preis nicht konfiguriert' }, 500);
     }
 
@@ -139,15 +140,12 @@ serve(async (req) => {
 
     /* Fail closed when test/live secrets or the configured product do not
        match. This never creates products; it only validates the existing
-       monthly price before a customer can enter Checkout. */
+       price (49 EUR/month or 490 EUR/year) before a customer can enter
+       Checkout. */
     const configuredPrice = await stripe.prices.retrieve(priceId);
     const usesLiveSecret = Deno.env.get('STRIPE_SECRET_KEY')?.startsWith('sk_live_') ?? false;
-    if (configuredPrice.livemode !== usesLiveSecret ||
-        configuredPrice.currency !== 'eur' ||
-        configuredPrice.unit_amount !== 4900 ||
-        configuredPrice.type !== 'recurring' ||
-        configuredPrice.recurring?.interval !== 'month') {
-      console.error('[checkout] STRIPE_PRICE_MONTHLY passt nicht zu 49 EUR/Monat oder zum Stripe-Modus');
+    if (!pricePasstZuTarif(configuredPrice, tarif, usesLiveSecret)) {
+      console.error(`[checkout] ${tarif.env} passt nicht zu ${tarif.preisText} oder zum Stripe-Modus`);
       return json({ error: 'Preis ist nicht korrekt konfiguriert' }, 500);
     }
 
@@ -223,6 +221,7 @@ serve(async (req) => {
     const sharedMetadata: Record<string, string> = {
       supabase_user_id: user.id,
       plan_type:        plan,
+      billing_interval: tarif.interval,
       industry_key:     industryKey,
       company_name:     companyName || '',
       trial_grund:      trial.grund,
@@ -250,6 +249,14 @@ serve(async (req) => {
     const session = await stripe.checkout.sessions.create(sessionParams);
 
     console.log(`[checkout] Session ${session.id} fuer User ${user.id}, Plan ${plan}, Trial ${trial.trialTage}d (${trial.grund})`);
+
+    /* WP13 — Audit: welches Intervall der Kunde gewaehlt hat. Kein
+       Abschluss, nur die Wahl; der Abschluss steht im Webhook. */
+    await supabaseAdmin.from('audit_logs').insert({
+      user_id: user.id, actor_type: 'user', action: 'subscription.billing_interval_selected',
+      entity_type: 'checkout_session', entity_id: session.id,
+      metadata: { plan, billingInterval: tarif.interval, trialTage: trial.trialTage, trialGrund: trial.grund },
+    }).then(({ error }) => { if (error) console.warn('[checkout] audit:', error.message); });
 
     /* trialTage geht mit zurueck, damit die Oberflaeche nichts
        verspricht, was Stripe gleich nicht einloest. */

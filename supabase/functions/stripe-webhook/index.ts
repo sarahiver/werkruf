@@ -58,6 +58,7 @@ import Stripe from 'https://esm.sh/stripe@14?target=deno';
    ist die Zugangsregel vor H1 viermal entstanden. */
 import { darfZahlungsmahnung } from '../../../src/utils/subscription.js';
 import { istEchteConversion, subscriptionIdAus, monatsbetragAusSubscription, findeBestehendeGutschrift, fehlerKurz } from '../../../src/utils/referralBetrag.js';
+import { billingIntervalAusSubscription } from '../../../src/utils/tarife.js';
 
 /* ═════════════════════════════════════════════
    HILFSFUNKTIONEN
@@ -220,7 +221,20 @@ async function wendeRewardsAn(
 async function monatsbetragFuer(stripe: Stripe, subId: string): Promise<{ amountCents: number; currency: string; priceId: string | null } | { grund: string }> {
   const sub = await stripe.subscriptions.retrieve(subId);
   const m = monatsbetragAusSubscription(sub);
-  return m.ok ? { amountCents: m.amountCents, currency: m.currency, priceId: m.priceId } : { grund: m.grund };
+  if (m.ok) return { amountCents: m.amountCents, currency: m.currency, priceId: m.priceId };
+  /* WP13 — Jahresabo: „ein Monat kostenlos" bleibt ein Monat des
+     regulaeren MONATSplans (49 €), nicht 1/12 des Jahrespreises und
+     nie der Jahresbetrag. Quelle ist die hinterlegte Monats-Price
+     (STRIPE_PRICE_MONTHLY) — kein Hardcode. Ohne ENV → nicht
+     ermittelbar (Retry), kein falscher Reward. */
+  if (m.grund === 'kein_monatspreis' && billingIntervalAusSubscription(sub) === 'year') {
+    const monthlyPriceId = Deno.env.get('STRIPE_PRICE_MONTHLY');
+    if (!monthlyPriceId) return { grund: 'jahresabo_ohne_monatspreis_env' };
+    const monthly = await stripe.prices.retrieve(monthlyPriceId);
+    const mm = monatsbetragAusSubscription({ items: { data: [{ price: monthly, quantity: 1 }] } });
+    return mm.ok ? { amountCents: mm.amountCents, currency: mm.currency, priceId: mm.priceId } : { grund: `jahresabo_monatspreis_${mm.grund}` };
+  }
+  return { grund: m.grund };
 }
 
 function mapStatusToPlan(status: Stripe.Subscription.Status): string {
@@ -451,9 +465,13 @@ serve(async (req) => {
               : null,
             stripe_cancel_at_period_end: sub.cancel_at_period_end,
             stripe_current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            /* WP13 — Spiegel des Stripe-Intervalls (month | year). Aus den
+               Items, nie aus Metadaten oder vom Client. Nicht ermittelbar
+               → null, nicht raten. */
+            stripe_billing_interval: billingIntervalAusSubscription(sub),
           });
 
-        console.log(`✓ ${event.type}: User ${userId} → status ${sub.status}, plan ${plan}`);
+        console.log(`✓ ${event.type}: User ${userId} → status ${sub.status}, plan ${plan}, interval ${billingIntervalAusSubscription(sub) ?? '?'}`);
 
         /* WP10 — ein Werber, der in Free war und jetzt wieder ein Abo
            hat: seine wartenden Empfehlungsboni werden jetzt

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Lock, ArrowRight, CheckCircle, Zap } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import { hasPaidAccess, hatteSchonAbo } from '../../utils/subscription';
 import { TRIAL_TAGE } from '../../utils/checkoutRegeln';
+import TarifWahl from '../TarifWahl';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}`;
 const float  = keyframes`0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}`;
@@ -151,6 +152,7 @@ export function gateTexte(profile, preis = 49) {
 ───────────────────────────────────────────── */
 export default function ProGate({ children, feature }) {
   const { profile, profileLoading, profileError, refreshProfile } = useAuthContext();
+  const [tarif, setTarif] = useState('monthly');   // WP13
   const { pricing } = useIndustry();
   const { startCheckout, loading, error } = useCheckout();
 
@@ -176,7 +178,7 @@ export default function ProGate({ children, feature }) {
 
   const handleUpgrade = () => {
     startCheckout({
-      plan:        'monthly',
+      plan:        tarif,
       path:        'optimisation',
       companyName: profile?.company_name || '',
       industryKey: profile?.industry_key || 'handwerk',
@@ -209,6 +211,7 @@ export default function ProGate({ children, feature }) {
           ))}
         </FeatureList>
 
+        <TarifWahl value={tarif} onChange={setTarif} disabled={loading} />
         <CTABtn onClick={handleUpgrade} disabled={loading}>
           {loading
             ? 'Weiterleitung zu Stripe…'

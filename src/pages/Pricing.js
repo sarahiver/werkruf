@@ -151,7 +151,7 @@ export default function Pricing() {
             <Akzent>Ein Preis.</Akzent>
           </H1>
           <Lead>
-            Keine Staffelung, kein Einstiegspaket, keine Einrichtungsgebühr.
+            Monatlich oder jährlich — kein Einstiegspaket, keine Einrichtungsgebühr.
             {' '}{brand.name} kann für jeden Betrieb dasselbe — also kostet es
             für jeden Betrieb dasselbe.
           </Lead>
@@ -160,6 +160,10 @@ export default function Pricing() {
             <Fakt>
               <FaktZahl>{pricing.monthlyPrice}<Akzent>{pricing.currency}</Akzent></FaktZahl>
               <FaktText>pro Monat</FaktText>
+            </Fakt>
+            <Fakt data-testid="fakt-jahr">
+              <FaktZahl>{pricing.annualPrice}<Akzent>{pricing.currency}</Akzent></FaktZahl>
+              <FaktText>pro Jahr · 2 Monate geschenkt</FaktText>
             </Fakt>
             <Fakt>
               <FaktZahl>{pricing.trialDays}<Akzent>T</Akzent></FaktZahl>

@@ -168,7 +168,7 @@ describe('T27–T31 — Einstellungen', () => {
   });
   it('Kanon: kein Client-RPC — Code, Zahlen, Widerruf und Lookup ueber die Edge Function; Nutzer aus dem JWT', () => {
     const gb = lies('../supabase/functions/google-business/index.ts');
-    const h = gb.slice(gb.indexOf('async function handleReferralCode'), gb.indexOf('const LOCATION_ROUTES'));
+    const h = gb.slice(gb.indexOf('async function handleReferralCode'), gb.indexOf('const REFERRAL_ROUTES'));
     expect(h).toMatch(/const user = await requireUser\(request\);[\s\S]*rpc\('ensure_referral_code', \{ p_user_id: user\.id \}\)/);
     expect(h).toMatch(/rpc\('referral_summary_for', \{ p_user_id: user\.id \}\)/);
     expect(h).toMatch(/rpc\('revoke_referral_code', \{ p_user_id: user\.id \}\)/);

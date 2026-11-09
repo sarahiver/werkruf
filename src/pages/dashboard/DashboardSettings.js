@@ -10,6 +10,9 @@ import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import KontoLoeschen, { AboKuendigenHinweis } from '../../components/dashboard/KontoLoeschen';
 import Weiterempfehlen from '../../components/dashboard/Weiterempfehlen';
+import Betriebsferien from '../../components/dashboard/Betriebsferien';
+import TarifWahl from '../../components/TarifWahl';
+import { intervallText, TARIFE } from '../../utils/tarife';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
 import {
@@ -185,6 +188,9 @@ export default function DashboardSettings() {
      in hasPaidAccess, und aus demselben Grund: die ersten Founding
      Partner werden bestehende Nutzer sein und tragen Stripe-Spuren. */
   const foundingPartner  = isFoundingPartner(profile);
+  /* WP13 — Intervallwahl vor dem Checkout; Server mappt auf die Price. */
+  const [tarif, setTarif] = useState('monthly');
+  const intervall = profile?.stripe_billing_interval ?? null;
   const stripeAltaboAktiv = hatAktivesStripeAltabo(profile);
 
   const isTrial = !foundingPartner
@@ -319,6 +325,20 @@ export default function DashboardSettings() {
             {plan === 'pro' && profile?.stripe_subscription_status && (
               <PlanDetail>Status: {profile.stripe_subscription_status}</PlanDetail>
             )}
+            {/* WP13 — Intervall, Preis und naechster Termin: nur echte Daten
+                (Spiegel aus Stripe via Webhook). Bei geplanter Kuendigung
+                steht der Endtermin unten, nicht hier doppelt. */}
+            {bezahlt && !foundingPartner && !isTrial && intervallText(intervall) && (
+              <PlanDetail data-testid="billing-intervall">
+                {intervallText(intervall)}
+                {periodEnd && !cancellationScheduled && (
+                  <> · {intervall === 'year' ? 'Verlängert sich am' : 'Nächste Abrechnung'}: {periodEnd}</>
+                )}
+              </PlanDetail>
+            )}
+            {isTrial && intervallText(intervall) && (
+              <PlanDetail data-testid="billing-intervall">Danach {intervallText(intervall)}</PlanDetail>
+            )}
             {cancellationScheduled && (
               <PlanDetail style={{ color: '#D48A00', fontWeight: 700 }} data-testid="pro-endet">
                 Pro endet am {periodEnd || 'Ende des Abrechnungszeitraums'}.
@@ -385,13 +405,12 @@ export default function DashboardSettings() {
               </>
             ) : (
               <>
+                {/* WP13: monatlich oder jaehrlich — der Server mappt den
+                    Key auf die Price-ID, der Client kennt keine. */}
+                <TarifWahl value={tarif} onChange={setTarif} disabled={checkoutLoading} />
                 <PortalBtn
-                  /* Fest auf 'monthly': kommuniziert werden derzeit nur
-                     die 49 EUR pro Monat. Sobald Quartal und Jahr
-                     beworben werden, gehoert hier eine Auswahl hin oder
-                     ein Verweis auf /pricing. */
                   onClick={() => startCheckout({
-                    plan:        'monthly',
+                    plan:        tarif,
                     companyName: profile?.company_name || '',
                     industryKey: profile?.industry_key || 'handwerk',
                     returnPath:  '/dashboard',
@@ -409,8 +428,8 @@ export default function DashboardSettings() {
                   color: '#A0ADB8', marginTop: 6
                 }}>
                   {hatteAbo
-                    ? `${pricing.monthlyPrice ?? 49} € / Monat, jederzeit kündbar`
-                    : `${pricing.trialDays ?? 30} Tage kostenlos — danach ${pricing.monthlyPrice ?? 49} € / Monat, jederzeit kündbar`}
+                    ? `${TARIFE[tarif].preisText}, ${tarif === 'yearly' ? 'jährlich' : 'jederzeit'} kündbar`
+                    : `${pricing.trialDays ?? 30} Tage kostenlos — danach ${TARIFE[tarif].preisText}, ${tarif === 'yearly' ? 'jährlich' : 'jederzeit'} kündbar`}
                 </p>
                 {checkoutError && <ErrorBanner>{checkoutError}</ErrorBanner>}
                 {hasStripeCustomer && (
@@ -478,6 +497,9 @@ export default function DashboardSettings() {
       {/* Benachrichtigungen — die Gegenseite zum proaktiven Melden.
           Steht vor dem Löschbereich, weil sie öfter gebraucht wird. */}
       <NotificationSettings />
+
+      {/* ── WP13 BETRIEBSFERIEN (nur Pro/FP, Komponente blendet sich sonst aus) ── */}
+      <Betriebsferien />
 
       {/* ── WP10 WEITEREMPFEHLEN ── */}
       <Weiterempfehlen />
