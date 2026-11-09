@@ -8,6 +8,7 @@ import supabase from '../supabaseClient';
 import { loadPublicFunnel, savePublicFunnel } from '../utils/publicFunnel';
 import { getPostAuthDestination } from '../utils/postAuthDestination';
 import { setzeOnboardingAbsicht } from '../utils/onboardingAbsicht';
+import { leseEmpfehlung, vergissEmpfehlung } from '../utils/empfehlung';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -240,8 +241,13 @@ export default function Signup() {
     const meta = {
       industry_key:    brand.key,
     };
+    /* WP10: gemerkter Empfehlungscode — der Server prueft ihn und legt
+       die Zuordnung an (handle_new_user_referral). Hier nur der Traeger. */
+    const referralCode = leseEmpfehlung();
+    if (referralCode) meta.referral_code = referralCode;
 
     const { data, error: signUpErr } = await signUpEmail(email, password, meta);
+    if (!signUpErr && referralCode) vergissEmpfehlung();
 
     if (signUpErr) {
       // Email already registered → try cross-linking lead data then redirect to login

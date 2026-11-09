@@ -8701,6 +8701,57 @@ const ATTRIBUTE_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Re
   update: { method: 'POST', handler: handleAttributesUpdate },
 };
 
+/* ─────────────────────────────────────────────────────────────
+   WP10 — Empfehlungslink: eigener Code (holen/anlegen) und Widerruf.
+
+   Kein requirePaidAccess: empfehlen darf, wer einen aktiven Google-
+   Standort hat — Pro, FP und auch Free (ehemalige Kunden). Die Regel
+   steht in ensure_referral_code(uuid) (nur service_role); der Nutzer
+   kommt aus dem JWT, nie aus dem Body. Die Antwort traegt nur den
+   eigenen Code — keine Referrals, keine Namen.
+   ───────────────────────────────────────────────────────────── */
+async function handleReferralCode(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const admin = adminClient();
+  const [c, z] = await Promise.all([
+    admin.rpc('ensure_referral_code', { p_user_id: user.id }),
+    admin.rpc('referral_summary_for', { p_user_id: user.id }),
+  ]);
+  if (c.error) throw new GbpError('internal_error', 'Empfehlungscode konnte nicht geladen werden', { cause: c.error });
+  const r = (c.data ?? {}) as { code?: string | null; eligible?: boolean; reason?: string | null };
+  const summary = (z.error ? null : z.data) as Record<string, unknown> | null;
+  return jsonResponse(request, {
+    code: r.code ?? null, eligible: Boolean(r.eligible), reason: r.reason ?? null,
+    summary: summary ?? { invited: 0, converted: 0, rewards: [], referredBy: false },
+  });
+}
+
+async function handleReferralRevoke(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  const { data, error } = await adminClient().rpc('revoke_referral_code', { p_user_id: user.id });
+  if (error) throw new GbpError('internal_error', 'Empfehlungscode konnte nicht widerrufen werden', { cause: error });
+  if (data === true) {
+    await writeAuditLog({ userId: user.id, action: 'referral.code_revoked', entityType: 'referral_code' });
+  }
+  return jsonResponse(request, { revoked: data === true });
+}
+
+/* Oeffentlich (Landingpage /empfehlen/<code>, kein Login): nur ja/nein.
+   Kein Name, keine ID, kein Zaehler. Formfehler → false ohne DB. */
+const REFERRAL_CODE_RE = /^[A-Za-z0-9]{10}$/;
+async function handleReferralLookup(request: Request): Promise<Response> {
+  const code = new URL(request.url).searchParams.get('code') ?? '';
+  if (!REFERRAL_CODE_RE.test(code)) return jsonResponse(request, { valid: false });
+  const { data, error } = await adminClient().rpc('referral_code_gueltig', { p_code: code });
+  return jsonResponse(request, { valid: !error && data === true });
+}
+
+const REFERRAL_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  code:   { method: 'GET',  handler: handleReferralCode },
+  revoke: { method: 'POST', handler: handleReferralRevoke },
+  lookup: { method: 'GET',  handler: handleReferralLookup },   // oeffentlich, nur boolean
+};
+
 const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   update: { method: 'POST', handler: handleLocationUpdate },
   /* WP8 — Diff uebernehmen / eigenen Wert wiederherstellen. */
@@ -8764,6 +8815,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     routeName === 'replies' ? (sub ? REPLY_ROUTES[sub]
                                    : { method: 'GET' as const, handler: handleRepliesList }) :
     routeName === 'location' && sub ? LOCATION_ROUTES[sub] :
+    routeName === 'referral' && sub ? REFERRAL_ROUTES[sub] :
     routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
     routeName === 'categories' && sub ? CATEGORY_ROUTES[sub] :
     routeName === 'attributes' && sub ? ATTRIBUTE_ROUTES[sub] :

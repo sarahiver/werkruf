@@ -497,6 +497,8 @@ export function leiteImportZustandAb(importJobs = [], anzahlStandorte = 0) {
  * @param {Zeile[]} [eingabe.mails]
  * @param {Zeile[]} [eingabe.events]
  * @param {Zeile[]} [eingabe.profilDiffs]
+ * @param {Zeile[]} [eingabe.referrals]
+ * @param {Zeile[]} [eingabe.referralRewards]
  * @param {Date} [eingabe.jetzt]
  * @returns {Zeile|null}
  */
@@ -509,6 +511,8 @@ export function baueSupportSnapshot({
   mails = [],
   events = [],
   profilDiffs = [],
+  referrals = [],
+  referralRewards = [],
   jetzt = new Date(),
 } = {}) {
   if (!profil?.id) return null;
@@ -667,6 +671,19 @@ export function baueSupportSnapshot({
         status: d.change_type,
         herkunft: d.origin,
         seit: d.first_seen_at,
+      })),
+    },
+    /* WP10 — Empfehlungen: geworben von / geworben hat, Reward-Status. */
+    empfehlungen: {
+      geworbenVon: (referrals || []).find((r) => r.referred_user_id === profil.id) ? {
+        status: (referrals || []).find((r) => r.referred_user_id === profil.id).status,
+        seit: (referrals || []).find((r) => r.referred_user_id === profil.id).signed_up_at,
+      } : null,
+      geworben: (referrals || []).filter((r) => r.referrer_user_id === profil.id).map((r) => ({
+        id: r.id, status: r.status, seit: r.signed_up_at, konvertiertAm: r.converted_at,
+      })),
+      rewards: (referralRewards || []).map((w) => ({
+        id: w.id, rolle: w.beneficiary, betragCents: w.amount_cents, status: w.status, angewendetAm: w.applied_at,
       })),
     },
     billing: {

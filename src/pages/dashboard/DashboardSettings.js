@@ -9,6 +9,7 @@ import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
 import KontoLoeschen, { AboKuendigenHinweis } from '../../components/dashboard/KontoLoeschen';
+import Weiterempfehlen from '../../components/dashboard/Weiterempfehlen';
 import NotificationSettings from '../../components/dashboard/NotificationSettings';
 import supabase from '../../supabaseClient';
 import {
@@ -477,6 +478,9 @@ export default function DashboardSettings() {
       {/* Benachrichtigungen — die Gegenseite zum proaktiven Melden.
           Steht vor dem Löschbereich, weil sie öfter gebraucht wird. */}
       <NotificationSettings />
+
+      {/* ── WP10 WEITEREMPFEHLEN ── */}
+      <Weiterempfehlen />
 
       {/* ── ABO KUENDIGEN (Alternative) → KONTO LOESCHEN ──
           Reihenfolge ist Absicht: Wer nur nicht mehr zahlen will,

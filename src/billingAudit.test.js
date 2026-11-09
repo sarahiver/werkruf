@@ -103,7 +103,7 @@ describe('A — Checkout: wie ein Abo heute startet', () => {
 
 describe('F — Webhook: Event → Wirkung', () => {
 
-  it('behandelt genau fünf Events', () => {
+  it('behandelt genau sechs Events (invoice.paid seit WP10, nur Empfehlungen)', () => {
     /* Zweimal mein Fehler, bevor das stimmte: `case '…': {` liess
        customer.subscription.created weg (teilt die Klammer mit
        `updated`), und ohne Ausschnitt zaehlte dieselbe Suche die
@@ -118,6 +118,7 @@ describe('F — Webhook: Event → Wirkung', () => {
     expect(new Set(faelle)).toEqual(new Set([
       'checkout.session.completed',
       'customer.subscription.created',
+      'invoice.paid',
       'customer.subscription.updated',
       'customer.subscription.deleted',
       'invoice.payment_failed',

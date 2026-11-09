@@ -21,6 +21,7 @@ import Footer      from './components/Footer';
 
 /* Public pages */
 import HomePage  from './pages/HomePage';
+import EmpfehlungsHinweis from './components/EmpfehlungsHinweis';
 import Pricing   from './pages/Pricing';
 import Success   from './pages/Success';
 import Signup    from './pages/Signup';
@@ -94,6 +95,10 @@ function App() {
             {/* ── PUBLIC ── */}
             <Route path="/" element={
               <PublicLayout><HomePage /></PublicLayout>
+            } />
+            {/* WP10 — Empfehlungslink: Startseite + Hinweis, Code wird gemerkt. */}
+            <Route path="/empfehlen/:code" element={
+              <PublicLayout><EmpfehlungsHinweis /></PublicLayout>
             } />
             <Route path="/pricing" element={
               <PublicLayout><Pricing /></PublicLayout>
