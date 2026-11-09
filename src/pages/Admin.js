@@ -5,6 +5,7 @@ import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle, Send
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
+import FoundingPartnerCockpit from '../components/admin/FoundingPartnerCockpit';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -507,6 +508,13 @@ export default function Admin() {
             ))}
           </Section>
         )}
+
+        {/* ── FOUNDING-PARTNER-COCKPIT (WP6, 09.11.2026) ──
+            Nutzen die ersten zehn FPs WERKRUF? Zustellung, Oeffnung,
+            Action-Links, erledigte Aufgaben, veroeffentlichte Antworten,
+            „49 €?". Alles ueber admin-ops; die Zahlen entstehen in
+            fp_cockpit_overview() — siehe docs/operations/founding-partner-cockpit.md. */}
+        <FoundingPartnerCockpit rufeAdminOps={rufeAdminOps} />
 
         {/* ── SUCHE (§5) ── */}
         <Section>

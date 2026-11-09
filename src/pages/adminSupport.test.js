@@ -138,7 +138,9 @@ describe('Kundensuche (§5)', () => {
     richteEin();
     await zeige();
 
-    expect(aufrufe[0]).toMatchObject({
+    /* Seit WP6 laedt die Seite parallel auch das FP-Cockpit; die
+       Reihenfolge der Aufrufe ist kein Vertrag, der Aufruf selbst schon. */
+    expect(aufrufe.find((a) => a.action === 'list_customers')).toMatchObject({
       name: 'admin-ops', action: 'list_customers', params: { suche: '', limit: 50 },
     });
     expect(screen.getByText('Musterbetrieb')).toBeInTheDocument();

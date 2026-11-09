@@ -24,6 +24,13 @@ import {
 /* WP5: Deine Google-Woche — Zusammenfuehrung und HTML aus einer Quelle,
    die Jest direkt testet. */
 import { baueGoogleWoche, googleWocheHtml } from '../../../src/utils/googlePerformance.js';
+/* WP6: Wochenstatus („Alles geprueft") und „Diese Woche passiert" —
+   die Entscheidung faellt in wochenstatus.js, nicht in der Vorlage. */
+import {
+  leiteWochenstatusAb, wasPassiertIst, passiertHtml, wochenstatusHtml,
+} from '../../../src/utils/wochenstatus.js';
+/* WP6: Brevo-Zustellereignisse → feste Ereignismenge. */
+import { normalisierePayload } from '../../../src/utils/zustellEreignisse.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -370,6 +377,13 @@ interface WeeklyPayload {
      Fehlt bei Payloads vor der Migration; die Mail laeuft dann wie
      bisher. */
   performance?: unknown;
+  /* WP6: weekly_happened() — Bewertungen, Antworten, erledigte Aufgaben
+     der letzten 7 Tage. Fuellt zugleich reviewsNew/lowestNewRating/
+     newestReviewAt/repliesPublished oben. */
+  happened?: Record<string, unknown> | null;
+  /* WP6: weekly_check_facts() — connectionStatus, syncAgeHours,
+     openCount, dueCount. Eingabe fuer leiteWochenstatusAb(). */
+  check?: Record<string, unknown> | null;
 }
 
 interface WeeklyAssessment {
@@ -996,11 +1010,48 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
        */
       const googleWoche = googleWocheHtml(baueGoogleWoche(data.performance));
 
+      /*
+       * WP6 — Was passiert ist, und der Pruefstatus.
+       *
+       * Anatomie ab WP6:
+       *   1. Deine Google-Woche        (WP5, googleWoche)
+       *   2. Diese Woche passiert      (weekly_happened → Zeilen, nur was war)
+       *   3. Was zu tun ist            (Aufgaben) ODER Wochenstatus
+       *      („Alles geprueft" nur, wenn leiteWochenstatusAb es sagt:
+       *      Verbindung aktiv, Abgleich frisch, nichts offen)
+       *   4. Profilwert                (unveraendert)
+       *
+       * Faelle A–E aus dem Brief:
+       *   A Performance + Aufgaben    → Zahlen + Ereignisse + Aufgaben
+       *   B Performance + keine       → Zahlen + Alles geprueft
+       *   C keine Performance + Aufg. → kein Performance-Block, Aufgaben
+       *   D nichts von beidem         → Alles geprueft (kein Schweigen)
+       *   E Verbindung kaputt         → Verbindung erneuern, nie Alles
+       *                                 geprueft — auch mit Aufgaben.
+       */
+      const wochenstatus = leiteWochenstatusAb({
+        check: data.check ?? undefined, actions: engineAufgaben, weeklyState: zustand,
+      });
+      const passiert = passiertHtml(wasPassiertIst(data.happened));
+      /* Bei Verbindungs- oder Datenproblem steht der Status VOR den
+         Aufgaben: Wer die Aufgaben liest, soll wissen, dass die Grund-
+         lage wackelt. Sonst steht er anstelle der leeren Liste. */
+      const statusVorAufgaben = wochenstatus.state === 'connection_problem' || wochenstatus.state === 'data_incomplete';
+      const statusBlock = wochenstatusHtml(wochenstatus);
+      /* Die Ueberschrift darf nicht „nichts zu tun" sagen, wenn WERKRUF
+         gar nicht pruefen konnte. assessWeek kennt den Verbindungs-
+         zustand nicht — hier wird er vorangestellt. */
+      const headline =
+        wochenstatus.state === 'connection_problem' ? 'die Google-Verbindung braucht dich.'
+        : wochenstatus.state === 'data_incomplete' ? 'die Daten sind nicht aktuell.'
+        : week.headline;
+
       const body =
         `<p class="wr-text" style="margin:0 0 4px;font-size:14px;color:#5F6875;">${greeting}</p>` +
-        `<p class="wr-title" style="margin:0 0 18px;font-size:17px;font-weight:bold;color:${brand.primary};line-height:1.35;">${escapeHtml(week.headline)}</p>` +
+        `<p class="wr-title" style="margin:0 0 18px;font-size:17px;font-weight:bold;color:${brand.primary};line-height:1.35;">${escapeHtml(headline)}</p>` +
 
         googleWoche +
+        passiert +
 
         tiles([
           { value: String(data.reviewsNew ?? 0), label: (data.reviewsNew ?? 0) === 1 ? 'neue Bewertung' : 'neue Bewertungen' },
@@ -1014,12 +1065,16 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         ]) +
 
         insightBox(escapeHtml(week.insight), week.insightTone) +
+        (statusVorAufgaben ? statusBlock : '') +
         /* Die Aufgaben kommen aus der Engine, nicht aus assessWeek.
            Dieselben Events, die das Dashboard zeigt — gefiltert auf
            den Mailkanal und auf drei begrenzt. */
         /*
-         * Bei leerer Liste keine kaputte Aufgabensektion, sondern ein
-         * Satz, der zum Zustand passt.
+         * Bei leerer Liste keine kaputte Aufgabensektion, sondern der
+         * Wochenstatus aus wochenstatus.js: „Alles geprueft" nur, wenn
+         * es stimmt; „Nichts Neues" bei offenen, nicht faelligen
+         * Aufgaben. Bis WP6 stand hier ein Satz ohne Pruefung des
+         * Verbindungs- und Datenzustands.
          */
         (engineAufgaben.length > 0
           ? actionList(engineAufgaben.map((e) => ({
@@ -1031,11 +1086,7 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
                 : (e.effortText ?? ''),
               to: e.link ?? undefined,
             })))
-          : p(zustand === 'quiet_week'
-              /* Offene Aufgaben existieren — sie sind nur nicht an der
-                 Reihe. Niemals "alles perfekt". */
-              ? 'Diese Woche steht nichts Neues an. Deine offenen Aufgaben bleiben im Dashboard sichtbar.'
-              : 'Aktuell ist keine Aufgabe offen. WERKRUF beobachtet dein Profil weiter.')) +
+          : (statusVorAufgaben ? '' : statusBlock)) +
         healthBox(data.healthScore ?? 0, delta, week.healthReason);
 
       const html = layout(brand, subject, body, {
@@ -1388,6 +1439,72 @@ Deno.serve(async (request: Request): Promise<Response> => {
           .rpc('plan_communications', { p_user_id: userId });
         if (error) throw new Error(error.message);
         return jsonResponse(data ?? {});
+      }
+
+      /*
+       * WP6 — Brevo-Zustellereignisse.
+       *
+       * POST /send-email/brevo-webhook?secret=<BREVO_WEBHOOK_SECRET>
+       *
+       * Brevo signiert Webhooks nicht. Der Schutz ist ein Geheimnis in
+       * der URL (oder im Header X-Werkruf-Webhook-Secret), zeitkonstant
+       * verglichen. Ohne gesetztes Secret in der Umgebung ist die Route
+       * aus: 503, nichts gespeichert — ein offener Webhook, der Oeffnungen
+       * fremder Vorgabe annimmt, waere schlimmer als keiner.
+       *
+       * Was gespeichert wird: Message-ID, Ereignisart, Zeitpunkt. Sonst
+       * nichts — keine Adresse, keine IP, kein User-Agent, kein Link.
+       * Die Zuordnung zur Mail laeuft ausschliesslich ueber
+       * email_queue.provider_id (die Message-ID aus der Versandantwort).
+       * Unbekannte IDs werden gezaehlt, nicht gespeichert.
+       *
+       * Antwort immer 200 bei verarbeitbarem Aufruf — auch fuer
+       * Duplikate und Unbekanntes. Brevo wiederholt bei Nicht-2xx, und
+       * eine Schleife aus Wiederholungen fuer eine Mail, die wir nicht
+       * kennen, nuetzt niemandem.
+       */
+      case 'brevo-webhook': {
+        const expected = Deno.env.get('BREVO_WEBHOOK_SECRET') ?? '';
+        if (!expected) {
+          log('warn', 'brevo_webhook_not_configured', {});
+          return jsonResponse({ error: { code: 'not_configured', message: 'Webhook nicht konfiguriert.' } }, 503);
+        }
+        const url = new URL(request.url);
+        const geliefert = request.headers.get('X-Werkruf-Webhook-Secret') ?? url.searchParams.get('secret') ?? '';
+        if (!timingSafeEqual(geliefert, expected)) {
+          log('warn', 'brevo_webhook_rejected', { grund: 'secret' });
+          return jsonResponse({ error: { code: 'unauthenticated', message: 'Nicht berechtigt.' } }, 401);
+        }
+
+        const ereignisse = normalisierePayload(body);
+        const db = adminClient();
+        const zaehler = { recorded: 0, duplicate: 0, unknown_message: 0, ignored: 0, failed: 0 };
+        const vorlagen: Record<string, number> = {};
+
+        for (const e of ereignisse) {
+          if ('ignoriert' in e) { zaehler.ignored++; continue; }
+          const { data, error } = await db.rpc('record_delivery_event', {
+            p_message_id: e.messageId, p_event: e.event, p_event_at: e.eventAt,
+          });
+          if (error) {
+            zaehler.failed++;
+            log('error', 'brevo_event_failed', { event: e.event, code: error.code });
+            continue;
+          }
+          const ergebnis = (data as { result?: string; template?: string } | null)?.result ?? 'unknown_message';
+          if (ergebnis === 'recorded') {
+            zaehler.recorded++;
+            const t = (data as { template?: string }).template ?? 'unbekannt';
+            vorlagen[t] = (vorlagen[t] ?? 0) + 1;
+          } else if (ergebnis === 'duplicate') {
+            zaehler.duplicate++;
+          } else {
+            zaehler.unknown_message++;
+          }
+        }
+
+        log('debug', 'brevo_webhook', { empfangen: ereignisse.length, ...zaehler, vorlagen });
+        return jsonResponse({ ok: true, ...zaehler });
       }
 
       /* Vom Frontend aufgerufen, z.B. nach der Registrierung.
