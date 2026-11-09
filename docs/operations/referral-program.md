@@ -10,8 +10,12 @@ eine Gutschrift auf die nächste Rechnung, sonst nichts.
 - Belohnung erst bei **echter Conversion**: erste Stripe-Rechnung mit
   `amount_paid > 0` (Event `invoice.paid`). Signup, Trial-Start,
   `checkout.session.completed` und 0-€-Rechnungen zählen nicht.
-- Beide Seiten je **ein Monatsbetrag** — der Betrag der ersten
-  bezahlten Rechnung (`amount_cents`), nicht ein Festwert.
+- Beide Seiten je **ein Monatsbetrag** = der **reguläre Monatsbetrag
+  der Subscription-Price** (`price.unit_amount`, Währung aus der Price).
+  **Nicht** der Betrag der ersten Rechnung: mit Promotion-Code wäre
+  `amount_paid` z. B. 2.450 Cent — „ein Monat kostenlos“ sind aber
+  4.900. `invoice.paid` mit `amount_paid > 0` bestätigt nur die echte
+  Conversion; die Höhe kommt aus der Subscription.
 - Der Trial des Geworbenen bleibt unverändert (WP7-Regel
   `entscheideTrial` unangetastet). Kein zweiter Trial über Referral.
 - Keine Namen: der Geworbene sieht nur „Du wurdest von einem
@@ -83,48 +87,74 @@ entsteht ausschließlich im Trigger.
 
 ## 6. Conversion — `invoice.paid`
 
-`stripe-webhook` behandelt neu `invoice.paid`:
+`stripe-webhook` behandelt `invoice.paid`:
 
-- Voraussetzungen: `customer`, `subscription`, `amount_paid > 0`.
-  Sonst `ignored` (Trial-Rechnung, Einmalzahlung).
-- Profil über `stripe_customer_id` → `referral_mark_converted(user,
-  invoice_id, amount, currency)`:
-  - nur ein Referral mit `status='signed_up'` wird `converted`
-    (`converted_at`, `converted_invoice_id unique`);
-  - Werber bereits gelöscht → `invalid('werber_geloescht')`;
-  - legt **genau zwei** `referral_rewards` an (`unique(referral_id,
-    beneficiary)`): `referrer` und `referred`, je `amount_cents` =
-    bezahlter Betrag, `status='pending'`; Werber mit Plan
-    `founding_partner` → `not_applicable`.
-- Zweite Rechnung, Webhook-Retry, anderes Event: `kein_offenes_referral`
-  → nichts. Zusätzlich greift `stripe_events` (Event-ID PK) als erste
+- Relevanz: `customer`, `subscription`, `amount_paid > 0`
+  (`istEchteConversion` in `src/utils/referralBetrag.js`). Sonst
+  `ignored` (Trial-Rechnung, Einmalzahlung).
+- Profil über `stripe_customer_id`; dann **erst** prüfen, ob für diesen
+  Kunden ein Referral (`signed_up` oder `converted`) existiert — sonst
+  endet der Pfad hier, ohne Stripe-Aufruf.
+- Noch `signed_up` → **Monatsbetrag bestimmen**:
+  `stripe.subscriptions.retrieve(subId)` → genau ein Item mit
+  `price.type = recurring`, `interval = month`, `interval_count = 1`,
+  `quantity = 1`, `unit_amount > 0` → `amountCents = unit_amount`,
+  `currency = price.currency` (`monatsbetragAusSubscription`). Nicht
+  eindeutig (kein/mehrere Monatspreise, Jahrespreis, Menge ≠ 1) →
+  `handlerError` → 500 → Stripe stellt erneut zu; **nichts** wird
+  konvertiert, kein Reward entsteht, kein Fallback auf `amount_paid`,
+  keine feste Cent-Heuristik.
+- `referral_mark_converted(user, invoice_id, amountCents, currency)`:
+  nur `signed_up → converted` (`converted_invoice_id unique`); Werber
+  gelöscht → `invalid`; legt **genau zwei** `referral_rewards`
+  (`unique(referral_id, beneficiary)`) mit diesem Betrag an, Werber mit
+  Plan `founding_partner` → `not_applicable`.
+- Danach — und ebenso bei jeder **erneuten** Zustellung, wenn das
+  Referral schon `converted` ist — `referral_rewards_pending_for_referral`
+  → `wendeRewardsAn` (§7). Zweite Rechnung: `kein_offenes_referral`,
+  keine neuen Rewards; `stripe_events` (Event-ID PK) ist die erste
   Idempotenzschicht.
-- `invoice.paid` ändert **nie** den Plan — das tun nur die
-  Subscription-Events (Test in `stripeDashboardAnnahmen`).
+- `invoice.paid` ändert **nie** den Plan.
 
-## 7. Reward — Stripe Customer Balance
+## 7. Reward — Stripe Customer Balance, retryfähig
 
-`wendeRewardsAn()` im Webhook, aufgerufen nach `invoice.paid` und bei
-`customer.subscription.created`:
+`wendeRewardsAn()` im Webhook, aufgerufen nach `invoice.paid` (auch
+bei Wiederzustellung) und bei `customer.subscription.created`:
 
 - Für jedes `pending` Reward mit Stripe-Kunde und Plan ≠ FP:
-  `stripe.customers.createBalanceTransaction(customer, { amount:
-  -amount_cents, currency })` mit **`idempotencyKey:
-  werkruf-referral-reward-<reward.id>`**. Stripe verrechnet das Guthaben
-  automatisch mit der nächsten Rechnung — ein Monatsbetrag = ein Monat
-  gratis, stapelbar, ohne Coupon, ohne Trial-Verlängerung, ohne
-  Rückerstattung.
-- Erfolg → `referral_reward_set_status(id, 'applied', cbtxn_id)` +
-  Audit `referral.reward_applied`; Fehler → `failed` mit Grund.
-  Statuswechsel nur aus `pending` (T25): ein zweiter Versuch ändert
-  nichts, die Stripe-ID bleibt.
+  1. `stripe.customers.listBalanceTransactions(customer, {limit: 100})`
+     — gibt es schon eine Gutschrift mit `metadata.werkruf_reward_id =
+     reward.id`? Dann wird **diese** wiederverwendet, keine neue Buchung.
+  2. Sonst `createBalanceTransaction(customer, { amount: -amount_cents,
+     currency, metadata: { werkruf_reward_id } })` mit
+     **`idempotencyKey: werkruf-referral-reward-<reward.id>`**.
+  3. **Erst nach Stripe-Erfolg** → `referral_reward_set_status(id,
+     'applied', cbtxn_id)` (löscht `last_error`) + Audit
+     `referral.reward_applied`.
+- Stripe verrechnet das Guthaben automatisch mit der nächsten Rechnung —
+  ein Monatsbetrag = ein Monat gratis, stapelbar, ohne Coupon, ohne
+  Trial-Verlängerung, ohne Rückerstattung.
+- **Stripe-Fehler (Timeout, 429, 5xx, Netz) sind nicht terminal.** Der
+  Reward bleibt `pending`; `referral_reward_versuch_notieren` schreibt
+  `attempt_count`, `last_attempt_at`, `last_error`; der Webhook meldet
+  `handlerError` → Claim in `stripe_events` freigegeben → 500 → Stripe
+  stellt das Event erneut zu (bis zu 3 Tage) → derselbe Reward wird mit
+  demselben Key erneut versucht. Weitere Retry-Pfade: jede weitere
+  `invoice.paid` dieses Geworbenen (Referral `converted`, Rewards
+  `pending` → werden angewendet) und `customer.subscription.created`
+  des Werbers. Kein Cron, kein Job-System.
+- `failed` bleibt im Constraint, wird vom Webhook aber nicht mehr
+  gesetzt; terminal sind nur fachliche Zustände: `not_applicable` (FP
+  zum Zeitpunkt der Conversion), `invalid` (FP beim Anwenden,
+  Nutzer gelöscht).
+- Statuswechsel nur aus `pending` (T8/T25): ein zweiter `applied`
+  ändert nichts, die Stripe-ID bleibt; `applied` wird nie erneut
+  angewendet.
 - **Founding Partner als Werber**: `not_applicable` — nie eine
   Gutschrift, nie `trial_end`; der Geworbene bekommt seinen Bonus
-  trotzdem (T17).
-- **Free-Werber** (gekündigt): Reward bleibt `pending` — kein Verfall.
-  Kommt ein neues Abo (`customer.subscription.created`), holt der
-  Webhook `referral_rewards_pending_for(user)` und wendet es an (T18).
-  Ohne `stripe_customer_id` ebenfalls `pending`.
+  trotzdem.
+- **Free-Werber** (gekündigt): Reward `pending`, kein Versuch, kein
+  Verfall. Neues Abo (`customer.subscription.created`) → Nachholung.
 
 ### Stripe-Konfiguration — nur dokumentiert, nicht ausgeführt
 
@@ -136,15 +166,19 @@ kein Product, kein Price). Genau ein Dashboard-Schritt ist nötig:
 > und kein Referral wird je `converted`. Prüfbar im Webhook-Log
 > (Event-Typ `invoice.paid`, Antwort `200`) und in `stripe_events`.
 
-## 8. Idempotenz — vier Schichten
+## 8. Idempotenz — fünf Schichten
 
-1. `stripe_events(id)` PK — jedes Stripe-Event einmal.
+1. `stripe_events(id)` PK — jedes Stripe-Event einmal; bei
+   Handler-Fehler wird der Claim freigegeben, damit der Retry läuft.
 2. `referral_mark_converted` wechselt nur `signed_up → converted`;
    `converted_invoice_id unique`.
 3. `referral_rewards unique(referral_id, beneficiary)` — nie ein
    drittes Reward.
-4. Stripe-Idempotency-Key = Reward-ID — selbst ein doppelter
-   Funktionsaufruf erzeugt keine zweite Balance-Transaktion.
+4. Stripe-Idempotency-Key = Reward-ID — derselbe Key liefert dieselbe
+   Transaktion zurück (24 h). Deckt „Stripe ok, DB-Update scheiterte“:
+   der Retry bekommt dieselbe Transaktion und setzt dann `applied`.
+5. Metadata-Suche `werkruf_reward_id` in den Balance-Transaktionen des
+   Kunden — greift auch jenseits der 24 h des Keys. Nie ein Doppelcredit.
 
 ## 9. Fraud-Schutz
 
@@ -186,6 +220,13 @@ Massenabfrage, keine Mails.
   > 0, Balance + Idempotency-Key, FP, Free-Nachholung, Trial-Schutz),
   Einstellungen-Komponente, Kanon (kein Client-RPC, Nutzer aus JWT,
   Lookup nur boolean).
+- `src/referralBetrag.test.js` (17): Monatsbetrag aus der Price (T1,
+  Rabattfall T2, 0 € T3, unklar T4, Währung T5), Retry (T6–T9: pending
+  bleibt, gleicher Key, Metadata-Wiederverwendung, Stripe vor DB,
+  applied nie erneut), FP/Free (T10/T11), Conversion (T12–T15).
+- `supabase/tests/referral_reward_retry.test.sql`: Versuch notieren,
+  Erfolg löscht Fehler, applied unveränderlich, pending_for_referral,
+  Rechte.
 - `supabase/tests/empfehlungslink.test.sql`: T1/T2/T3/T36 Code, T6–T10
   Zuordnung (inkl. Selbst-Empfehlung über Signup-Pfad), T13–T25
   Conversion/Rewards/Statuswechsel, T17 FP, T18 Free, T32–T35 Rechte
@@ -212,10 +253,13 @@ Massenabfrage, keine Mails.
 8. B: Checkout (Stripe Test) → `checkout.session.completed` → kein
    Reward, Status bleibt `signed_up`.
 9. Stripe Test-Uhr oder `invoice.paid` mit `amount_paid > 0` → Referral
-   `converted`, zwei Rewards `applied`, Audit `referral.converted` +
-   2× `referral.reward_applied`.
+   `converted`, zwei Rewards `applied` mit `amount_cents = 4900`, Audit
+   `referral.converted` (mit `rewardAmountCents`, `priceId`) + 2×
+   `referral.reward_applied`.
+9b. Variante mit Promotion-Code (Test-Modus, z. B. 50 %): `amount_paid`
+   2450 → Rewards trotzdem **4900**.
 10. Stripe: Kunde A und Kunde B haben je ein negatives Customer
-    Balance in Höhe des Monatsbetrags.
+    Balance in Höhe des regulären Monatsbetrags (−49,00 €).
 11. A: „1 davon nutzt Pro“, „1 Gratis-Monat verdient“.
 12. Webhook-Event erneut senden (Stripe „Resend“) → keine neuen
     Rewards, keine zweite Balance-Transaktion.
@@ -237,8 +281,10 @@ Massenabfrage, keine Mails.
 
 ## 14. Deploy-Reihenfolge
 
-1. Migration `20261111090000_empfehlungslink.sql` (Actions → Apply
-   Supabase migrations). Selbstprüfung `[wp10] in Ordnung`.
+1. Migrationen `20261111090000_empfehlungslink.sql` und
+   `20261111120000_referral_reward_retry.sql` (Actions → Apply Supabase
+   migrations). Selbstprüfungen `[wp10] in Ordnung`, `[wp10-retry] in
+   Ordnung`.
 2. Functions `google-business`, `stripe-webhook`, `admin-ops`
    (automatisch beim Merge).
 3. Frontend (Vercel, ggf. „Promote to Production“).

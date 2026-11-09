@@ -57,6 +57,7 @@ import Stripe from 'https://esm.sh/stripe@14?target=deno';
    eigenes "=== 'founding_partner'" an einer vierten Stelle: genau so
    ist die Zugangsregel vor H1 viermal entstanden. */
 import { darfZahlungsmahnung } from '../../../src/utils/subscription.js';
+import { istEchteConversion, subscriptionIdAus, monatsbetragAusSubscription, findeBestehendeGutschrift, fehlerKurz } from '../../../src/utils/referralBetrag.js';
 
 /* ═════════════════════════════════════════════
    HILFSFUNKTIONEN
@@ -142,51 +143,84 @@ async function resolveUserId(
    = Reward-ID (dieselbe Gutschrift kann bei Stripe nicht zweimal
    entstehen, selbst wenn der Statuswechsel in der DB scheitert). */
 
-interface RewardZeile { id: string; userId: string | null; beneficiary: string; amountCents: number; currency: string; status?: string }
+interface RewardZeile { id: string; userId: string | null; beneficiary: string; amountCents: number; currency: string; status?: string; attemptCount?: number }
 
+/* Rewards anwenden — Stripe Customer Balance.
+
+   Retry-Modell (WP10-Folgefix): ein Stripe-Fehler ist NICHT terminal.
+   Der Reward bleibt 'pending', der Versuch wird notiert, und der
+   Aufrufer macht aus `failed > 0` einen Handler-Fehler → 500 → Stripe
+   stellt das Event erneut zu → derselbe Reward wird mit DEMSELBEN
+   Idempotency-Key (werkruf-referral-reward-<id>) erneut versucht.
+
+   Doppelcredit-Schutz, zweistufig:
+   1. Stripe-Idempotency-Key: derselbe Key liefert dieselbe Transaktion
+      zurueck (24 h) — deckt auch „Stripe ok, DB-Update scheiterte“.
+   2. Darueber hinaus: vor jeder Buchung die Balance-Transaktionen des
+      Kunden nach metadata.werkruf_reward_id durchsuchen. Gefunden →
+      keine neue Buchung, nur DB auf applied.
+   Reihenfolge immer: Stripe erfolgreich → DB applied, nie umgekehrt.
+
+   Terminal nur fachlich: Founding Partner → invalid(founding_partner).
+   Ohne Stripe-Kunden (Free ohne je ein Abo) → bleibt pending, ohne
+   Versuch — das ist kein Fehler, nur „noch nicht“. */
 async function wendeRewardsAn(
   supabase: SupabaseClient, stripe: Stripe, rewards: RewardZeile[], anlass: string,
-): Promise<{ applied: number; skipped: number; failed: number }> {
-  const zaehler = { applied: 0, skipped: 0, failed: 0 };
+): Promise<{ applied: number; skipped: number; failed: number; fehler: string[] }> {
+  const zaehler = { applied: 0, skipped: 0, failed: 0, fehler: [] as string[] };
   for (const r of rewards) {
     if (r.status && r.status !== 'pending') { zaehler.skipped++; continue; }
     if (!r.userId) { zaehler.skipped++; continue; }
     const { data: profil } = await supabase
       .from('user_profiles').select('stripe_customer_id, plan').eq('id', r.userId).maybeSingle();
-    /* Ohne Stripe-Kunden (Free ohne je ein Abo) bleibt der Reward
-       pending — er wird bei der naechsten Pro-Aktivierung angewendet. */
     if (!profil?.stripe_customer_id) { zaehler.skipped++; continue; }
     if (profil.plan === 'founding_partner') {
       await supabase.rpc('referral_reward_set_status', { p_reward_id: r.id, p_status: 'invalid', p_stripe_object_id: null, p_reason: 'founding_partner' });
       zaehler.skipped++; continue;
     }
     try {
-      const tx = await stripe.customers.createBalanceTransaction(
+      /* Stufe 2: schon gebucht? (Idempotency-Key ist nach 24 h weg) */
+      const bisherige = await stripe.customers.listBalanceTransactions(profil.stripe_customer_id, { limit: 100 });
+      const vorhanden = findeBestehendeGutschrift(bisherige.data, r.id) as Stripe.CustomerBalanceTransaction | null;
+      const tx = vorhanden ?? await stripe.customers.createBalanceTransaction(
         profil.stripe_customer_id,
         { amount: -Math.abs(r.amountCents), currency: r.currency || 'eur',
           description: `WERKRUF Empfehlungsbonus — ein Monat (${r.beneficiary === 'referrer' ? 'Werber' : 'Empfohlener'})`,
           metadata: { werkruf_reward_id: r.id, anlass } },
         { idempotencyKey: `werkruf-referral-reward-${r.id}` },
       );
-      const { data: ok } = await supabase.rpc('referral_reward_set_status', {
+      /* Erst Stripe, dann DB. Scheitert die DB: Reward bleibt pending,
+         naechster Versuch findet die Buchung ueber Key oder Metadata. */
+      await supabase.rpc('referral_reward_versuch_notieren', { p_reward_id: r.id, p_error: null });
+      const { data: ok, error: setErr } = await supabase.rpc('referral_reward_set_status', {
         p_reward_id: r.id, p_status: 'applied', p_stripe_object_id: tx.id, p_reason: null,
       });
+      if (setErr) throw setErr;
       if (ok) zaehler.applied++; else zaehler.skipped++;
       await supabase.from('audit_logs').insert({
         user_id: r.userId, actor_type: 'system', action: 'referral.reward_applied',
         entity_type: 'referral_reward', entity_id: r.id,
-        metadata: { amountCents: r.amountCents, beneficiary: r.beneficiary, stripeObjectId: tx.id, anlass },
+        metadata: { amountCents: r.amountCents, currency: r.currency, beneficiary: r.beneficiary, stripeObjectId: tx.id, anlass, wiederverwendet: Boolean(vorhanden) },
       });
     } catch (err) {
+      /* transient oder unbekannt: pending bleibt, Versuch notieren, Retry ueber den Aufrufer */
       zaehler.failed++;
-      await supabase.rpc('referral_reward_set_status', {
-        p_reward_id: r.id, p_status: 'failed', p_stripe_object_id: null,
-        p_reason: String((err as Error)?.message ?? err).slice(0, 200),
-      });
-      console.error(`[stripe-webhook] referral reward ${r.id} nicht anwendbar:`, (err as Error)?.message);
+      const kurz = fehlerKurz(err);
+      zaehler.fehler.push(`${r.id}: ${kurz}`);
+      await supabase.rpc('referral_reward_versuch_notieren', { p_reward_id: r.id, p_error: kurz });
+      console.error(`[stripe-webhook] referral reward ${r.id} noch nicht angewendet (bleibt pending):`, kurz);
     }
   }
   return zaehler;
+}
+
+/* Regulaerer Monatsbetrag der Subscription — Source of Truth fuer den
+   Reward. Nicht eindeutig → null; der Aufrufer meldet Handler-Fehler
+   (Retry), konvertiert nichts und erzeugt keinen falschen Reward. */
+async function monatsbetragFuer(stripe: Stripe, subId: string): Promise<{ amountCents: number; currency: string; priceId: string | null } | { grund: string }> {
+  const sub = await stripe.subscriptions.retrieve(subId);
+  const m = monatsbetragAusSubscription(sub);
+  return m.ok ? { amountCents: m.amountCents, currency: m.currency, priceId: m.priceId } : { grund: m.grund };
 }
 
 function mapStatusToPlan(status: Stripe.Subscription.Status): string {
@@ -431,6 +465,8 @@ serve(async (req) => {
           if (liste.length > 0) {
             const z = await wendeRewardsAn(supabase, stripe, liste, 'subscription_created');
             console.log(`✓ referral rewards nachgeholt fuer ${userId}: ${JSON.stringify(z)}`);
+            /* Plan-Update oben ist idempotent — ein Retry wiederholt nur den Reward. */
+            if (z.failed > 0) handlerError = `referral rewards ausstehend (${z.fehler.join('; ')})`;
           }
         }
         break;
@@ -444,36 +480,63 @@ serve(async (req) => {
          ein verrechneter Bonus ebenfalls — beides ist keine Conversion.
          checkout.session.completed zaehlt nie (dort laeuft der Trial).
 
-         Der Betrag der Gutschrift ist der bezahlte Monatsbetrag dieser
-         Rechnung — "ein Monat" heisst genau das, was der Kunde zahlt. */
+         amount_paid hat genau EINE Bedeutung: > 0 → echte Conversion.
+         Der Reward ist der REGULAERE Monatsbetrag der Subscription-Price
+         (unit_amount) — nicht amount_paid (Promotion-Code), nicht
+         total/subtotal. Nicht eindeutig → Handler-Fehler, Stripe retryt,
+         nichts wird konvertiert.
+
+         Retry-Pfad: ist die Conversion schon durch und Rewards noch
+         pending (Stripe-Fehler beim ersten Mal), wendet die erneute
+         Zustellung sie an — gleicher Reward, gleicher Idempotency-Key. */
       case 'invoice.paid': {
         const invoice    = event.data.object as Stripe.Invoice;
-        const customerId = invoice.customer as string | null;
-        const subId      = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id ?? null;
-        const bezahlt    = Number(invoice.amount_paid ?? 0);
-        if (!customerId || !subId || bezahlt <= 0) {
-          console.log(`[stripe-webhook] invoice.paid ohne Relevanz (customer ${customerId}, sub ${subId}, paid ${bezahlt})`);
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null;
+        const subId      = subscriptionIdAus(invoice);
+        if (!istEchteConversion(invoice) || !customerId || !subId) {
+          console.log(`[stripe-webhook] invoice.paid ohne Relevanz (customer ${customerId}, sub ${subId}, paid ${invoice.amount_paid})`);
           break;
         }
         const { data: profile } = await supabase
           .from('user_profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle();
         if (!profile?.id) break;
 
-        const { data: ergebnis, error: convErr } = await supabase.rpc('referral_mark_converted', {
-          p_referred_user_id: profile.id, p_invoice_id: invoice.id,
-          p_amount_cents: bezahlt, p_currency: invoice.currency ?? 'eur',
-        });
-        if (convErr) { handlerError = `referral_mark_converted: ${convErr.message}`; break; }
-        const conv = (ergebnis ?? {}) as { converted?: boolean; referralId?: string; referrerUserId?: string; rewards?: RewardZeile[] };
-        if (!conv.converted) break;
+        /* Erst schauen, ob es hier ueberhaupt ein Referral gibt — sonst
+           kein Stripe-Aufruf fuer jede Rechnung jedes Kunden. */
+        const { data: referral } = await supabase
+          .from('referrals').select('id, status, referrer_user_id')
+          .eq('referred_user_id', profile.id).in('status', ['signed_up', 'converted']).maybeSingle();
+        if (!referral) break;
 
-        await supabase.from('audit_logs').insert({
-          user_id: profile.id, actor_type: 'system', action: 'referral.converted',
-          entity_type: 'referral', entity_id: conv.referralId,
-          metadata: { invoiceId: invoice.id, amountCents: bezahlt, referrerUserId: conv.referrerUserId },
-        });
-        const z = await wendeRewardsAn(supabase, stripe, conv.rewards ?? [], 'invoice_paid');
-        console.log(`✓ referral converted ${conv.referralId}: ${JSON.stringify(z)}`);
+        let referralId: string = referral.id;
+        if (referral.status === 'signed_up') {
+          const betrag = await monatsbetragFuer(stripe, subId);
+          if ('grund' in betrag) {
+            handlerError = `referral: Monatsbetrag der Subscription ${subId} nicht eindeutig (${betrag.grund})`;
+            break;
+          }
+          const { data: ergebnis, error: convErr } = await supabase.rpc('referral_mark_converted', {
+            p_referred_user_id: profile.id, p_invoice_id: invoice.id,
+            p_amount_cents: betrag.amountCents, p_currency: betrag.currency,
+          });
+          if (convErr) { handlerError = `referral_mark_converted: ${convErr.message}`; break; }
+          const conv = (ergebnis ?? {}) as { converted?: boolean; referralId?: string; referrerUserId?: string };
+          if (!conv.converted) break;
+          referralId = conv.referralId ?? referralId;
+          await supabase.from('audit_logs').insert({
+            user_id: profile.id, actor_type: 'system', action: 'referral.converted',
+            entity_type: 'referral', entity_id: referralId,
+            metadata: { invoiceId: invoice.id, amountPaid: invoice.amount_paid, rewardAmountCents: betrag.amountCents, currency: betrag.currency, priceId: betrag.priceId, referrerUserId: conv.referrerUserId },
+          });
+        }
+
+        const { data: offen } = await supabase.rpc('referral_rewards_pending_for_referral', { p_referral_id: referralId });
+        const liste = (offen ?? []) as RewardZeile[];
+        if (liste.length > 0) {
+          const z = await wendeRewardsAn(supabase, stripe, liste, 'invoice_paid');
+          console.log(`✓ referral ${referralId}: ${JSON.stringify(z)}`);
+          if (z.failed > 0) handlerError = `referral rewards ausstehend (${z.fehler.join('; ')})`;
+        }
         break;
       }
 
