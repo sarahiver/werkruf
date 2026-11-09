@@ -71,12 +71,12 @@ describe('T11–T22 — Conversion und Reward im Webhook (Quelltext)', () => {
   const paidAnfang = w.indexOf("case 'invoice.paid'");
   const paid = w.slice(paidAnfang, w.indexOf("case '", paidAnfang + 1));
   it('T11/T12/T15 — nur invoice.paid mit amount_paid > 0 und Abo; checkout.session.completed zaehlt nicht', () => {
-    expect(paid).toMatch(/if \(!customerId \|\| !subId \|\| bezahlt <= 0\) \{/);
+    expect(paid).toMatch(/if \(!istEchteConversion\(invoice\) \|\| !customerId \|\| !subId\) \{/);
     expect(paid).toMatch(/rpc\('referral_mark_converted'/);
     const checkout = w.slice(w.indexOf("case 'checkout.session.completed'"), w.indexOf("case 'customer.subscription.created'"));
     expect(checkout).not.toMatch(/referral/);
-    /* der Betrag der Gutschrift = der bezahlte Betrag dieser Rechnung (T23) */
-    expect(paid).toMatch(/p_amount_cents: bezahlt/);
+    /* Folgefix: der Betrag der Gutschrift = regulaerer Monatsbetrag der Subscription-Price, nicht amount_paid */
+    expect(paid).toMatch(/p_amount_cents: betrag\.amountCents/);
     /* invoice.paid aendert nie den Plan — das tun nur die Subscription-Events */
     expect(paid).not.toMatch(/updateProfile|mapStatusToPlan/);
   });
