@@ -311,7 +311,9 @@ describe('keine Vollabfrage (§42, §43)', () => {
     /* Jede Tabellenabfrage im Snapshot ist auf diesen Kunden
        eingeschränkt. Eine ohne eq wäre ein Leck über alle Kunden. */
     const abfragen = snapshot.match(/admin\.from\('[a-z_]+'\)/g) || [];
-    const eingeschraenkt = snapshot.match(/\.eq\('(user_id|id)', userId\)/g) || [];
+    /* WP10: referrals ist ueber referrer ODER referred auf den Kunden
+       begrenzt — ebenfalls kein Leck, nur eine andere Schreibweise. */
+    const eingeschraenkt = snapshot.match(/\.eq\('(user_id|id)', userId\)|\.or\(`referrer_user_id\.eq\.\$\{userId\},referred_user_id\.eq\.\$\{userId\}`\)/g) || [];
     expect(abfragen.length).toBeGreaterThan(3);
     expect(eingeschraenkt.length).toBe(abfragen.length);
   });

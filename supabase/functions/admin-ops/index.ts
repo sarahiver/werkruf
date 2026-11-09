@@ -387,7 +387,7 @@ async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
  * ausschliesslich die Mailadresse.
  */
 async function supportZustand(admin: SupabaseClient, userId: string) {
-  const [profil, konto, standorte, jobs, mails, events, authUser, diffs] = await Promise.all([
+  const [profil, konto, standorte, jobs, mails, events, authUser, diffs, referrals, rewards] = await Promise.all([
     admin.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
     admin.from('google_accounts')
       .select('id,status,connected_at,last_error_code,last_error_at,deleted_at')
@@ -410,9 +410,16 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
     admin.from('google_profile_diffs')
       .select('id,location_id,field_path,label,prio,change_type,origin,first_seen_at,last_seen_at')
       .eq('user_id', userId).is('resolved_at', null).order('first_seen_at', { ascending: true }).limit(20),
+    /* WP10 — Empfehlungen: als Werber und als Geworbener; nur Status, keine Mails. */
+    admin.from('referrals')
+      .select('id,referrer_user_id,referred_user_id,status,signed_up_at,converted_at')
+      .or(`referrer_user_id.eq.${userId},referred_user_id.eq.${userId}`).order('signed_up_at', { ascending: false }).limit(20),
+    admin.from('referral_rewards')
+      .select('id,referral_id,beneficiary,amount_cents,status,applied_at,created_at')
+      .eq('user_id', userId).order('created_at', { ascending: false }).limit(20),
   ]);
 
-  for (const r of [profil, konto, standorte, jobs, mails, events, diffs]) {
+  for (const r of [profil, konto, standorte, jobs, mails, events, diffs, referrals, rewards]) {
     if ((r as { error?: unknown }).error) throw (r as { error: unknown }).error;
   }
 
@@ -428,6 +435,8 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
       mails: mails.data ?? [],
       events: events.data ?? [],
       profilDiffs: diffs.data ?? [],
+      referrals: referrals.data ?? [],
+      referralRewards: rewards.data ?? [],
     }),
     generatedAt: new Date().toISOString(),
   };

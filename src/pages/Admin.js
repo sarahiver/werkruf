@@ -706,6 +706,21 @@ export default function Admin() {
                       )}
                     </Block>
 
+                    {(snapshot.empfehlungen?.geworbenVon || snapshot.empfehlungen?.geworben?.length > 0 || snapshot.empfehlungen?.rewards?.length > 0) && (
+                      <Block data-testid="support-empfehlungen">
+                        <BlockTitel>Empfehlungen</BlockTitel>
+                        {snapshot.empfehlungen.geworbenVon && (
+                          <Zeile><span>Geworben von einem Nutzer</span><span>{snapshot.empfehlungen.geworbenVon.status} · seit {fmt(snapshot.empfehlungen.geworbenVon.seit)}</span></Zeile>
+                        )}
+                        {snapshot.empfehlungen.geworben.map((r) => (
+                          <Zeile key={r.id}><span>Hat geworben</span><span>{r.status} · {fmt(r.seit)}</span></Zeile>
+                        ))}
+                        {snapshot.empfehlungen.rewards.map((w) => (
+                          <Zeile key={w.id}><span>Bonus ({w.rolle === 'referrer' ? 'Werber' : 'Empfohlener'})</span><span>{(w.betragCents / 100).toFixed(2)} € · {w.status}{w.angewendetAm ? ` · ${fmt(w.angewendetAm)}` : ''}</span></Zeile>
+                        ))}
+                      </Block>
+                    )}
+
                     {snapshot.profilWaechter?.offen > 0 && (
                       <Block data-testid="support-profil-waechter">
                         <BlockTitel>Profil-Wächter — {snapshot.profilWaechter.offen} offen</BlockTitel>

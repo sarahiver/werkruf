@@ -32,11 +32,18 @@ und `src/utils/subscription.js`.
 `founding_partner` wird dabei nie überschrieben (`updateProfile`
 streicht `plan` für diese Nutzer).
 
-Verarbeitet werden genau fünf Events:
+Verarbeitet werden genau sechs Events:
 `checkout.session.completed`, `customer.subscription.created`,
 `customer.subscription.updated`, `customer.subscription.deleted`,
-`invoice.payment_failed`. Alles andere wird protokolliert und
-verworfen — **`invoice.paid` und Rückerstattungen also auch**.
+`invoice.payment_failed` und — seit WP10 — `invoice.paid`. Letzteres
+ändert **keinen Plan**; es markiert nur eine Empfehlung als eingelöst,
+sobald die erste Rechnung mit `amount_paid > 0` bezahlt ist (siehe
+`referral-program.md`). Alles andere wird protokolliert und
+verworfen — **Rückerstattungen also auch**.
+
+> `invoice.paid` muss am Webhook-Endpunkt im Stripe-Dashboard
+> ausgewählt sein, sonst kommt es nie an (Prüfpunkt in
+> `referral-program.md`).
 
 Der Checkout läuft im Modus `subscription` mit
 `trial_period_days: 30` und ohne `collection_method`, also mit der

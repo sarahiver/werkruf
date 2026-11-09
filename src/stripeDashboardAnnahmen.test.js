@@ -127,8 +127,8 @@ describe('Annahme 3 — die Oberfläche ist für at_period_end gebaut', () => {
   });
 });
 
-describe('Annahme 4 — invoice.paid und Rückerstattungen werden nicht verarbeitet', () => {
-  it('behandelt genau die fünf bekannten Events', () => {
+describe('Annahme 4 — Rückerstattungen werden nicht verarbeitet; invoice.paid nur für Empfehlungen (WP10)', () => {
+  it('behandelt genau die sechs bekannten Events', () => {
     const faelle = WEBHOOK.match(/case '[a-z_.]+':/g) || [];
     const events = faelle
       .map((z) => z.replace(/case '|':/g, ''))
@@ -139,12 +139,16 @@ describe('Annahme 4 — invoice.paid und Rückerstattungen werden nicht verarbei
       'customer.subscription.created',
       'customer.subscription.deleted',
       'customer.subscription.updated',
+      'invoice.paid',
       'invoice.payment_failed',
     ]);
   });
 
-  it('kennt kein invoice.paid und keinen Refund-Pfad', () => {
-    expect(WEBHOOK).not.toMatch(/case 'invoice\.paid'/);
+  it('invoice.paid aendert keinen Plan; kein Refund-Pfad', () => {
+    const anfang = WEBHOOK.indexOf("case 'invoice.paid'");
+    const paid = WEBHOOK.slice(anfang, WEBHOOK.indexOf("case '", anfang + 1));
+    expect(paid).toMatch(/referral_mark_converted/);
+    expect(paid).not.toMatch(/updateProfile|plan:|mapStatusToPlan/);
     expect(WEBHOOK).not.toMatch(/case 'charge\.refunded'/);
     expect(WEBHOOK).not.toMatch(/case 'credit_note/);
   });

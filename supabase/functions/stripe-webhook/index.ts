@@ -48,6 +48,7 @@
 //   customer.subscription.updated
 //   customer.subscription.deleted
 //   invoice.payment_failed
+//   invoice.paid               (WP10 — im Stripe-Dashboard am Endpunkt aktivieren)
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -127,6 +128,67 @@ async function resolveUserId(
 }
 
 /** Stripe-Status → WERKRUF-Plan. */
+/* ─────────────────────────────────────────────
+   WP10 — Empfehlungsbonus
+   ─────────────────────────────────────────────
+   Die Wahrheit ueber Zuordnung, Conversion und Anspruch liegt in der
+   Datenbank (referrals / referral_rewards). Stripe bekommt nur die
+   Wirkung: eine Gutschrift auf dem Customer Balance in Hoehe eines
+   Monatsbetrags, die Stripe mit der naechsten Rechnung verrechnet.
+   Billing-cycle-nativ, stapelbar, kein Coupon, kein zweiter Trial.
+
+   Idempotenz dreifach: stripe_events (Event), unique
+   (referral_id, beneficiary) im Ledger, und der Stripe-Idempotency-Key
+   = Reward-ID (dieselbe Gutschrift kann bei Stripe nicht zweimal
+   entstehen, selbst wenn der Statuswechsel in der DB scheitert). */
+
+interface RewardZeile { id: string; userId: string | null; beneficiary: string; amountCents: number; currency: string; status?: string }
+
+async function wendeRewardsAn(
+  supabase: SupabaseClient, stripe: Stripe, rewards: RewardZeile[], anlass: string,
+): Promise<{ applied: number; skipped: number; failed: number }> {
+  const zaehler = { applied: 0, skipped: 0, failed: 0 };
+  for (const r of rewards) {
+    if (r.status && r.status !== 'pending') { zaehler.skipped++; continue; }
+    if (!r.userId) { zaehler.skipped++; continue; }
+    const { data: profil } = await supabase
+      .from('user_profiles').select('stripe_customer_id, plan').eq('id', r.userId).maybeSingle();
+    /* Ohne Stripe-Kunden (Free ohne je ein Abo) bleibt der Reward
+       pending — er wird bei der naechsten Pro-Aktivierung angewendet. */
+    if (!profil?.stripe_customer_id) { zaehler.skipped++; continue; }
+    if (profil.plan === 'founding_partner') {
+      await supabase.rpc('referral_reward_set_status', { p_reward_id: r.id, p_status: 'invalid', p_stripe_object_id: null, p_reason: 'founding_partner' });
+      zaehler.skipped++; continue;
+    }
+    try {
+      const tx = await stripe.customers.createBalanceTransaction(
+        profil.stripe_customer_id,
+        { amount: -Math.abs(r.amountCents), currency: r.currency || 'eur',
+          description: `WERKRUF Empfehlungsbonus — ein Monat (${r.beneficiary === 'referrer' ? 'Werber' : 'Empfohlener'})`,
+          metadata: { werkruf_reward_id: r.id, anlass } },
+        { idempotencyKey: `werkruf-referral-reward-${r.id}` },
+      );
+      const { data: ok } = await supabase.rpc('referral_reward_set_status', {
+        p_reward_id: r.id, p_status: 'applied', p_stripe_object_id: tx.id, p_reason: null,
+      });
+      if (ok) zaehler.applied++; else zaehler.skipped++;
+      await supabase.from('audit_logs').insert({
+        user_id: r.userId, actor_type: 'system', action: 'referral.reward_applied',
+        entity_type: 'referral_reward', entity_id: r.id,
+        metadata: { amountCents: r.amountCents, beneficiary: r.beneficiary, stripeObjectId: tx.id, anlass },
+      });
+    } catch (err) {
+      zaehler.failed++;
+      await supabase.rpc('referral_reward_set_status', {
+        p_reward_id: r.id, p_status: 'failed', p_stripe_object_id: null,
+        p_reason: String((err as Error)?.message ?? err).slice(0, 200),
+      });
+      console.error(`[stripe-webhook] referral reward ${r.id} nicht anwendbar:`, (err as Error)?.message);
+    }
+  }
+  return zaehler;
+}
+
 function mapStatusToPlan(status: Stripe.Subscription.Status): string {
   switch (status) {
     case 'active':             return 'pro';
@@ -358,6 +420,60 @@ serve(async (req) => {
           });
 
         console.log(`✓ ${event.type}: User ${userId} → status ${sub.status}, plan ${plan}`);
+
+        /* WP10 — ein Werber, der in Free war und jetzt wieder ein Abo
+           hat: seine wartenden Empfehlungsboni werden jetzt
+           gutgeschrieben. Nur bei created; updated kommt bei jeder
+           Statusaenderung und braucht das nicht. */
+        if (event.type === 'customer.subscription.created') {
+          const { data: offen } = await supabase.rpc('referral_rewards_pending_for', { p_user_id: userId });
+          const liste = (offen ?? []) as RewardZeile[];
+          if (liste.length > 0) {
+            const z = await wendeRewardsAn(supabase, stripe, liste, 'subscription_created');
+            console.log(`✓ referral rewards nachgeholt fuer ${userId}: ${JSON.stringify(z)}`);
+          }
+        }
+        break;
+      }
+
+      /* ─────────────────────────────────────────────
+         RECHNUNG BEZAHLT — WP10 Conversion
+         ─────────────────────────────────────────────
+         Nur eine ECHTE Zahlung zaehlt: amount_paid > 0 und die Rechnung
+         gehoert zu einem Abo. Ein Trial erzeugt eine 0-€-Rechnung,
+         ein verrechneter Bonus ebenfalls — beides ist keine Conversion.
+         checkout.session.completed zaehlt nie (dort laeuft der Trial).
+
+         Der Betrag der Gutschrift ist der bezahlte Monatsbetrag dieser
+         Rechnung — "ein Monat" heisst genau das, was der Kunde zahlt. */
+      case 'invoice.paid': {
+        const invoice    = event.data.object as Stripe.Invoice;
+        const customerId = invoice.customer as string | null;
+        const subId      = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id ?? null;
+        const bezahlt    = Number(invoice.amount_paid ?? 0);
+        if (!customerId || !subId || bezahlt <= 0) {
+          console.log(`[stripe-webhook] invoice.paid ohne Relevanz (customer ${customerId}, sub ${subId}, paid ${bezahlt})`);
+          break;
+        }
+        const { data: profile } = await supabase
+          .from('user_profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle();
+        if (!profile?.id) break;
+
+        const { data: ergebnis, error: convErr } = await supabase.rpc('referral_mark_converted', {
+          p_referred_user_id: profile.id, p_invoice_id: invoice.id,
+          p_amount_cents: bezahlt, p_currency: invoice.currency ?? 'eur',
+        });
+        if (convErr) { handlerError = `referral_mark_converted: ${convErr.message}`; break; }
+        const conv = (ergebnis ?? {}) as { converted?: boolean; referralId?: string; referrerUserId?: string; rewards?: RewardZeile[] };
+        if (!conv.converted) break;
+
+        await supabase.from('audit_logs').insert({
+          user_id: profile.id, actor_type: 'system', action: 'referral.converted',
+          entity_type: 'referral', entity_id: conv.referralId,
+          metadata: { invoiceId: invoice.id, amountCents: bezahlt, referrerUserId: conv.referrerUserId },
+        });
+        const z = await wendeRewardsAn(supabase, stripe, conv.rewards ?? [], 'invoice_paid');
+        console.log(`✓ referral converted ${conv.referralId}: ${JSON.stringify(z)}`);
         break;
       }
 
