@@ -26,18 +26,27 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@14?target=deno';
+import { entscheideTrial, baueCheckoutUrls, TRIAL_TAGE } from '../../../src/utils/checkoutRegeln.js';
+import { hatteSchonAbo } from '../../../src/utils/subscription.js';
 
 /* ─────────────────────────────────────────────
    KONFIGURATION
 ───────────────────────────────────────────── */
 
-// Testphase in Tagen. Wird explizit an Stripe uebergeben.
+// Testphase in Tagen — NUR beim ersten Abo (WP7 §10).
+//
+// Vor WP7 stand hier eine Konstante, die jeder Checkout bekam. Ein
+// Kunde, der kuendigte und neu abschloss, bekam erneut 30 Tage gratis;
+// beliebig oft. Jetzt entscheidet entscheideTrial() aus
+// src/utils/checkoutRegeln.js: Stripe-Historie des Customers zuerst,
+// Profil als zweite Quelle. Wiedereinstieg → 0 Tage, 49 €/Monat ab
+// sofort. Die Zahl selbst (TRIAL_TAGE) steht in der geteilten Datei,
+// damit Frontend-Texte und Function dieselbe nennen.
 //
 // WICHTIG: Falls am Stripe-Price bereits eine Trial konfiguriert ist,
-// ueberschreibt dieser Wert sie. Beide auf 30 zu setzen ergibt 30 Tage,
-// nicht 60 — es gibt keine Verdopplung. Auf 0 setzen, um ohne Testphase
-// direkt abzurechnen.
-const TRIAL_DAYS = 30;
+// ueberschreibt trial_period_days sie; bei 0 Tagen wird der Parameter
+// gar nicht gesetzt — dann gilt, was am Price steht. Deshalb darf am
+// Price KEIN Trial konfiguriert sein (siehe Doku).
 
 type PlanKey = 'monthly';
 const VALID_PLANS: PlanKey[] = ['monthly'];
@@ -97,6 +106,9 @@ serve(async (req) => {
     const plan        = String(payload.plan ?? '') as PlanKey;
     const companyName = typeof payload.companyName === 'string' ? payload.companyName : '';
     const industryKey = typeof payload.industryKey === 'string' ? payload.industryKey : 'handwerk';
+    /* Wohin nach dem Bezahlen — validiert in baueCheckoutUrls, nie
+       roh uebernommen (WP7 §19: kein Open Redirect). */
+    const returnPath  = typeof payload.returnPath === 'string' ? payload.returnPath : '';
 
     // path wird noch vom Frontend mitgeschickt, aber ignoriert.
     // Path B ist gestrichen — es gibt nur noch einen Weg.
@@ -147,7 +159,7 @@ serve(async (req) => {
     /* ── Stripe-Kunde holen oder anlegen ── */
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
-      .select('stripe_customer_id, company_name, stripe_subscription_status')
+      .select('stripe_customer_id, company_name, stripe_subscription_status, stripe_subscription_id, trial_ends_at')
       .eq('id', user.id)
       .maybeSingle();
     if (profileError || !profile) {
@@ -185,6 +197,25 @@ serve(async (req) => {
       if (saveCustomerError) throw saveCustomerError;
     }
 
+    /* ── Trial: nur beim ersten Abo (WP7 §10) ──
+       Stripe ist die Wahrheit: irgendeine Subscription in der Historie
+       dieses Customers — egal ob canceled, incomplete_expired oder
+       noch laufend — heisst: kein erster Start. status: 'all' liefert
+       auch beendete. limit 1 reicht, es geht um Existenz. */
+    let stripeHatteSubscriptions = false;
+    if (profile?.stripe_customer_id) {
+      const bisherige = await stripe.subscriptions.list({
+        customer: customerId, status: 'all', limit: 1,
+      });
+      stripeHatteSubscriptions = bisherige.data.length > 0;
+    }
+    const trial = entscheideTrial({
+      stripeHatteSubscriptions,
+      profilHatteAbo: hatteSchonAbo(profile),
+    });
+
+    const urls = baueCheckoutUrls(siteUrl, returnPath);
+
     /* ── Gemeinsame Metadaten ──
        Dieselben Werte auf Session UND Subscription. Stripe kopiert
        Session-Metadaten nicht auf die Subscription; der Webhook liest
@@ -194,6 +225,7 @@ serve(async (req) => {
       plan_type:        plan,
       industry_key:     industryKey,
       company_name:     companyName || '',
+      trial_grund:      trial.grund,
     };
 
     /* ── Checkout-Session ── */
@@ -202,12 +234,12 @@ serve(async (req) => {
       client_reference_id: user.id,
       mode:        'subscription',
       line_items:  [{ price: priceId, quantity: 1 }],
-      success_url: `${siteUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:  `${siteUrl}/dashboard?checkout=cancelled`,
+      success_url: urls.successUrl,
+      cancel_url:  urls.cancelUrl,
       metadata:    sharedMetadata,
       subscription_data: {
         metadata: sharedMetadata,
-        ...(TRIAL_DAYS > 0 ? { trial_period_days: TRIAL_DAYS } : {}),
+        ...(trial.trialTage > 0 ? { trial_period_days: trial.trialTage } : {}),
       },
       allow_promotion_codes: true,
       // Stripe vergibt die Idempotenz normalerweise selbst; ein wiederholter
@@ -217,9 +249,11 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    console.log(`[checkout] Session ${session.id} fuer User ${user.id}, Plan ${plan}, Trial ${TRIAL_DAYS}d`);
+    console.log(`[checkout] Session ${session.id} fuer User ${user.id}, Plan ${plan}, Trial ${trial.trialTage}d (${trial.grund})`);
 
-    return json({ url: session.url, sessionId: session.id }, 200);
+    /* trialTage geht mit zurueck, damit die Oberflaeche nichts
+       verspricht, was Stripe gleich nicht einloest. */
+    return json({ url: session.url, sessionId: session.id, trialTage: trial.trialTage, trialMax: TRIAL_TAGE }, 200);
 
   } catch (err) {
     console.error('[checkout] Fehler:', err);

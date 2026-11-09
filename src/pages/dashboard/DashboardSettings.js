@@ -15,7 +15,10 @@ import {
   isCancellationScheduled,
   isFoundingPartner,
   hatAktivesStripeAltabo,
+  hasPaidAccess,
+  hatteSchonAbo,
 } from '../../utils/subscription';
+import { proCtaText } from '../../utils/freeUmfang';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -196,6 +199,12 @@ export default function DashboardSettings() {
     : null;
   const trialUrgent = daysLeft !== null && daysLeft <= 5;
   const cancellationScheduled = isCancellationScheduled(profile);
+  /* WP7: bezahlter Zugang ja/nein entscheidet, ob hier „verwalten"
+     oder „wieder aktivieren" steht — nicht, ob es einen Stripe-Kunden
+     gibt. Ein gekuendigter Kunde HAT einen Stripe-Kunden und sah
+     vorher nur das Portal, keinen Weg zurueck. */
+  const bezahlt   = hasPaidAccess(profile);
+  const hatteAbo  = hatteSchonAbo(profile);
   const periodEnd = profile?.stripe_current_period_end
     ? new Date(profile.stripe_current_period_end).toLocaleDateString('de-DE', {
         day: '2-digit', month: 'long', year: 'numeric',
@@ -299,15 +308,23 @@ export default function DashboardSettings() {
                 }
               </PlanDetail>
             )}
-            {plan === 'free' && (
-              <PlanDetail>Kein aktives Abo — jetzt upgraden</PlanDetail>
+            {!bezahlt && !foundingPartner && (
+              <PlanDetail>
+                {hatteAbo
+                  ? 'Free-Modus: Profil und Score bleiben im Blick. Pro bringt Aufgaben, Antworten und die Wochenmail zurück.'
+                  : 'Kein aktives Abo — jetzt upgraden'}
+              </PlanDetail>
             )}
             {plan === 'pro' && profile?.stripe_subscription_status && (
               <PlanDetail>Status: {profile.stripe_subscription_status}</PlanDetail>
             )}
             {cancellationScheduled && (
-              <PlanDetail style={{ color: '#D48A00', fontWeight: 700 }}>
-                Gekündigt — Zugang bis {periodEnd || 'zum Ende des Abrechnungszeitraums'}
+              <PlanDetail style={{ color: '#D48A00', fontWeight: 700 }} data-testid="pro-endet">
+                Pro endet am {periodEnd || 'Ende des Abrechnungszeitraums'}.
+                <br />
+                <span style={{ fontWeight: 400 }}>
+                  Danach nutzt du WERKRUF kostenlos im Free-Modus weiter — Profil und Score bleiben sichtbar.
+                </span>
               </PlanDetail>
             )}
           </PlanInfo>
@@ -350,7 +367,7 @@ export default function DashboardSettings() {
                   </PortalBtn>
                 </>
               ) : null
-            ) : hasStripeCustomer ? (
+            ) : bezahlt && hasStripeCustomer ? (
               <>
                 <PortalBtn onClick={handlePortal} disabled={portalLoading}>
                   {portalLoading
@@ -376,22 +393,33 @@ export default function DashboardSettings() {
                     plan:        'monthly',
                     companyName: profile?.company_name || '',
                     industryKey: profile?.industry_key || 'handwerk',
+                    returnPath:  '/dashboard',
                   })}
                   disabled={checkoutLoading}
                   style={{ background: 'var(--color-accent)' }}
                 >
                   {checkoutLoading
                     ? <><Loader size={15} className="spin" />Weiterleitung zu Stripe…</>
-                    : <><CreditCard size={15} />Jetzt upgraden</>
+                    : <><CreditCard size={15} />{proCtaText(hatteAbo)}</>
                   }
                 </PortalBtn>
                 <p style={{
                   fontFamily: 'var(--font-body)', fontSize: '.72rem',
                   color: '#A0ADB8', marginTop: 6
                 }}>
-                  30 Tage kostenlos — danach 49 € / Monat, jederzeit kündbar
+                  {hatteAbo
+                    ? `${pricing.monthlyPrice ?? 49} € / Monat, jederzeit kündbar`
+                    : `${pricing.trialDays ?? 30} Tage kostenlos — danach ${pricing.monthlyPrice ?? 49} € / Monat, jederzeit kündbar`}
                 </p>
                 {checkoutError && <ErrorBanner>{checkoutError}</ErrorBanner>}
+                {hasStripeCustomer && (
+                  <PortalBtn onClick={handlePortal} disabled={portalLoading} style={{ marginTop: 10 }}>
+                    {portalLoading
+                      ? <><Loader size={15} className="spin" />Wird geöffnet…</>
+                      : <><CreditCard size={15} />Rechnungen & Zahlungsdaten <ExternalLink size={13} /></>
+                    }
+                  </PortalBtn>
+                )}
               </>
             )}
             {portalError && <ErrorBanner>{portalError}</ErrorBanner>}

@@ -37,7 +37,7 @@ function detectIndustryKey() {
 /* ─────────────────────────────────────────────
    CONTEXT
 ───────────────────────────────────────────── */
-const IndustryContext = createContext(null);
+export const IndustryContext = createContext(null);
 
 export function IndustryProvider({ children }) {
   const config = useMemo(() => {

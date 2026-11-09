@@ -203,7 +203,7 @@ describe('Verdrahtung in send-email', () => {
   });
 
   it('T12/T13 — Sofort- und Inaktivitaetsmail unveraendert: kein Wochenstatus, kein passiert', () => {
-    const kritisch = mail.slice(mail.indexOf("case 'critical_review_alert'"), mail.indexOf("case 'payment_failed'"));
+    const kritisch = mail.slice(mail.indexOf("case 'critical_review_alert'"), mail.indexOf("case 'critical_review_free'"));
     const inaktiv  = mail.slice(mail.indexOf("case 'inactivity_reminder'"), mail.indexOf("case 'weekly_summary'"));
     for (const block of [kritisch, inaktiv]) {
       expect(block).not.toMatch(/wochenstatus|Wochenstatus|passiertHtml|googleWoche/);

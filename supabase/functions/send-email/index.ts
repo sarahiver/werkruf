@@ -40,6 +40,7 @@ type EmailTemplate =
   | 'welcome' | 'trial_reminder' | 'trial_ended'
   | 'connection_broken' | 'weekly_report' | 'weekly_summary' | 'visibility_report'
   | 'critical_review_alert' | 'inactivity_reminder' | 'payment_failed'
+  | 'critical_review_free'
   | 'support_reply'
   | 'consent_reminder'
   | 'account_deleted';
@@ -842,6 +843,46 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
       return { subject: title, html, text: toPlainText(html) };
     }
 
+    case 'critical_review_free': {
+      /*
+       * WP7 — die Free-Fassung der Sofortmeldung.
+       *
+       * Dieselbe Ursache (Engine-Event review.negative_unanswered),
+       * derselbe Token-Weg (ergaenzeSofortmailLink), aber ein anderes
+       * Versprechen: Die Mail sagt, WAS ist, und WIE Pro hilft. Sie
+       * behauptet nicht, der Antwortvorschlag liege bereit — fuer Free
+       * wird keiner erzeugt, und der Link fuehrt ins ProGate mit dem
+       * Kontext der Bewertung, nicht in den Editor.
+       *
+       * Kein Angstmarketing (§18): keine Frist, kein „kostet dich
+       * Kunden", kein Ausrufezeichen. Preis genannt, Trial nicht —
+       * ein Free-Nutzer mit Historie bekommt keinen zweiten.
+       */
+      const count = Number(payload.count ?? 1);
+      const betrieb = String(payload.locationTitle || payload.companyName || '');
+      const title = (count === 1
+        ? 'Neue kritische Bewertung'
+        : `${count} neue kritische Bewertungen`)
+        + (betrieb ? ` für ${betrieb}` : '');
+
+      const html = layout(brand, title,
+        p(greeting) +
+        p(count === 1
+          ? `auf dem Google-Profil von ${company} ist eine neue Bewertung mit ein oder zwei Sternen eingegangen.`
+          : `auf dem Google-Profil von ${company} sind ${count} neue Bewertungen mit ein oder zwei Sternen eingegangen.`) +
+        p(`Du nutzt aktuell ${escapeHtml(brand.name)} Free — dein Profil bleibt im Blick, deshalb diese Nachricht.`) +
+        p(`<strong>Mit ${escapeHtml(brand.productName)} kannst du die Bewertung direkt in ${escapeHtml(brand.name)} ansehen, einen Antwortvorschlag erstellen lassen und die Antwort veröffentlichen.</strong> ` +
+          'Eine sachliche Antwort wirkt auf spätere Leser oft stärker als die Bewertung selbst.') +
+        p(`${escapeHtml(brand.productName)} kostet 49 € im Monat und ist monatlich kündbar.`),
+        { label: 'Bewertung ansehen & mit Pro antworten',
+          url: typeof payload.ctaUrl === 'string' && payload.ctaUrl
+            ? payload.ctaUrl
+            : `${brand.appUrl}/dashboard/bewertungen?status=offen` },
+      );
+
+      return { subject: title, html, text: toPlainText(html) };
+    }
+
     case 'payment_failed': {
       const title = 'Zahlung fehlgeschlagen — bitte Zahlungsmethode aktualisieren';
       const html = layout(brand, title,
@@ -1248,7 +1289,7 @@ async function processQueue(options: { workerId: string; limit: number; budgetMs
          Wochenmail — andere Vorlagen haben keine Aufgabenliste. */
       const nutzlast = row.template === 'weekly_summary'
         ? await ergaenzeMailLinks(row.payload as Record<string, unknown>)
-        : row.template === 'critical_review_alert'
+        : row.template === 'critical_review_alert' || row.template === 'critical_review_free'
           ? await ergaenzeSofortmailLink(row as { user_id: string | null; payload: Record<string, unknown> })
           : row.payload;
 

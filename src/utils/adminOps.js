@@ -32,7 +32,7 @@
  * Service-Role-Pfad versehentlich ins Frontend-Bundle wandert.
  */
 
-import { hasPaidAccess, isFoundingPartner, wantsOperationalMail } from './subscription.js';
+import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
 
 /* ═══════════════════════════════════════════════════════════════
    0 — DARSTELLUNG FUER DIE KUNDENLISTE
@@ -653,6 +653,10 @@ export function baueSupportSnapshot({
       fehlgeschlagen: (mails || []).filter((m) => m.status === 'failed').length,
     },
     billing: {
+      /* WP7: die kanonische Stufe, nicht aus Stripe-Feldern im Admin
+         erraten. Dieselbe Funktion wie Dashboard und Edge Functions. */
+      access: accessTier(profil),
+      accessLabel: ACCESS_TIER_LABEL[accessTier(profil)],
       stripeKunde: Boolean(profil.stripe_customer_id),
       stripeCustomerId: profil.stripe_customer_id || null,
       stripeSubscriptionId: profil.stripe_subscription_id || null,
@@ -807,7 +811,7 @@ function letzterJobFehler(jobs) {
 
 /** Die jeweils letzte Mail je Vorlage — Weekly, Critical, Broken (§15). */
 function letzteNachVorlage(mails) {
-  const interessant = ['weekly_summary', 'critical_review_alert', 'connection_broken', 'payment_failed'];
+  const interessant = ['weekly_summary', 'critical_review_alert', 'critical_review_free', 'connection_broken', 'payment_failed'];
   const ergebnis = {};
   interessant.forEach((vorlage) => {
     const treffer = (mails || []).find((m) => m.template === vorlage);

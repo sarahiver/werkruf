@@ -109,9 +109,12 @@ describe('aktive Preisseite', () => {
   it('behält die wahren Trial-Zusagen', () => {
     /* Die Gegenprobe: korrigiert werden sollte eine falsche Aussage,
        nicht die ganze Kommunikation. 30 Tage ohne Abbuchung sind
-       wahr — trial_period_days: 30 steht in der Checkout-Function. */
+       wahr — fuer den ERSTEN Start: seit WP7 steht die Zahl als
+       TRIAL_TAGE in src/utils/checkoutRegeln.js, und die Function
+       vergibt sie nur, wenn der Kunde noch nie ein Abo hatte. */
     expect(ausgabe).toMatch(/\{pricing\.trialDays\} Tage kostenlos/);
-    expect(CHECKOUT).toMatch(/TRIAL_DAYS\s*=\s*30/);
+    expect(fs.readFileSync(path.resolve(__dirname, 'utils/checkoutRegeln.js'), 'utf8')).toMatch(/TRIAL_TAGE\s*=\s*30/);
+    expect(CHECKOUT).toMatch(/trial_period_days: trial\.trialTage/);
   });
 });
 

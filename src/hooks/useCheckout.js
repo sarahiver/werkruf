@@ -18,6 +18,7 @@ export function useCheckout() {
     path,         // 'optimisation' | 'setup'
     companyName,
     industryKey,
+    returnPath,   // WP7: wohin nach erfolgreichem Checkout (nur /dashboard/…, der Server prueft)
   }) => {
     setLoading(true);
     setError(null);
@@ -30,7 +31,7 @@ export function useCheckout() {
       const { data, error: fnError } = await supabase.functions.invoke(
         'create-checkout-session',
         {
-          body: { plan, path, companyName, industryKey },
+          body: { plan, path, companyName, industryKey, returnPath },
         }
       );
 

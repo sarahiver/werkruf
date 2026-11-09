@@ -95,6 +95,58 @@ export function hasPaidAccess(profile, now = new Date()) {
 }
 
 /**
+ * Produktstufe — dieselbe Regel wie hasPaidAccess, als Name statt
+ * als Boolean (WP7).
+ *
+ *   'founding_partner'  voller Zugang, unabhaengig von Stripe
+ *   'pro'               bezahlter Zugang (trialing, active, past_due;
+ *                       auch gekuendigt bis Periodenende)
+ *   'free'              Rueckfallzustand: Zustand sehen, nicht aktiv
+ *                       verbessern
+ *
+ * Nicht neben hasPaidAccess gepflegt, sondern daraus abgeleitet —
+ * hasPaidAccess(p) === (accessTier(p) !== 'free') ist eine Invariante,
+ * die der Test festhaelt. Wer die Regel aendert, aendert sie einmal.
+ *
+ * @param {object|null} profile
+ * @param {Date} now
+ * @returns {'free'|'pro'|'founding_partner'}
+ */
+export function accessTier(profile, now = new Date()) {
+  if (isFoundingPartner(profile)) return 'founding_partner';
+  return hasPaidAccess(profile, now) ? 'pro' : 'free';
+}
+
+/** Lesbares Etikett fuer Oberflaeche und Support-Ansicht. */
+export const ACCESS_TIER_LABEL = Object.freeze({
+  free: 'Free',
+  pro: 'Pro',
+  founding_partner: 'Founding Partner',
+});
+
+/**
+ * Hatte dieser Nutzer schon einmal einen Gratis-Test oder ein Abo?
+ *
+ * Entscheidet, ob ein Checkout einen Trial bekommen darf (WP7 §10):
+ * erster Pro-Start → Trial; Wiedereinstieg → regulaer 49 €/Monat.
+ *
+ * Aus dem Profil allein beantwortbar, sobald der Webhook einmal
+ * gelaufen ist: trial_ends_at wird bei customer.subscription.created
+ * gesetzt und bei .deleted auf null — deshalb reicht trial_ends_at
+ * NICHT. stripe_subscription_id bleibt dagegen nach dem Ende stehen,
+ * und stripe_subscription_status traegt 'canceled'. Beides zusammen
+ * heisst: es gab schon einmal ein Abo.
+ *
+ * Die Server-Seite (create-checkout-session) fragt zusaetzlich die
+ * Stripe-Historie des Customers — das Profil kann hinterherhinken,
+ * Stripe nicht.
+ */
+export function hatteSchonAbo(profile) {
+  if (!profile) return false;
+  return Boolean(profile.stripe_subscription_id || profile.stripe_subscription_status);
+}
+
+/**
  * Ist dieser Zugang ein Founding-Partner-Zugang?
  *
  * Fuer Kommunikation und Auswertung, nicht fuer Zugriffsentscheidungen —

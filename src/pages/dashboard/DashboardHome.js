@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import {
@@ -10,8 +10,11 @@ import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useDashboardBriefing } from '../../hooks/useDashboardBriefing';
 import WerkrufScore from '../../components/dashboard/WerkrufScore';
 import NaechsteSchritte from '../../components/dashboard/NaechsteSchritte';
+import FreeHinweis from '../../components/dashboard/FreeHinweis';
 import { useHealthScore } from '../../hooks/useHealthScore';
-import { wantsOperationalMail } from '../../utils/subscription';
+import { wantsOperationalMail, hasPaidAccess } from '../../utils/subscription';
+import { istFreiErreichbar } from '../../utils/freeUmfang';
+import { IndustryContext } from '../../context/IndustryContext';
 import {
   Page, PageTitle, PageSub, Card, SectionTitle,
   StatusBanner, Recommendation, HealthCard, Insight, ErrorState,
@@ -78,6 +81,18 @@ export default function DashboardHome() {
   } = useDashboardBriefing();
 
   const health = useHealthScore({ stats, locations, replyCounts, loading });
+  /* Kein useIndustry(): das wirft ohne Provider, und die Uebersicht
+     hat ausserhalb der App (Tests) keinen. Der Preis ist hier nur Text. */
+  const pricing = useContext(IndustryContext)?.pricing;
+
+  /* WP7: Free sieht den Zustand, nicht die Aufgaben. Die Engine laeuft
+     weiter (Score, kritische Bewertungen), aber priorisierte Aufgaben
+     gehoeren zu Pro — hier steht fuer Free der Statushinweis. Die
+     naechste Handlung aus dem Banner bleibt nur, wenn ihr Ziel frei
+     erreichbar ist (Verbindung erneuern, Betrieb waehlen). */
+  const istPro = hasPaidAccess(profile);
+  const bannerAktion = nextAction?.actionUrl && (istPro || istFreiErreichbar(nextAction.actionUrl))
+    ? nextAction.actionUrl : null;
 
   const firstName = (profile?.full_name || '').split(' ')[0];
   /* Der Google-Name gewinnt, sobald ein Betrieb ausgewaehlt ist — das
@@ -121,8 +136,8 @@ export default function DashboardHome() {
         headline={status.headline}
         detail={status.detail}
         icon={STATUS_ICONS[status.level]}
-        action={nextAction?.actionUrl && (
-          <PrimaryBtn as={Link} to={nextAction.actionUrl} style={{ textDecoration: 'none' }}>
+        action={bannerAktion && (
+          <PrimaryBtn as={Link} to={bannerAktion} style={{ textDecoration: 'none' }}>
             Erledigen <ArrowRight size={15} />
           </PrimaryBtn>
         )}
@@ -191,8 +206,13 @@ export default function DashboardHome() {
           Ausschliesslich aus der Decision Engine. Diese Seite
           entscheidet nicht mehr, welche Aufgabe existiert — sie zeigt,
           was die Engine entschieden hat. */}
-      <NaechsteSchritte
-        events={actions}
+      {!istPro && !ohneBetrieb && !standortAuswahlNoetig && (
+        <FreeHinweis preis={pricing?.monthlyPrice || 49} />
+      )}
+      {/* Fuer Free nur die Betriebswahl-Aufforderung (frei erreichbar),
+          nie die Aufgabenliste. */}
+      {(istPro || standortAuswahlNoetig || ohneBetrieb) && <NaechsteSchritte
+        events={istPro ? actions : []}
         loading={feedLaedt}
         fehler={feedFehler}
         onNeuLaden={feedNeuLaden}
@@ -202,7 +222,7 @@ export default function DashboardHome() {
         onGesehen={melde.gesehen}
         onGeoeffnet={melde.geoeffnet}
         onWeggeklickt={melde.weggeklickt}
-      />
+      />}
 
 
       {/* Technischer Hinweis zur Datenlage — keine Aufgabe. Der Kunde

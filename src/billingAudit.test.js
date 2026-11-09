@@ -42,13 +42,20 @@ const REGEL    = lies('src/utils/subscription.js');
 
 describe('A — Checkout: wie ein Abo heute startet', () => {
 
-  it('übergibt 30 Testtage ausdrücklich an Stripe', () => {
+  it('übergibt 30 Testtage ausdrücklich an Stripe — aber nur beim ersten Abo (WP7)', () => {
     /* Der Kern des „30 Tage gratis"-Versprechens. Es hängt NICHT an
        der Price-Konfiguration im Stripe-Dashboard: Die Function setzt
        trial_period_days selbst. Fällt diese Zusage, wird am ersten Tag
-       abgebucht, während die Oberfläche 30 freie Tage verspricht. */
-    expect(CHECKOUT).toMatch(/const TRIAL_DAYS = 30;/);
-    expect(CHECKOUT).toMatch(/trial_period_days: TRIAL_DAYS/);
+       abgebucht, während die Oberfläche 30 freie Tage verspricht.
+
+       Seit WP7 entscheidet entscheideTrial() aus checkoutRegeln.js:
+       Stripe-Historie zuerst, Profil als zweite Quelle. Die Zahl 30
+       steht dort (TRIAL_TAGE), nicht mehr in der Function. */
+    expect(lies('src/utils/checkoutRegeln.js')).toMatch(/export const TRIAL_TAGE = 30;/);
+    expect(CHECKOUT).not.toMatch(/const TRIAL_DAYS/);
+    expect(CHECKOUT).toMatch(/trial_period_days: trial\.trialTage/);
+    expect(CHECKOUT).toMatch(/stripe\.subscriptions\.list\(\{\s*customer: customerId, status: 'all', limit: 1,\s*\}\)/);
+    expect(CHECKOUT).toMatch(/entscheideTrial\(\{\s*stripeHatteSubscriptions,\s*profilHatteAbo: hatteSchonAbo\(profile\),\s*\}\)/);
   });
 
   it('prüft den konfigurierten Preis vor der Session', () => {

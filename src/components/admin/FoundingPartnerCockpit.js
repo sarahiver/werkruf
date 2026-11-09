@@ -192,7 +192,7 @@ export default function FoundingPartnerCockpit({ rufeAdminOps }) {
       )}
 
       {!fehler && !laedt && partner.length === 0 && (
-        <Leer>Noch kein Founding Partner. Setzen über die Kundenliste („Founding Partner setzen").</Leer>
+        <Leer>Noch kein Founding Partner. Setzen über die Support-Ansicht eines Kunden („Founding Partner setzen").</Leer>
       )}
 
       {!fehler && partner.length > 0 && (
