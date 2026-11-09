@@ -34,6 +34,10 @@ import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHo
 import {
   berechneDiffs, diffFingerabdruck, DIFF_FELDER, diffUeberschrift, formatWert,
 } from '../../../src/utils/profilDiff.js';
+import {
+  offeneFeiertage, feiertagAm, bundeslandAusAdresse, baueSonderzeit, ausIso, tageBis as feiertagTageBis,
+  feiertagSubjektId, MODI as FEIERTAG_MODI, FENSTER_TAGE,
+} from '../../../src/utils/feiertage.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import {
@@ -3312,6 +3316,16 @@ interface Facts {
    * WP8 — offene Profil-Differenzen aus google_profile_diffs (vom
    * Standort-Sync geschrieben). Jede ist ein eigenes Subjekt.
    */
+  /**
+   * WP9 — anstehende Feiertage ohne Sonderoeffnungszeit (14 Tage).
+   * Berechnet in buildFacts aus ctx.hours; die Feiertagslogik liegt in
+   * src/utils/feiertage.js.
+   */
+  holidays: {
+    reliable: boolean;
+    locationId: string | null;
+    open: Array<{ id: string; name: string; iso: string; tageBis: number; dringend: boolean; landCode: string | null }>;
+  };
   profileDiffs: Array<{
     id: string; fieldPath: string; prio: 'kritisch' | 'mittel' | 'info'; label: string;
     changeType: 'changed' | 'closed_by_google' | 'pending' | 'rejected';
@@ -3702,6 +3716,23 @@ function buildFacts(ctx: EvaluationContext, kontoStandorte: number | null): Fact
       syncFailedRecently: ctx.syncFailed,
       lastSyncedAt: ctx.locations[0]?.lastSyncedAt ?? null,
     },
+    /* WP9: Feiertage im 14-Tage-Fenster ohne Sonderzeit. "reliable"
+       heisst: der Standort wurde synchronisiert und traegt regularHours
+       — sonst wissen wir nicht, was fehlt, und empfehlen nichts. */
+    holidays: (() => {
+      const h = (ctx as unknown as { hours?: {
+        regularPeriods?: unknown[]; specialHourPeriods?: unknown[];
+        storefrontAddress?: Record<string, unknown> | null; reliable?: boolean;
+      } }).hours;
+      const locationId = ctx.locations[0]?.id ?? null;
+      if (!h || h.reliable !== true) return { reliable: false, locationId, open: [] };
+      const heuteDate = new Date(now);
+      const heute = { year: heuteDate.getUTCFullYear(), month: heuteDate.getUTCMonth() + 1, day: heuteDate.getUTCDate() };
+      const open = offeneFeiertage({
+        heute, adresse: h.storefrontAddress ?? null, specialHourPeriods: h.specialHourPeriods ?? [],
+      }) as Facts['holidays']['open'];
+      return { reliable: true, locationId, open };
+    })(),
     /* WP8: aus dem Kontext, leer fuer aeltere Kontexte. */
     profileDiffs: Array.isArray((ctx as unknown as { profileDiffs?: unknown[] }).profileDiffs)
       ? ((ctx as unknown as { profileDiffs: Facts['profileDiffs'] }).profileDiffs)
@@ -4432,6 +4463,70 @@ const RULES: Rule[] = [
     }),
   },
 
+  /*
+   * ── WP9 — Feiertags-Kalender ──
+   *
+   * Ein gesetzlicher Feiertag (bundesweit oder im Bundesland des
+   * Standorts) liegt hoechstens 14 Tage voraus, und fuer das Datum gibt
+   * es keinen specialHours-Eintrag. Regulaere Zeiten reichen nicht:
+   * Google zeigt sie am Feiertag unveraendert, der Kunde steht vor der
+   * Tuer.
+   *
+   * Subjekt: deterministische UUID aus (Standort, Datum) — stabil ueber
+   * die Tage, also ein Event je Feiertag und Standort. Nach dem Feiertag oder
+   * mit Sonderzeit liefert die Regel nichts mehr → resolve_stale.
+   *
+   * Prioritaet: medium (14–8 Tage), high (7–0 Tage). Nie critical, kein
+   * Sofortalarm — Dashboard und Wochenmail reichen.
+   */
+  {
+    id: 'profile.holiday_hours_missing',
+    status: 'active',
+    meta: {
+      title: 'Feiertag ohne Sonderoeffnungszeit',
+      purpose: 'Erinnert zwei Wochen vor einem gesetzlichen Feiertag, wenn bei Google keine Sonderoeffnungszeit hinterlegt ist.',
+      rationale: 'Google zeigt am Feiertag die regulaeren Zeiten, wenn keine Sonderzeit hinterlegt ist. Feiertage sind deterministisch; die Pruefung ist eine Tatsache (Eintrag da oder nicht), deshalb hohe Sicherheit. WERKRUF bewertet nicht, ob geschlossen werden sollte.',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'profile.write',
+    describes: 'Gesetzlicher Feiertag in 14 Tagen ohne Sonderoeffnungszeit',
+    when: ({ facts }) => facts.holidays.reliable && facts.holidays.open.length > 0,
+    /* events.subject_id ist uuid: deterministisch aus Standort und
+       Datum abgeleitet (feiertagSubjektId). Der Standort steckt
+       zusaetzlich in der Event-Identitaet (sync_events(p_location_id)). */
+    subjects: ({ facts }) => facts.holidays.open.map((h) => ({
+      id: feiertagSubjektId(facts.holidays.locationId ?? 'konto', h.iso),
+      type: 'holiday',
+      data: { ...h },
+    })),
+    insight: (_, subject) =>
+      `${subject?.data.name} ist in ${subject?.data.tageBis} ${Number(subject?.data.tageBis) === 1 ? 'Tag' : 'Tagen'} — bei Google sind noch keine Sonderöffnungszeiten hinterlegt.`,
+    recommend: (_, subject) => {
+      const h = subject?.data as Facts['holidays']['open'][number];
+      const d = ausIso(h.iso);
+      const datum = d ? `${d.day}. ${['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][d.month - 1]}` : h.iso;
+      return {
+        type: 'profile.holiday_hours_missing',
+        title: `${h.name} vorbereiten`,
+        summary: `Für den ${datum} sind bei Google noch keine Sonderöffnungszeiten hinterlegt.`,
+        reason: h.tageBis <= 7
+          ? `${h.name} ist in ${h.tageBis} ${h.tageBis === 1 ? 'Tag' : 'Tagen'}. Ohne Sonderzeit zeigt Google deine regulären Öffnungszeiten.`
+          : 'Ohne Sonderzeit zeigt Google am Feiertag deine regulären Öffnungszeiten — Kunden richten sich danach.',
+        expectedBenefit: 'Kunden sehen, ob und wann ihr am Feiertag erreichbar seid',
+        estimatedMinutes: 2,
+        actionUrl: `/dashboard/google?holiday=${h.iso}`,
+        priority: h.dringend ? 'high' : 'medium',
+        confidence: 1.0,
+        sourceFacts: ['holidays.open'],
+      };
+    },
+  },
+
   {
     id: 'profile.photos_missing',
     status: 'active',
@@ -4873,6 +4968,9 @@ const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
   'profile.external_change':    'problem',
   'profile.edit_pending':       'problem',
   'profile.edit_rejected':      'problem',
+  /* WP9: konkrete Profilpflege vor einem bekannten Termin fehlt —
+     kein Wachstum, ein Zustand, der am Feiertag schadet. */
+  'profile.holiday_hours_missing': 'problem',
 
   /* ── Fehlt noch ── */
   'review.none_yet':            'growth',
@@ -6358,6 +6456,97 @@ async function handleProfileDiffApply(request: Request): Promise<Response> {
   });
 
   return jsonResponse(request, { ...ergebnis, diffId: diff.id, aktion: body.aktion, diffResolved: ok === true });
+}
+
+/*
+ * WP9 — Feiertags-Sonderzeit setzen. POST /location/holiday-hours
+ *
+ *   { locationId, date: 'YYYY-MM-DD', mode: 'geschlossen' | 'regulaer' | 'andere',
+ *     hours?: [{ openTime: {hours,minutes}, closeTime: {hours,minutes} }] }
+ *
+ * Der Client schickt kein Feld und keine updateMask. Der Server:
+ *   - Pro/FP, eigener Standort
+ *   - Datum gueltig, liegt in [heute, heute + 14 Tage] (das Fenster der
+ *     Aufgabe; nachtraeglich oder Monate voraus wird abgewiesen)
+ *   - Datum ist ein gesetzlicher Feiertag fuer dieses Bundesland
+ *     (aus storefrontAddress) oder bundesweit — sonst 400. Fuer andere
+ *     Tage ist der normale Editor da.
+ *   - baut aus dem gespeicherten Stand den neuen specialHours-Eintrag
+ *     (baueSonderzeit) und schreibt ueber fuehreLocationUpdateAus —
+ *     dort greifen pruefeAlles (gbpHours) und alles Weitere.
+ */
+async function handleHolidayHours(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; date?: string; mode?: string; hours?: unknown }>(request);
+  if (!body.locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const datum = ausIso(body.date);
+  if (!datum) throw new GbpError('bad_request', 'date muss YYYY-MM-DD sein');
+  if (!FEIERTAG_MODI.includes(body.mode as string)) {
+    throw new GbpError('bad_request', 'mode muss geschlossen, regulaer oder andere sein');
+  }
+
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const profil = (location.google_profile ?? {}) as Record<string, unknown>;
+  const adresse = (profil.storefrontAddress ?? null) as Record<string, unknown> | null;
+
+  /* Zeitraum: heute bis heute + Fenster. */
+  const jetzt = new Date();
+  const heute = { year: jetzt.getUTCFullYear(), month: jetzt.getUTCMonth() + 1, day: jetzt.getUTCDate() };
+  const abstand = feiertagTageBis(heute, datum);
+  if (abstand < 0 || abstand > FENSTER_TAGE) {
+    throw new GbpError('bad_request',
+      `Dieser Weg ist für Feiertage in den nächsten ${FENSTER_TAGE} Tagen gedacht — andere Tage bitte im Öffnungszeiten-Editor.`,
+      { anzeigbar: true });
+  }
+
+  /* Feiertag fuer DIESEN Standort — bundesweit oder sein Bundesland. */
+  const land = bundeslandAusAdresse(adresse);
+  const feiertag = feiertagAm(body.date as string, land.code);
+  if (!feiertag) {
+    throw new GbpError('bad_request',
+      land.code
+        ? `Der ${body.date} ist in ${land.code} kein gesetzlicher Feiertag.`
+        : `Der ${body.date} ist kein bundesweiter Feiertag — das Bundesland des Standorts ist nicht bekannt.`,
+      { anzeigbar: true });
+  }
+
+  /* Fenster fuer "andere": nur {openTime, closeTime} mit Zahlen. */
+  let fenster: Array<{ openTime: { hours: number; minutes: number }; closeTime: { hours: number; minutes: number } }> | undefined;
+  if (body.mode === 'andere') {
+    const roh = Array.isArray(body.hours) ? body.hours : [];
+    fenster = roh.map((f) => {
+      const o = (f as { openTime?: { hours?: unknown; minutes?: unknown } })?.openTime ?? {};
+      const c = (f as { closeTime?: { hours?: unknown; minutes?: unknown } })?.closeTime ?? {};
+      return {
+        openTime:  { hours: Number(o.hours ?? NaN), minutes: Number(o.minutes ?? 0) },
+        closeTime: { hours: Number(c.hours ?? NaN), minutes: Number(c.minutes ?? 0) },
+      };
+    });
+    if (!fenster.length || fenster.some((f) =>
+        !Number.isInteger(f.openTime.hours) || !Number.isInteger(f.closeTime.hours)
+        || f.openTime.hours < 0 || f.openTime.hours > 24 || f.closeTime.hours < 0 || f.closeTime.hours > 24
+        || f.openTime.minutes < 0 || f.openTime.minutes > 59 || f.closeTime.minutes < 0 || f.closeTime.minutes > 59)) {
+      throw new GbpError('bad_request', 'Bitte gültige Zeitfenster angeben.', { anzeigbar: true });
+    }
+  }
+
+  const bisherige = ((profil.specialHours as { specialHourPeriods?: unknown[] } | null)?.specialHourPeriods ?? []) as unknown[];
+  const regular = ((profil.regularHours as { periods?: unknown[] } | null)?.periods ?? []) as unknown[];
+  const neue = baueSonderzeit({ datum, modus: body.mode as string, regularPeriods: regular, bisherige, fenster });
+  if (!neue) throw new GbpError('bad_request', 'Keine Sonderzeit ableitbar.', { anzeigbar: true });
+
+  /* Derselbe Schreibweg wie der Editor: dort prueft pruefeAlles die
+     Sonderzeiten (Dauer, Ueberschneidung, geschlossen neben Zeiten). */
+  const ergebnis = await fuehreLocationUpdateAus(user, location, { specialHours: { specialHourPeriods: neue } });
+
+  await writeAuditLog({
+    userId: user.id, action: 'holiday_hours.updated',
+    entityType: 'google_location', entityId: location.id,
+    metadata: { locationId: location.id, holidayId: feiertag.id, date: feiertag.iso, mode: body.mode, status: ergebnis.status, landCode: land.code },
+  });
+
+  return jsonResponse(request, { ...ergebnis, holiday: { id: feiertag.id, name: feiertag.name, date: feiertag.iso }, mode: body.mode });
 }
 
 /**
@@ -8516,6 +8705,8 @@ const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
   update: { method: 'POST', handler: handleLocationUpdate },
   /* WP8 — Diff uebernehmen / eigenen Wert wiederherstellen. */
   'diff-apply': { method: 'POST', handler: handleProfileDiffApply },
+  /* WP9 — Feiertags-Sonderzeit (geschlossen / regulaer / andere). */
+  'holiday-hours': { method: 'POST', handler: handleHolidayHours },
   select: { method: 'POST', handler: handleLocationSelect },
   'google-updated': { method: 'GET', handler: handleGoogleUpdated },
 };
