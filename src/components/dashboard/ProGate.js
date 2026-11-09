@@ -4,7 +4,8 @@ import { Lock, ArrowRight, CheckCircle, Zap } from 'lucide-react';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import { useCheckout } from '../../hooks/useCheckout';
-import { hasPaidAccess } from '../../utils/subscription';
+import { hasPaidAccess, hatteSchonAbo } from '../../utils/subscription';
+import { TRIAL_TAGE } from '../../utils/checkoutRegeln';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}`;
 const float  = keyframes`0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}`;
@@ -99,14 +100,43 @@ const ErrorText = styled.p`
    „Wettbewerber-Check“ (nie gebaut). Ein Versprechen hinter einer
    Bezahlschranke, das nicht eingeloest wird, ist das Gegenteil von
    dem, was die Schranke rechtfertigt. */
-const PRO_FEATURES = [
+export const PRO_FEATURES = [
+  'Priorisierte Aufgaben aus deinem echten Google-Profil',
   'Bewertungen mit Antwortvorschlägen — veröffentlicht wird nur, was du freigibst',
-  'Fotos — hochladen und bei Google verwalten',
-  'Mehr Bewertungen (QR-Code & Bewertungslink)',
   'Wochenmail mit deinen Aufgaben, direkt erledigbar',
   'Sofortmeldung bei kritischen Bewertungen',
-  'Priorisierte Aufgaben aus deinem echten Google-Profil',
+  'Fotos — hochladen und bei Google verwalten',
+  'Mehr Bewertungen (QR-Code & Bewertungslink)',
 ];
+
+/*
+ * Was das Gate verspricht, haengt davon ab, wer davor steht (WP7 §8/§10).
+ *
+ *   Neukunde     → „30 Tage gratis testen", danach 49 €/Monat
+ *   Wiedereinstieg (hatte schon ein Abo oder einen Test)
+ *                → „Pro wieder aktivieren", 49 €/Monat ab sofort
+ *
+ * Der Server (create-checkout-session) entscheidet den Trial
+ * endgueltig; die Oberflaeche darf nur nichts versprechen, was er
+ * nicht einloest. Deshalb hier dieselbe Regel (hatteSchonAbo), nicht
+ * eine eigene.
+ */
+export function gateTexte(profile, preis = 49) {
+  if (hatteSchonAbo(profile)) {
+    return {
+      titel: 'gehört zu WERKRUF Pro.',
+      sub: 'Du nutzt WERKRUF Free: Profil und Score bleiben im Blick. Mit Pro bekommst du wieder konkrete Aufgaben, Bewertungsantworten und laufende Unterstützung.',
+      cta: 'Pro wieder aktivieren',
+      note: `${preis} € / Monat · monatlich kündbar · kein Jahresvertrag`,
+    };
+  }
+  return {
+    titel: 'ist nur für PRO-Nutzer.',
+    sub: `Starte deinen kostenlosen ${TRIAL_TAGE}-Tage-Test — du zahlst erst danach und kannst jederzeit kündigen.`,
+    cta: `${TRIAL_TAGE} Tage gratis testen`,
+    note: `Danach ${preis} € / Monat · monatlich kündbar · kein Jahresvertrag`,
+  };
+}
 
 /* ─────────────────────────────────────────────
    COMPONENT
@@ -125,6 +155,7 @@ export default function ProGate({ children, feature }) {
   const { startCheckout, loading, error } = useCheckout();
 
   const isPro = hasPaidAccess(profile);
+  const texte = gateTexte(profile, pricing?.monthlyPrice || 49);
 
   if (profileLoading) {
     return <Overlay><Card role="status">Abo-Status wird geladen…</Card></Overlay>;
@@ -149,6 +180,11 @@ export default function ProGate({ children, feature }) {
       path:        'optimisation',
       companyName: profile?.company_name || '',
       industryKey: profile?.industry_key || 'handwerk',
+      /* WP7 §19: nach dem Bezahlen zurueck hierher — mit Query
+         (z. B. ?betrieb=…&review=…). window.location statt useLocation,
+         damit das Gate keinen Router voraussetzt; der Server validiert
+         den Pfad ohnehin (sichererRueckkehrpfad). */
+      returnPath:  `${window.location.pathname}${window.location.search}`,
     });
   };
 
@@ -160,12 +196,9 @@ export default function ProGate({ children, feature }) {
         </IconWrap>
         <Badge><Zap size={11} /> PRO Feature</Badge>
         <Title>
-          {feature || 'Diese Funktion'} ist<br />nur für PRO-Nutzer.
+          {feature || 'Diese Funktion'}<br />{texte.titel}
         </Title>
-        <Sub>
-          Starte deinen kostenlosen 30-Tage-Test —
-          du zahlst erst danach und kannst jederzeit kündigen.
-        </Sub>
+        <Sub>{texte.sub}</Sub>
 
         <FeatureList>
           {PRO_FEATURES.map((f, i) => (
@@ -179,12 +212,10 @@ export default function ProGate({ children, feature }) {
         <CTABtn onClick={handleUpgrade} disabled={loading}>
           {loading
             ? 'Weiterleitung zu Stripe…'
-            : <>30 Tage gratis testen <ArrowRight size={16} /></>
+            : <>{texte.cta} <ArrowRight size={16} /></>
           }
         </CTABtn>
-        <Note>
-          Danach {pricing?.monthlyPrice || 49}€/Monat · monatlich kündbar · kein Jahresvertrag
-        </Note>
+        <Note>{texte.note}</Note>
         {error && <ErrorText role="alert">{error}</ErrorText>}
       </Card>
     </Overlay>

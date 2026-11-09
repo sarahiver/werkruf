@@ -125,8 +125,12 @@ limit 5;`. Function-Logs zeigen `brevo_webhook` mit Zählern
 1. Migration `20261109140000_wochenstatus_fp_cockpit.sql`
    (Actions → Apply Supabase migrations). Selbstprüfung am Ende:
    `NOTICE [wp6] in Ordnung`.
-2. Functions `send-email` und `admin-ops` deployen.
-3. Frontend (Vercel) — Admin-Seite mit Cockpit.
+2. Functions `send-email` und `admin-ops` — **automatisch** durch den
+   Deploy-Workflow beim Merge auf `main` (`.github/workflows/deploy.yml`,
+   `supabase functions deploy`). Kein manueller Schritt; im Actions-Tab
+   prüfen, dass der Lauf grün ist.
+3. Frontend (Vercel) — automatisch beim Merge; prüfen, dass das
+   Production-Badge auf dem Merge-Commit sitzt.
 4. `BREVO_WEBHOOK_SECRET` setzen, Webhook in Brevo anlegen (Abschnitt 3).
 5. Smoke: Admin öffnen → Cockpit lädt, Partnerzeile aufklappen,
    Zahlungsbereitschaft setzen → `audit_logs` hat `admin.fp_feedback_gesetzt`.

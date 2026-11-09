@@ -16,7 +16,7 @@ const lies = (p) => fs.readFileSync(path.resolve(__dirname, p), 'utf8');
 
 describe('T8 — Sofortmail ueber den Token-Weg', () => {
   const mail = lies('../supabase/functions/send-email/index.ts');
-  const kritisch = mail.slice(mail.indexOf("case 'critical_review_alert'"), mail.indexOf("case 'payment_failed'"));
+  const kritisch = mail.slice(mail.indexOf("case 'critical_review_alert'"), mail.indexOf("case 'critical_review_free'"));
   const helfer = mail.slice(mail.indexOf('async function ergaenzeSofortmailLink'), mail.indexOf('function render('));
 
   it('der Worker haengt den Token-Link an die Sofortmail — mit demselben Token-Mechanismus wie die Wochenmail', () => {

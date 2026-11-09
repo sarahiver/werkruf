@@ -101,7 +101,8 @@ describe('Annahme 2 — WERKRUF schickt keine Trial-Ende-Mail', () => {
 describe('Annahme 3 — die Oberfläche ist für at_period_end gebaut', () => {
   it('zeigt eine geplante Kündigung mit Enddatum an', () => {
     expect(SETTINGS).toMatch(/isCancellationScheduled/);
-    expect(SETTINGS).toMatch(/Gekündigt — Zugang bis/);
+    /* WP7: Wortlaut „Pro endet am … Danach Free“ statt „Gekündigt — Zugang bis“ */
+    expect(SETTINGS).toMatch(/Pro endet am \{periodEnd/);
     expect(SETTINGS).toMatch(/stripe_current_period_end/);
   });
 

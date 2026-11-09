@@ -100,6 +100,8 @@ const darfNichtErscheinen = () => {
     expect(screen.queryAllByText(muster)).toHaveLength(0);
 
   keiner(/jetzt upgraden/i);
+  keiner(/WERKRUF Pro starten/i);
+  keiner(/Pro wieder aktivieren/i);
   keiner(/danach 49/i);
   keiner(/Tage kostenlos/i);
   keiner(/Trial-Fortschritt/i);
@@ -232,7 +234,8 @@ describe('Gegenprobe: pro und free bleiben unverändert', () => {
     /* Der Knopf, nicht die Textzeile: "Kein aktives Abo — jetzt
        upgraden" trifft dasselbe Muster, und getByText wirft bei zwei
        Treffern. */
-    expect(screen.getByRole('button', { name: /Jetzt upgraden/i })).toBeInTheDocument();
+    /* WP7: Neukunde → „WERKRUF Pro starten“, Ex-Kunde → „Pro wieder aktivieren“ */
+    expect(screen.getByRole('button', { name: /WERKRUF Pro starten/i })).toBeInTheDocument();
     expect(screen.getByText(/danach 49/i)).toBeInTheDocument();
     expect(screen.queryAllByText('Founding Partner')).toHaveLength(0);
   });

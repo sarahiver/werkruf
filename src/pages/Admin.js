@@ -735,6 +735,7 @@ export default function Admin() {
 
                     <Block>
                       <BlockTitel>Billing (nur lesend)</BlockTitel>
+                      <Zeile><span>Zugang</span><span data-testid="support-access">{snapshot.billing.accessLabel || '—'}</span></Zeile>
                       <Zeile><span>Stripe-Kunde</span><span>{snapshot.billing.stripeKunde ? 'ja' : 'nein'}</span></Zeile>
                       <Zeile><span>Status</span><span>{snapshot.billing.stripeStatus || '—'}</span></Zeile>
                       <Zeile><span>Kündigung geplant</span><span>{snapshot.billing.kuendigungGeplant ? 'ja' : 'nein'}</span></Zeile>

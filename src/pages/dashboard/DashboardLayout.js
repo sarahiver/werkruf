@@ -5,7 +5,8 @@ import {
   LayoutDashboard, Star, Image,
   Settings, LogOut, Menu, X, Users, MapPin, MessageCircle
 } from 'lucide-react';
-import { isFoundingPartner } from '../../utils/subscription';
+import { isFoundingPartner, hasPaidAccess } from '../../utils/subscription';
+import { sichererRueckkehrpfad } from '../../utils/checkoutRegeln';
 import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import BetriebsKontext, { BetriebsKopf } from '../../components/dashboard/BetriebsKontext';
@@ -283,13 +284,23 @@ export default function DashboardLayout() {
   }, [checkoutResult, refreshProfile]);
 
   useEffect(() => {
-    if (checkoutResult === 'success' && ['active', 'trialing'].includes(profile?.stripe_subscription_status)) {
+    if (checkoutResult === 'success' && hasPaidAccess(profile)) {
       setCheckoutState('active');
+      /* WP7 §19: zurueck in den Kontext, aus dem der Nutzer kam (z. B.
+         die kritische Bewertung). Der Pfad wurde serverseitig gebaut,
+         hier wird er trotzdem noch einmal geprueft — Query-Parameter
+         sind veraenderbar. Erst NACH der Freischaltung weiterleiten,
+         sonst landet er im Gate. */
+      const zurueck = sichererRueckkehrpfad(searchParams.get('zurueck'));
+      if (zurueck !== '/dashboard') {
+        navigate(zurueck, { replace: true });
+        return;
+      }
       const next = new URLSearchParams(searchParams);
-      next.delete('checkout'); next.delete('session_id');
+      next.delete('checkout'); next.delete('session_id'); next.delete('zurueck');
       setSearchParams(next, { replace: true });
     }
-  }, [checkoutResult, profile?.stripe_subscription_status, searchParams, setSearchParams]);
+  }, [checkoutResult, profile, searchParams, setSearchParams, navigate]);
 
   const initials    = (profile?.full_name || user?.email || 'U')[0].toUpperCase();
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'Nutzer';
