@@ -1,0 +1,42 @@
+# ── Abhängigkeiten ──
+node_modules/
+
+# ── Build-Ausgaben ──
+build/
+dist/
+coverage/
+
+# ── Umgebung und Geheimnisse ──
+# Nie committen: Supabase-Keys, Stripe, Brevo, Worker-Secret.
+.env
+.env.*
+!.env.example
+supabase/.env
+supabase/.env.*
+supabase/functions/.env
+supabase/functions/**/.env
+
+# ── Supabase CLI (lokal) ──
+supabase/.temp/
+supabase/.branches/
+
+# ── Deno ──
+deno.lock
+
+# ── Testdatenbank / Protokolle ──
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Editor und Betriebssystem ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ── OneNote-Reste (sind versehentlich im Repo gelandet, siehe Root/docs/migrations) ──
+*.onetoc2
+~$*
