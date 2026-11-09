@@ -21,6 +21,9 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import {
   erzeugeToken, zielErlaubt, ZWECKE, laufzeitIntervall,
 } from '../../../src/utils/actionToken.js';
+/* WP5: Deine Google-Woche — Zusammenfuehrung und HTML aus einer Quelle,
+   die Jest direkt testet. */
+import { baueGoogleWoche, googleWocheHtml } from '../../../src/utils/googlePerformance.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -362,6 +365,11 @@ interface WeeklyPayload {
   dueCount?: number;
   /* Aus weekly_payload_for — nicht produktiv, aber gelesen. */
   engineEvents?: unknown[];
+  /* WP5: weekly_performance_for_mail() — Summen der Berichtswoche und
+     der Vorwoche je Metrik, oder status keine_daten/unvollstaendig.
+     Fehlt bei Payloads vor der Migration; die Mail laeuft dann wie
+     bisher. */
+  performance?: unknown;
 }
 
 interface WeeklyAssessment {
@@ -974,9 +982,25 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
                Heizungstechnik", waehrend die Mail von S&I handelte. */
             : 'Ruhige Woche bei ' + escapeHtml(betriebsname);
 
+      /*
+       * WP5 — Deine Google-Woche.
+       *
+       * Der Kontoauszug steht vor den Bewertungszahlen: Was Google
+       * gebracht hat, bevor es darum geht, was zu tun ist. Ohne Daten
+       * (status keine_daten) gibt es keinen Block — die Mail sieht
+       * aus wie vor WP5. Mit Daten, aber ohne vollstaendige Woche,
+       * steht das ehrlich da statt einer Null.
+       *
+       * Summen kommen aus der Datenbank; hier wird nur zusammengefuehrt
+       * und verglichen (googlePerformance.js).
+       */
+      const googleWoche = googleWocheHtml(baueGoogleWoche(data.performance));
+
       const body =
         `<p class="wr-text" style="margin:0 0 4px;font-size:14px;color:#5F6875;">${greeting}</p>` +
         `<p class="wr-title" style="margin:0 0 18px;font-size:17px;font-weight:bold;color:${brand.primary};line-height:1.35;">${escapeHtml(week.headline)}</p>` +
+
+        googleWoche +
 
         tiles([
           { value: String(data.reviewsNew ?? 0), label: (data.reviewsNew ?? 0) === 1 ? 'neue Bewertung' : 'neue Bewertungen' },
