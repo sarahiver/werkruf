@@ -51,11 +51,14 @@ export const DIFF_FELDER = Object.freeze({
   'phoneNumbers.primaryPhone':    { prio: 'kritisch', label: 'Telefonnummer',          patch: true,  updateMask: 'phoneNumbers' },
   'websiteUri':                   { prio: 'kritisch', label: 'Website',                patch: true,  updateMask: 'websiteUri' },
   'storefrontAddress':            { prio: 'kritisch', label: 'Adresse',                patch: true,  updateMask: 'storefrontAddress' },
-  'categories.primaryCategory':   { prio: 'kritisch', label: 'Hauptkategorie',         patch: true,  updateMask: 'categories' },
+  /* Kategorien: im Diff liegt nur der Anzeigename, Google braucht zum
+     Schreiben die stabile ID. Kein Raten, kein Suchen — der Diff wird
+     gezeigt, geaendert wird bei Google bzw. im Kategorien-Editor. */
+  'categories.primaryCategory':   { prio: 'kritisch', label: 'Hauptkategorie',         patch: false, updateMask: null },
   'title':                        { prio: 'kritisch', label: 'Unternehmensname',       patch: false, updateMask: null },
   'regularHours':                 { prio: 'mittel',   label: 'Öffnungszeiten',         patch: true,  updateMask: 'regularHours' },
   'specialHours':                 { prio: 'mittel',   label: 'Sonderöffnungszeiten',   patch: true,  updateMask: 'specialHours' },
-  'categories.additionalCategories': { prio: 'mittel', label: 'Weitere Kategorien',    patch: true,  updateMask: 'categories' },
+  'categories.additionalCategories': { prio: 'mittel', label: 'Weitere Kategorien',    patch: false, updateMask: null },
   'serviceArea':                  { prio: 'info',     label: 'Einzugsgebiet',          patch: false, updateMask: null },
   'attributes':                   { prio: 'info',     label: 'Merkmale',               patch: false, updateMask: null },
 });

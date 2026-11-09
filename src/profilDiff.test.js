@@ -180,6 +180,11 @@ describe('T23/T26 — Prioritaet und Wochenmail', () => {
       .every((p) => DIFF_FELDER[p].prio === 'kritisch')).toBe(true);
     expect(['regularHours', 'specialHours', 'categories.additionalCategories'].every((p) => DIFF_FELDER[p].prio === 'mittel')).toBe(true);
     expect(DIFF_FELDER.title.patch).toBe(false);
+    /* Kategorien: UI und Server muessen dieselbe Antwort geben — der
+       Server kann sie nicht schreiben (keine stabile ID im Diff), also
+       darf der Katalog sie nicht als patchbar fuehren. */
+    expect(DIFF_FELDER['categories.primaryCategory']).toMatchObject({ patch: false, updateMask: null });
+    expect(DIFF_FELDER['categories.additionalCategories']).toMatchObject({ patch: false, updateMask: null });
     expect(DIFF_FELDER.attributes.prio).toBe('info');
     expect(FELD_PFADE).toContain('openInfo');
   });
@@ -299,7 +304,13 @@ describe('§21 — Patch-Sicherheit (location/diff-apply)', () => {
     expect(bau).toMatch(/case 'phoneNumbers\.primaryPhone'/);
     expect(bau).toMatch(/additionalPhones: bisher\.additionalPhones \?\? \[\]/);
     expect(bau).not.toMatch(/case 'title'/);
+    /* T3 — Kategorien bleiben serverseitig unschreibbar: kein case, kein
+       Mapping vom Anzeigenamen zur ID, kein API-Aufruf; und die Route
+       weist vorher schon ueber den Katalog ab (patch: false). */
     expect(bau).not.toMatch(/case 'categories/);
+    expect(bau).not.toMatch(/searchCategories|getCategories|gcid/);
+    expect(apply).toMatch(/if \(!katalog\?\.patch \|\| !katalog\.updateMask\) \{/);
+    expect(apply).toMatch(/lässt sich nur direkt im Google-Unternehmensprofil ändern/);
     expect(bau).toMatch(/default:\s*return null;/);
   });
   it('Editor und Diff-Apply teilen denselben Schreibweg', () => {
@@ -344,6 +355,22 @@ describe('Bauteil — Profil-Waechter', () => {
     await waitFor(() => expect(anwenden).toHaveBeenCalledWith('d1', 'wiederherstellen'));
     expect(screen.getAllByTestId('profil-diff')).toHaveLength(3);
   });
+  it('T1/T2 — Kategorie-Diffs: keine Knoepfe, Hinweis auf Google — wie der Server es kann', () => {
+    mockProfil = { plan: 'pro', stripe_subscription_status: 'active' };
+    const kat = [
+      { id: 'k1', field_path: 'categories.primaryCategory', prio: 'kritisch', label: 'Hauptkategorie', change_type: 'changed', origin: 'unknown',
+        merchant_value: 'Bauunternehmen', consumer_value: 'Klempner', first_seen_at: '2026-11-09T08:00:00Z', rejection_reason: null },
+      { id: 'k2', field_path: 'categories.additionalCategories', prio: 'mittel', label: 'Weitere Kategorien', change_type: 'changed', origin: 'unknown',
+        merchant_value: ['Dachdecker'], consumer_value: ['Dachdecker', 'Maler'], first_seen_at: '2026-11-09T08:00:00Z', rejection_reason: null },
+    ];
+    render(<ProfilWaechter diffs={kat} loading={false} error={null} anwenden={jest.fn()} />);
+    expect(screen.queryByText('Meinen Wert wiederherstellen')).toBeNull();
+    expect(screen.queryByText('Öffentliche Angabe übernehmen')).toBeNull();
+    expect(screen.getByText(/Hauptkategorie lässt sich nur direkt im Google-Unternehmensprofil/)).toBeInTheDocument();
+    expect(screen.getByText(/Weitere Kategorien lässt sich nur direkt im Google-Unternehmensprofil/)).toBeInTheDocument();
+    expect(screen.getAllByText('Bei Google öffnen')).toHaveLength(2);
+  });
+
   it('Free sieht den Zustand, aber keine Knoepfe (§22)', () => {
     mockProfil = { plan: 'free', stripe_subscription_status: 'canceled', stripe_subscription_id: 'sub' };
     render(<ProfilWaechter diffs={[ZEILEN[0]]} loading={false} error={null} anwenden={jest.fn()} />);
