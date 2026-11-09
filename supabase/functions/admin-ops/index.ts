@@ -387,7 +387,7 @@ async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
  * ausschliesslich die Mailadresse.
  */
 async function supportZustand(admin: SupabaseClient, userId: string) {
-  const [profil, konto, standorte, jobs, mails, events, authUser] = await Promise.all([
+  const [profil, konto, standorte, jobs, mails, events, authUser, diffs] = await Promise.all([
     admin.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
     admin.from('google_accounts')
       .select('id,status,connected_at,last_error_code,last_error_at,deleted_at')
@@ -406,9 +406,13 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
       .eq('user_id', userId).in('lifecycle', ['new', 'seen', 'opened'])
       .order('priority', { ascending: false }).limit(50),
     admin.auth.admin.getUserById(userId),
+    /* WP8 — offene Profil-Differenzen (Waechter), nur lesend. */
+    admin.from('google_profile_diffs')
+      .select('id,location_id,field_path,label,prio,change_type,origin,first_seen_at,last_seen_at')
+      .eq('user_id', userId).is('resolved_at', null).order('first_seen_at', { ascending: true }).limit(20),
   ]);
 
-  for (const r of [profil, konto, standorte, jobs, mails, events]) {
+  for (const r of [profil, konto, standorte, jobs, mails, events, diffs]) {
     if ((r as { error?: unknown }).error) throw (r as { error: unknown }).error;
   }
 
@@ -423,6 +427,7 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
       jobs: jobs.data ?? [],
       mails: mails.data ?? [],
       events: events.data ?? [],
+      profilDiffs: diffs.data ?? [],
     }),
     generatedAt: new Date().toISOString(),
   };

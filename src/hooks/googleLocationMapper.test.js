@@ -34,7 +34,7 @@ describe('mapGoogleLocationFields', () => {
         storefrontAddress: { addressLines: ['Werkstraße 1'], locality: 'Berlin', postalCode: '10115', regionCode: 'DE' },
         categories: { primaryCategory: { displayName: 'Autowerkstatt' } },
         regularHours: null, specialHours: null, moreHours: [], serviceArea: null,
-        profile: { description: 'Seit 1998 für Sie da.' }, serviceItems: [], attributes: [],
+        profile: { description: 'Seit 1998 für Sie da.' }, openInfo: null, serviceItems: [], attributes: [],
         metadata: { placeId: 'place-1' },
       },
     });
@@ -54,7 +54,7 @@ describe('mapGoogleLocationFields', () => {
       google_profile: {
         phoneNumbers: null, storefrontAddress: null, categories: null,
         regularHours: null, specialHours: null, moreHours: [], serviceArea: null,
-        profile: null, serviceItems: [], attributes: [], metadata: null,
+        profile: null, openInfo: null, serviceItems: [], attributes: [], metadata: null,
       },
     });
   });

@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { Send, Lock } from 'lucide-react';
 
 import { istBearbeitbar } from '../../utils/gbpFieldModel';
-import { ProfileInput, ProfileTextarea, GhostBtn, Spinner, Badge } from './gb/GbUi';
+import { ProfileInput, ProfileTextarea, GhostBtn, Spinner } from './gb/GbUi';
 
 /**
  * Umschlag fuer ein Eingabefeld, das gesperrt sein kann.
@@ -172,9 +172,9 @@ export default function StammdatenEditor({ location, onSave }) {
           onChange={(e) => setBeschreibung(e.target.value)} placeholder="Unternehmensbeschreibung" />
       </FeldMitSperre>
 
-      {location.google_diff_mask?.length > 0 && (
-        <Badge $variant="warning">Google-Änderung: {location.google_diff_mask.join(', ')}</Badge>
-      )}
+      {/* WP8: der rohe Hinweis "Google-Änderung: phoneNumbers" ist in
+          den Profil-Wächter oben auf der Seite gewandert — mit Werten,
+          Status und Entscheidung statt Feldnamen. */}
 
       <div>
         <GhostBtn onClick={speichern} disabled={busy || !etwasGeaendert || allesGesperrt}>

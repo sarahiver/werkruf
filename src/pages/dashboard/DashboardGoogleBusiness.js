@@ -15,6 +15,8 @@ import {
 } from '../../utils/onboardingAbsicht';
 import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwalten';
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
+import ProfilWaechter from '../../components/dashboard/ProfilWaechter';
+import { useProfilDiffs } from '../../hooks/useProfilDiffs';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
 import KategorienEditor from '../../components/dashboard/KategorienEditor';
 import WeitereZeitenEditor from '../../components/dashboard/WeitereZeitenEditor';
@@ -325,6 +327,13 @@ export default function DashboardGoogleBusiness() {
    * damit ein langsames Profil-Reload keinen zweiten Sprung ausloest.
    */
   const navigate = useNavigate();
+  /* WP8: ?diff=<id> aus der Sofortmeldung hebt den Diff hervor.
+     window.location statt useSearchParams: die Seite wird in Tests ohne
+     vollstaendigen Router gerendert, und der Wert aendert sich hier
+     nur durch Navigation von aussen. */
+  const hervorgehobenerDiff = (() => {
+    try { return new URLSearchParams(window.location.search).get('diff'); } catch { return null; }
+  })();
   const abschlussRef = React.useRef(false);
   /* Die serverseitig bestaetigte Auswahl — hier schon gebraucht, weiter
      unten fuer den lokalen Auswahlzustand. */
@@ -474,6 +483,9 @@ export default function DashboardGoogleBusiness() {
   /* Die serverseitig bestätigte Auswahl ist die einzige Quelle für
      Kennzahlen. Ein lokaler "alle"-Zustand würde Betriebe vermischen. */
   const [selectedLocation, setSelectedLocation] = React.useState('');
+  /* WP8 — Profil-Waechter: offene Differenzen des gewaehlten Betriebs.
+     Vor dem fruehen Return (Hook-Regel); laedt nur mit Auswahl. */
+  const waechter = useProfilDiffs(selectedLocation || null, { enabled: Boolean(selectedLocation) });
   React.useEffect(() => {
     setSelectedLocation(persistedSelection);
   }, [persistedSelection]);
@@ -912,6 +924,20 @@ export default function DashboardGoogleBusiness() {
               Gemeinsame Struktur mit Unternavigation. Welche Felder ein
               Bereich hat und ob sie fuer DIESEN Betrieb bearbeitbar
               sind, kommt aus src/utils/gbpFieldModel.js. */}
+          {/* ── WP8 PROFIL-WAECHTER ──
+              Steht vor der Verwaltung: wer hier landet (Sofortmeldung,
+              ?diff=), soll zuerst sehen, was abweicht. Rendert nichts,
+              wenn nichts offen ist. */}
+          {!loading && ausgewaehlterStandort && (
+            <ProfilWaechter
+              diffs={waechter.diffs}
+              loading={waechter.loading}
+              error={waechter.error}
+              anwenden={waechter.anwenden}
+              hervorgehobenId={hervorgehobenerDiff}
+            />
+          )}
+
           {!loading && ausgewaehlterStandort && (
             <>
               <SectionTitle><Settings size={15} /> Google-Profil verwalten</SectionTitle>

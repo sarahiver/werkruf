@@ -31,6 +31,9 @@ import {
 import { LOCATION_READ_MASK, sanitizeLocationPatch } from './google-api-helpers.ts';
 import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
+import {
+  berechneDiffs, diffFingerabdruck, DIFF_FELDER, diffUeberschrift, formatWert,
+} from '../../../src/utils/profilDiff.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import {
@@ -359,6 +362,9 @@ const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 const GBP_ACCOUNT_MGMT_API = 'https://mybusinessaccountmanagement.googleapis.com/v1';
 const GBP_BUSINESS_INFO_API = 'https://mybusinessbusinessinformation.googleapis.com/v1';
+/* WP8: Erweiterte Sicht je Feld (Herkunft, Lifecycle, Ablehnungsgrund).
+   v1alpha — nur ergaenzend, nie tragend. Schalter: GBP_EXTENDED_EDIT_STATUS=on. */
+const GBP_BUSINESS_INFO_API_ALPHA = 'https://mybusinessbusinessinformation.googleapis.com/v1alpha';
 
 /** Access-Token gilt als abgelaufen, wenn es in unter 2 Minuten verfällt. */
 /*
@@ -1752,6 +1758,40 @@ class GbpApiClient {
   }
 
   /*
+   * WP8 — erweiterte Feldsicht (v1alpha locations.getExtended).
+   *
+   * Liefert je Feld lifecycleStage (…_UPDATED_BY_GOOGLE, …_PENDING,
+   * …_REJECTED), editTime und rejectionReason. Damit darf WERKRUF
+   * "Google hat diese Angabe aktualisiert" sagen statt nur "zeigt
+   * einen anderen Wert".
+   *
+   * Alpha heisst: kann fehlen, sich aendern, 404 liefern. Deshalb:
+   *   - nur wenn GBP_EXTENDED_EDIT_STATUS=on (Secret, Standard aus)
+   *   - jeder Fehler ausser reauth_required → null (Fallback auf v1)
+   *   - Ergebnis in ein einfaches Objekt { [fieldPath]: {…} } uebersetzt;
+   *     unbekannte Formen → null
+   *
+   * Rueckgabe null = "keine erweiterte Information", nie ein Fehler.
+   */
+  async getLocationExtendedOderNull(locationName: string): Promise<Record<string, {
+    lifecycleStage?: string; editTime?: string; rejectionReason?: string;
+  }> | null> {
+    if ((Deno.env.get('GBP_EXTENDED_EDIT_STATUS') ?? 'off').toLowerCase() !== 'on') return null;
+    try {
+      const antwort = await this.transport.request<Record<string, unknown>>(
+        GBP_BUSINESS_INFO_API_ALPHA, `${normalizeName(locationName, 'locations')}:getExtended`,
+        { operation: 'getLocationExtended', query: { readMask: LOCATION_READ_MASK } },
+      );
+      return extrahiereFeldLifecycle(antwort);
+    } catch (err) {
+      if (err instanceof GbpError && err.code === 'reauth_required') throw err;
+      console.warn(JSON.stringify({ scope: 'gbp', event: 'extended_unavailable',
+        code: err instanceof GbpError ? err.code : 'unknown' }));
+      return null;
+    }
+  }
+
+  /*
    * Kategoriesuche.
    *
    * Google liefert Anzeigenamen sprach- und regionsabhaengig; gespeichert
@@ -2052,6 +2092,35 @@ class GbpApiClient {
 }
 
 /** "accounts/123" oder "123" → "accounts/123" */
+/**
+ * WP8 — aus einer getExtended-Antwort die Feld-Lifecycles ziehen.
+ *
+ * Die Alpha-Antwort fuehrt `fieldEditStatuses` (oder aehnlich) als
+ * Liste von { fieldPath|fieldMask, lifecycleStage, editTime,
+ * rejectionReason }. Wir nehmen, was dieser Form entspricht, und
+ * ignorieren den Rest. Liefert null, wenn nichts Brauchbares da ist.
+ */
+function extrahiereFeldLifecycle(antwort: Record<string, unknown> | null | undefined):
+  Record<string, { lifecycleStage?: string; editTime?: string; rejectionReason?: string }> | null {
+  if (!antwort || typeof antwort !== 'object') return null;
+  const kandidaten = [antwort.fieldEditStatuses, antwort.editStatuses, antwort.fieldStatuses]
+    .find((k) => Array.isArray(k)) as Array<Record<string, unknown>> | undefined;
+  if (!kandidaten) return null;
+  const out: Record<string, { lifecycleStage?: string; editTime?: string; rejectionReason?: string }> = {};
+  for (const e of kandidaten) {
+    const pfad = typeof e.fieldPath === 'string' ? e.fieldPath
+      : typeof e.fieldMask === 'string' ? e.fieldMask
+      : typeof e.field === 'string' ? e.field : null;
+    if (!pfad) continue;
+    out[pfad] = {
+      lifecycleStage: typeof e.lifecycleStage === 'string' ? e.lifecycleStage : undefined,
+      editTime: typeof e.editTime === 'string' ? e.editTime : undefined,
+      rejectionReason: typeof e.rejectionReason === 'string' ? e.rejectionReason : undefined,
+    };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function normalizeName(name: string, prefix: 'accounts' | 'locations'): string {
   const clean = name.replace(/^\//, '');
   return clean.startsWith(`${prefix}/`) ? clean : `${prefix}/${clean}`;
@@ -2732,6 +2801,8 @@ interface LocationSyncResult {
   updated: number;
   unchanged: number;
   markedDeleted: number;
+  /** WP8 — Waechter: Diff-Ergebnis je Standort (nur Zaehler). */
+  profileDiffs?: { checked: number; failed: number; new: number; changed: number; resolved: number; open: number };
   /**
    * Wurde in diesem Lauf automatisch ein Betrieb ausgewaehlt?
    *
@@ -2776,12 +2847,15 @@ class LocationSyncService {
     const toWrite: Array<Record<string, unknown>> = [];
     let created = 0, updated = 0, unchanged = 0, fetched = 0;
     const now = new Date().toISOString();
+    /* WP8: die geholten Standorte je Konto fuer den Waechter behalten. */
+    const locationsByAccount = new Map<string, GbpLocation[]>();
 
     for (const googleAccount of googleAccounts) {
       // Sequenziell über die Konten: die Business-Profile-APIs sind
       // eng quotiert und quittieren Bursts mit 429.
       const locations = await client.getLocations(googleAccount.name);
       fetched += locations.length;
+      locationsByAccount.set(googleAccount.name, locations);
 
       for (const location of locations) {
         // Attributes use their own Business Information endpoint and cannot be
@@ -2839,6 +2913,41 @@ class LocationSyncService {
       }
     }
 
+    /*
+     * ── WP8 — der Waechter ──
+     *
+     * Fuer jeden aktiven Standort: die oeffentliche Sicht holen
+     * (:getGoogleUpdated, v1), gegen die Inhaber-Sicht normalisiert
+     * vergleichen, das Ergebnis idempotent speichern. Die Engine macht
+     * daraus Events (profile.external_change etc.).
+     *
+     * Fehler eines Standorts blockieren weder die anderen noch den
+     * Profil-Sync selbst: der ist zu diesem Zeitpunkt bereits
+     * geschrieben. Nur ein echter Token-Fehler (reauth_required) wird
+     * weitergeworfen — der betrifft das ganze Konto. 403/404/5xx am
+     * Endpoint werden je Standort vermerkt und uebersprungen.
+     */
+    const diffZaehler = { checked: 0, failed: 0, new: 0, changed: 0, resolved: 0, open: 0 };
+    for (const googleAccount of googleAccounts) {
+      for (const location of locationsByAccount.get(googleAccount.name) ?? []) {
+        const row = (await this.db.from('google_locations').select('id')
+          .eq('account_id', accountId).eq('location_resource_name', location.name).maybeSingle()).data;
+        if (!row?.id) continue;
+        try {
+          const ergebnis = await this.pruefeProfilDiff(client, userId, row.id as string, location);
+          diffZaehler.checked++;
+          diffZaehler.new += ergebnis.new; diffZaehler.changed += ergebnis.changed;
+          diffZaehler.resolved += ergebnis.resolved; diffZaehler.open += ergebnis.open;
+        } catch (err) {
+          if (err instanceof GbpError && err.code === 'reauth_required') throw err;
+          diffZaehler.failed++;
+          this.log.warn('profile_diff_failed', {
+            locationId: row.id, code: err instanceof GbpError ? err.code : 'unknown',
+          });
+        }
+      }
+    }
+
     /* Verschwundene Standorte weich löschen.
        Kein hartes DELETE: daran hängen Bewertungen und Antworten, und
        ein Standort verschwindet auch mal vorübergehend, wenn Google
@@ -2875,6 +2984,7 @@ class LocationSyncService {
       accountId,
       googleAccounts: googleAccounts.length,
       fetched, created, updated, unchanged, markedDeleted,
+      profileDiffs: diffZaehler,
       autoSelectedLocationId: ausgewaehlt,
       durationMs: Date.now() - startedAt,
     };
@@ -2889,6 +2999,45 @@ class LocationSyncService {
     });
 
     return result;
+  }
+
+  /**
+   * WP8 — oeffentliche Sicht holen, vergleichen, speichern.
+   *
+   * v1 :getGoogleUpdated ist der Hauptpfad. Die v1alpha-Erweiterung
+   * (getExtended: Herkunft/Lifecycle je Feld) wird NUR versucht, wenn
+   * sie fuer dieses Projekt freigeschaltet ist, und ihr Ausfall ist
+   * kein Fehler — dann bleibt die Herkunft "unknown" und die Texte
+   * neutral. Siehe GbpApiClient.getLocationExtended().
+   */
+  private async pruefeProfilDiff(
+    client: GbpApiClient, userId: string, locationId: string, merchant: GbpLocation,
+  ): Promise<{ new: number; changed: number; resolved: number; open: number }> {
+    const sicht = await client.getGoogleUpdated(merchant.name);
+    const extended = await client.getLocationExtendedOderNull(merchant.name);
+
+    const diffs = berechneDiffs({
+      merchant, consumer: sicht.location ?? null,
+      diffMask: sicht.diffMask ?? null, pendingMask: sicht.pendingMask ?? null,
+      extended,
+    }).map((d) => ({ ...d, fingerprint: diffFingerabdruck(d) }));
+
+    const { data, error } = await this.db.rpc('upsert_profile_diffs', {
+      p_user_id: userId, p_location_id: locationId, p_diffs: diffs,
+      p_source: extended ? 'getGoogleUpdated_v1+extended_v1alpha' : 'getGoogleUpdated_v1',
+    });
+    if (error) throw new GbpError('internal_error', 'Profil-Diff nicht speicherbar', { cause: error });
+
+    /* Die rohe Sicht weiter in google_locations fuehren — das las der
+       Stammdaten-Editor schon vor WP8. */
+    await this.db.from('google_locations').update({
+      google_updated: sicht.location ?? null,
+      google_diff_mask: (sicht.diffMask ?? '').split(',').map((f) => f.trim()).filter(Boolean),
+      google_pending_mask: (sicht.pendingMask ?? '').split(',').map((f) => f.trim()).filter(Boolean),
+    }).eq('id', locationId);
+
+    const r = (data ?? {}) as { new?: number; changed?: number; resolved?: number; openIds?: unknown[] };
+    return { new: r.new ?? 0, changed: r.changed ?? 0, resolved: r.resolved ?? 0, open: (r.openIds ?? []).length };
   }
 
   /** Setzt den ältesten aktiven Standort als Haupt, falls keiner gesetzt ist. */
@@ -3159,6 +3308,17 @@ interface Facts {
    */
   openingHours: { present: boolean; reliable: boolean };
   operations: { syncFailedRecently: boolean; lastSyncedAt: string | null };
+  /**
+   * WP8 — offene Profil-Differenzen aus google_profile_diffs (vom
+   * Standort-Sync geschrieben). Jede ist ein eigenes Subjekt.
+   */
+  profileDiffs: Array<{
+    id: string; fieldPath: string; prio: 'kritisch' | 'mittel' | 'info'; label: string;
+    changeType: 'changed' | 'closed_by_google' | 'pending' | 'rejected';
+    origin: 'unknown' | 'pending' | 'updated_by_google' | 'rejected';
+    merchantValue: unknown; consumerValue: unknown;
+    firstSeenAt: string; rejectionReason: string | null;
+  }>;
 }
 
 /** Was passiert ist. Ohne Handlungsaufforderung. */
@@ -3542,6 +3702,10 @@ function buildFacts(ctx: EvaluationContext, kontoStandorte: number | null): Fact
       syncFailedRecently: ctx.syncFailed,
       lastSyncedAt: ctx.locations[0]?.lastSyncedAt ?? null,
     },
+    /* WP8: aus dem Kontext, leer fuer aeltere Kontexte. */
+    profileDiffs: Array.isArray((ctx as unknown as { profileDiffs?: unknown[] }).profileDiffs)
+      ? ((ctx as unknown as { profileDiffs: Facts['profileDiffs'] }).profileDiffs)
+      : [],
   };
 }
 
@@ -4103,6 +4267,171 @@ const RULES: Rule[] = [
     }),
   },
 
+
+  /*
+   * ── WP8 — der Waechter ──
+   *
+   * Vier Regeln, eine Quelle: google_profile_diffs. Jede Differenz ist
+   * ein Subjekt (subject_id = Diff-ID), damit die Engine-Identitaet
+   * (user, location, type, subject) den Lifecycle traegt: derselbe
+   * Diff → dasselbe Event; aufgeloester Diff → resolve_stale_events
+   * schliesst das Event. Kein eigener Dedupe.
+   *
+   *   profile.closed_by_google   oeffentlich geschlossen, intern nicht   kritisch
+   *   profile.external_change    kritisches Feld weicht ab              kritisch
+   *                              mittleres Feld weicht ab               mittel (Wochenmail)
+   *   profile.edit_pending       eigene Aenderung in Pruefung            low, nur Dashboard
+   *   profile.edit_rejected      eigene Aenderung abgelehnt              medium
+   *
+   * Die Texte behaupten nur, was die Quelle traegt: "Google hat …
+   * aktualisiert" erst bei UPDATED_BY_GOOGLE (Extended-API), sonst
+   * "Google zeigt eine andere …".
+   */
+  {
+    id: 'profile.closed_by_google',
+    status: 'active',
+    meta: {
+      title: 'Oeffentlich als geschlossen',
+      purpose: 'Erkennt, wenn Google den Betrieb oeffentlich als geschlossen fuehrt, der Inhaber aber nicht.',
+      rationale: 'Ein als geschlossen angezeigter Betrieb bekommt keine Anrufe und keine Routen. Reine Tatsache aus der Consumer-Sicht.',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'profile.write',
+    describes: 'Google zeigt den Betrieb als geschlossen',
+    when: ({ facts }) => facts.profileDiffs.some((d) => d.changeType === 'closed_by_google'),
+    subjects: ({ facts }) => facts.profileDiffs
+      .filter((d) => d.changeType === 'closed_by_google')
+      .map((d) => ({ id: d.id, type: 'profile_diff', data: { ...d } })),
+    insight: () => 'Google zeigt deinen Betrieb aktuell als geschlossen.',
+    recommend: (_, subject) => ({
+      type: 'profile.closed_by_google',
+      title: 'Google zeigt deinen Betrieb als geschlossen',
+      summary: `Öffentlich: ${formatWert('openInfo', subject?.data.consumerValue)} — hinterlegt: ${formatWert('openInfo', subject?.data.merchantValue)}.`,
+      reason: 'Ein als geschlossen angezeigter Betrieb bekommt weder Anrufe noch Routenanfragen.',
+      expectedBenefit: 'Der Betrieb ist wieder als geöffnet sichtbar',
+      estimatedMinutes: 2,
+      actionUrl: `/dashboard/google?diff=${subject?.id ?? ''}`,
+      priority: 'critical',
+      confidence: 1.0,
+      sourceFacts: ['profileDiffs'],
+    }),
+  },
+
+  {
+    id: 'profile.external_change',
+    status: 'active',
+    meta: {
+      title: 'Oeffentliche Angabe weicht ab',
+      purpose: 'Erkennt, wenn die oeffentlich sichtbare Angabe eines Feldes vom hinterlegten Wert abweicht.',
+      rationale: 'Telefon, Website, Adresse und Hauptkategorie entscheiden, ob Kunden den Betrieb erreichen — kritisch. Oeffnungszeiten und Nebenkategorien kosten Besuche zur falschen Zeit — mittel. Herkunft wird nur behauptet, wenn die Extended-API sie belegt.',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'profile.write',
+    describes: 'Oeffentliche Angabe unterscheidet sich vom hinterlegten Wert',
+    when: ({ facts }) => facts.profileDiffs.some((d) => d.changeType === 'changed' && d.prio !== 'info'),
+    subjects: ({ facts }) => facts.profileDiffs
+      .filter((d) => d.changeType === 'changed' && d.prio !== 'info')
+      .map((d) => ({ id: d.id, type: 'profile_diff', data: { ...d } })),
+    insight: (_, subject) => diffUeberschrift(subject?.data as Parameters<typeof diffUeberschrift>[0]),
+    recommend: (_, subject) => {
+      const d = subject?.data as Facts['profileDiffs'][number];
+      return {
+        type: 'profile.external_change',
+        title: diffUeberschrift(d),
+        summary: `Hinterlegt: ${formatWert(d.fieldPath, d.merchantValue)} · Öffentlich: ${formatWert(d.fieldPath, d.consumerValue)}`,
+        reason: d.prio === 'kritisch'
+          ? 'Diese Angabe entscheidet, ob Kunden dich erreichen oder finden.'
+          : 'Kunden richten sich nach dem, was Google zeigt — nicht nach dem, was hinterlegt ist.',
+        expectedBenefit: 'Öffentlich steht wieder, was stimmt',
+        estimatedMinutes: 2,
+        actionUrl: `/dashboard/google?diff=${d.id}`,
+        priority: d.prio === 'kritisch' ? 'critical' : 'medium',
+        confidence: d.origin === 'updated_by_google' ? 1.0 : 0.9,
+        sourceFacts: ['profileDiffs'],
+      };
+    },
+  },
+
+  {
+    id: 'profile.edit_pending',
+    status: 'active',
+    meta: {
+      title: 'Eigene Aenderung in Pruefung',
+      purpose: 'Zeigt, dass eine eigene Aenderung von Google noch geprueft wird.',
+      rationale: 'Kein Alarm — Information. Verhindert, dass dieselbe Aenderung erneut eingereicht wird (Google raet davon ab).',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'none',
+    describes: 'Eigene Aenderung wartet auf Googles Pruefung',
+    when: ({ facts }) => facts.profileDiffs.some((d) => d.changeType === 'pending'),
+    subjects: ({ facts }) => facts.profileDiffs
+      .filter((d) => d.changeType === 'pending')
+      .map((d) => ({ id: d.id, type: 'profile_diff', data: { ...d } })),
+    insight: (_, subject) => `${subject?.data.label}: Deine Änderung wird von Google noch geprüft.`,
+    recommend: (_, subject) => ({
+      type: 'profile.edit_pending',
+      title: `${subject?.data.label}: Änderung wird geprüft`,
+      summary: 'Google prüft deine Änderung. Nicht erneut einreichen.',
+      reason: 'Google prüft Änderungen an Profilangaben, bevor sie öffentlich werden.',
+      expectedBenefit: 'Nichts zu tun — nur wissen, woran es liegt',
+      estimatedMinutes: 0,
+      actionUrl: `/dashboard/google?diff=${subject?.id ?? ''}`,
+      priority: 'low',
+      confidence: 1.0,
+      sourceFacts: ['profileDiffs'],
+    }),
+  },
+
+  {
+    id: 'profile.edit_rejected',
+    status: 'active',
+    meta: {
+      title: 'Eigene Aenderung abgelehnt',
+      purpose: 'Zeigt, dass Google eine eigene Aenderung nicht uebernommen hat.',
+      rationale: 'Nur aus der Extended-API (REJECTED). Ohne sie gibt es diesen Zustand nicht.',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'profile.completeness',
+    source: 'google_business',
+    category: 'profile',
+    capability: 'profile.write',
+    describes: 'Google hat eine eigene Aenderung nicht uebernommen',
+    when: ({ facts }) => facts.profileDiffs.some((d) => d.changeType === 'rejected'),
+    subjects: ({ facts }) => facts.profileDiffs
+      .filter((d) => d.changeType === 'rejected')
+      .map((d) => ({ id: d.id, type: 'profile_diff', data: { ...d } })),
+    insight: (_, subject) => `${subject?.data.label}: Google hat deine Änderung nicht übernommen.`,
+    recommend: (_, subject) => ({
+      type: 'profile.edit_rejected',
+      title: `${subject?.data.label}: Änderung nicht übernommen`,
+      summary: 'Google hat deine Änderung nicht übernommen.',
+      reason: 'Google prüft Änderungen gegen seine Richtlinien; der Grund steht im Dashboard, falls Google ihn nennt.',
+      expectedBenefit: 'Du weißt, woran es lag, und kannst korrigieren',
+      estimatedMinutes: 3,
+      actionUrl: `/dashboard/google?diff=${subject?.id ?? ''}`,
+      priority: 'medium',
+      confidence: 1.0,
+      sourceFacts: ['profileDiffs'],
+    }),
+  },
+
   {
     id: 'profile.photos_missing',
     status: 'active',
@@ -4535,6 +4864,15 @@ const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
   'review.negative_batch':      'problem',
   'reply.publish_failed':       'problem',
   'sync.failing':               'problem',
+  /* WP8 — der Waechter. Oeffentlich steht etwas anderes als hinterlegt
+     oder Google hat eine Aenderung abgelehnt: kaputt, nicht Luecke.
+     edit_pending ist Information — auch problem, weil es im
+     Dashboard als Zustand des Profils gefuehrt wird, nicht als
+     Wachstumschance; es hat keinen CTA. */
+  'profile.closed_by_google':   'problem',
+  'profile.external_change':    'problem',
+  'profile.edit_pending':       'problem',
+  'profile.edit_rejected':      'problem',
 
   /* ── Fehlt noch ── */
   'review.none_yet':            'growth',
@@ -5638,6 +5976,23 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
   const body = await readJsonBody<{ locationId?: string; changes?: Record<string, unknown> }>(request);
   if (!body.locationId || !body.changes) throw new GbpError('bad_request', 'locationId oder changes fehlt');
   const location = await loadOwnLocation(body.locationId, user.id);
+  return jsonResponse(request, await fuehreLocationUpdateAus(user, location, body.changes));
+}
+
+/**
+ * Der eigentliche Schreibweg zu Google — gemeinsam fuer
+ * location/update (Editor) und location/diff-apply (WP8).
+ *
+ * Erwartet einen bereits geladenen EIGENEN Standort und ein
+ * `changes`-Objekt in der Form des Feldmodells. Alles, was danach
+ * kommt (Feldmodell-Filter, Sperren je Betrieb, Zeitenpruefung,
+ * Kategoriepruefung, PATCH, Zuruecklesen, pendingMask, Audit), ist
+ * dasselbe — ein zweiter Schreibweg waere eine zweite Sicherheitsluecke.
+ */
+async function fuehreLocationUpdateAus(
+  user: { id: string }, location: Awaited<ReturnType<typeof loadOwnLocation>>, changes: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const body = { changes };
 
   /* ── Erste Stufe: Was erlaubt die API ueberhaupt? ──
      Verwirft alles, was nicht im Feldmodell steht, und baut die
@@ -5907,7 +6262,7 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
       { anzeigbar: true });
   }
 
-  return jsonResponse(request, {
+  return {
     location: confirmed,
     updateMask,
     status,
@@ -5921,7 +6276,129 @@ async function handleLocationUpdate(request: Request): Promise<Response> {
       hinweis: 'Die Änderung ist bei Google angekommen, WERKRUF konnte sie aber nicht zwischenspeichern. Sie erscheint beim nächsten Abgleich.',
     } : {}),
     confirmed: true,
+  };
+}
+
+/*
+ * WP8 — Diff anwenden. POST /location/diff-apply
+ *
+ *   { diffId, aktion: 'uebernehmen' | 'wiederherstellen' }
+ *
+ * Der Client schickt KEIN Feld und KEINEN Wert. Beides bestimmt der
+ * Server aus dem Diff-Datensatz:
+ *
+ *   uebernehmen        → Googles oeffentlicher Wert (consumer_value)
+ *                        wird als Inhaberwert geschrieben; Google
+ *                        loest den Diff damit auf.
+ *   wiederherstellen   → der hinterlegte Wert (merchant_value) wird
+ *                        erneut gesendet; Google prueft ihn als
+ *                        eigene Aenderung (pendingMask).
+ *
+ * Nicht moeglich: Felder ohne updateMask im DIFF_FELDER-Katalog
+ * (title, serviceArea, attributes, Kategorien ohne ID), pending-Diffs
+ * (Google raet von erneutem Einreichen ab), rejected-Diffs ueber
+ * "wiederherstellen" (derselbe Wert wuerde erneut abgelehnt), fremde
+ * Diffs, Free.
+ */
+async function handleProfileDiffApply(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ diffId?: string; aktion?: string }>(request);
+  if (typeof body.diffId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.diffId)) {
+    throw new GbpError('bad_request', 'diffId fehlt');
+  }
+  if (body.aktion !== 'uebernehmen' && body.aktion !== 'wiederherstellen') {
+    throw new GbpError('bad_request', 'aktion muss uebernehmen oder wiederherstellen sein');
+  }
+
+  /* Der Diff gehoert dem Nutzer — und nur ein offener zaehlt. Alles
+     Weitere (fieldPath, Wert) kommt aus dieser Zeile, nie aus dem Body. */
+  const { data: diff, error: diffErr } = await adminClient()
+    .from('google_profile_diffs')
+    .select('id, user_id, location_id, field_path, change_type, origin, merchant_value, consumer_value')
+    .eq('id', body.diffId).eq('user_id', user.id).is('resolved_at', null).maybeSingle();
+  if (diffErr) throw new GbpError('internal_error', 'Diff nicht lesbar', { cause: diffErr });
+  if (!diff) throw new GbpError('not_found', 'Diff nicht gefunden');
+
+  const location = await loadOwnLocation(diff.location_id as string, user.id);
+
+  const katalog = (DIFF_FELDER as Record<string, { patch: boolean; updateMask: string | null; label: string }>)[diff.field_path as string];
+  if (!katalog?.patch || !katalog.updateMask) {
+    throw new GbpError('bad_request', `${katalog?.label ?? diff.field_path} lässt sich nur direkt im Google-Unternehmensprofil ändern.`, { anzeigbar: true });
+  }
+  if (diff.change_type === 'pending') {
+    throw new GbpError('bad_request', 'Deine Änderung wird gerade von Google geprüft — bitte nicht erneut einreichen.', { anzeigbar: true });
+  }
+  if (diff.change_type === 'rejected' && body.aktion === 'wiederherstellen') {
+    throw new GbpError('bad_request', 'Google hat genau diesen Wert abgelehnt. Bitte korrigiere die Angabe im Editor.', { anzeigbar: true });
+  }
+
+  const changes = baueAenderungAusDiff(
+    diff.field_path as string,
+    body.aktion === 'uebernehmen' ? diff.consumer_value : diff.merchant_value,
+    location as unknown as { google_profile?: Record<string, unknown> | null },
+  );
+  if (!changes) {
+    throw new GbpError('bad_request', 'Für diese Angabe liegt kein vollständiger Wert vor — bitte im Editor setzen.', { anzeigbar: true });
+  }
+
+  const ergebnis = await fuehreLocationUpdateAus(user, location, changes);
+
+  /* Erst NACH dem erfolgreichen Schreiben als aufgeloest vermerken.
+     Der naechste Sync bestaetigt oder legt neu an. */
+  const { data: ok } = await adminClient().rpc('resolve_profile_diff', {
+    p_diff_id: diff.id, p_user_id: user.id,
+    p_by: body.aktion === 'uebernehmen' ? 'accepted' : 'restored',
   });
+
+  await writeAuditLog({
+    userId: user.id, action: body.aktion === 'uebernehmen' ? 'profile_diff.accepted' : 'profile_diff.restored',
+    entityType: 'google_location', entityId: location.id,
+    metadata: { diffId: diff.id, fieldPath: diff.field_path, status: ergebnis.status, resolved: ok === true },
+  });
+
+  return jsonResponse(request, { ...ergebnis, diffId: diff.id, aktion: body.aktion, diffResolved: ok === true });
+}
+
+/**
+ * Aus Feldpfad und (roh gespeichertem) Wert das `changes`-Objekt fuer
+ * das Feldmodell bauen. Explizit je Feld — keine generische
+ * Pfad-Zuweisung. Felder mit "ganz"-Pflicht (phoneNumbers) werden
+ * aus dem aktuellen Standortstand ergaenzt.
+ *
+ * Liefert null, wenn der Wert nicht in die Form passt — dann bleibt
+ * nur der Editor.
+ */
+function baueAenderungAusDiff(
+  fieldPath: string, wert: unknown,
+  location: { google_profile?: Record<string, unknown> | null },
+): Record<string, unknown> | null {
+  const profil = (location.google_profile ?? {}) as Record<string, unknown>;
+  switch (fieldPath) {
+    case 'phoneNumbers.primaryPhone': {
+      if (typeof wert !== 'string' || !wert.trim()) return null;
+      const bisher = (profil.phoneNumbers ?? {}) as { additionalPhones?: string[] };
+      return { phoneNumbers: { primaryPhone: wert.trim(), additionalPhones: bisher.additionalPhones ?? [] } };
+    }
+    case 'websiteUri':
+      return typeof wert === 'string' && wert.trim() ? { websiteUri: wert.trim() } : null;
+    case 'openInfo':
+      return typeof wert === 'string' && ['OPEN', 'CLOSED_TEMPORARILY', 'CLOSED_PERMANENTLY'].includes(wert)
+        ? { openInfo: { status: wert } } : null;
+    case 'storefrontAddress':
+      return wert && typeof wert === 'object' && Array.isArray((wert as { addressLines?: unknown }).addressLines)
+        ? { storefrontAddress: wert } : null;
+    case 'regularHours':
+      return wert && typeof wert === 'object' && Array.isArray((wert as { periods?: unknown }).periods)
+        ? { regularHours: wert } : null;
+    case 'specialHours':
+      return wert && typeof wert === 'object' && Array.isArray((wert as { specialHourPeriods?: unknown }).specialHourPeriods)
+        ? { specialHours: wert } : null;
+    /* Kategorien: im Diff liegt der Anzeigename, Google braucht die
+       stabile ID. Nicht raten — Editor. */
+    default:
+      return null;
+  }
 }
 
 /** Selects the customer's working location from Google's authorised results. */
@@ -8037,6 +8514,8 @@ const ATTRIBUTE_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Re
 
 const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
   update: { method: 'POST', handler: handleLocationUpdate },
+  /* WP8 — Diff uebernehmen / eigenen Wert wiederherstellen. */
+  'diff-apply': { method: 'POST', handler: handleProfileDiffApply },
   select: { method: 'POST', handler: handleLocationSelect },
   'google-updated': { method: 'GET', handler: handleGoogleUpdated },
 };
