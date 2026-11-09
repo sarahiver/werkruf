@@ -33,6 +33,9 @@ import { istBearbeitbar } from '../../../src/utils/gbpFieldModel.js';
 import { pruefeAlles, hatFehler, stimmtUeberein } from '../../../src/utils/gbpHours.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
+import {
+  LEISTUNGS_METRIKEN, parseLeistungsantwort, deutetAufDeaktivierteApi,
+} from '../../../src/utils/googlePerformance.js';
 
 /* ═══════════════════════════════════════════════════════════════
    1 — TYPEN
@@ -209,7 +212,11 @@ type GbpErrorCode =
   | 'exchange_failed' | 'missing_refresh_token' | 'insufficient_scope'
   | 'not_connected' | 'reauth_required'
   | 'refresh_failed' | 'google_api_error' | 'rate_limited'
-  | 'google_validation' | 'bad_request' | 'not_found' | 'payment_required' | 'internal_error';
+  | 'google_validation' | 'bad_request' | 'not_found' | 'payment_required' | 'internal_error'
+  /* WP5: Die Performance API ist im Cloud-Projekt nicht aktiviert.
+     Ein Konfigurationszustand, kein OAuth-Problem — darf nie
+     needs_reauth auslösen und wird nicht wiederholt. */
+  | 'performance_api_disabled';
 
 const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   config_error: 500, encryption_error: 500, unauthenticated: 401,
@@ -220,6 +227,7 @@ const DEFAULT_STATUS: Record<GbpErrorCode, number> = {
   google_validation: 400,
   bad_request: 400, not_found: 404, internal_error: 500,
   payment_required: 402,
+  performance_api_disabled: 403,
 };
 
 /* Nur diese Texte gehen nach aussen. Google- und Postgres-Meldungen
@@ -1375,6 +1383,9 @@ async function getAccessToken(
 
 /** Legacy-v4-Basis. Nur für Reviews und Antworten. */
 const GBP_LEGACY_API = 'https://mybusiness.googleapis.com/v4';
+/* WP5: Leistungsdaten. Eigener Dienst mit eigener Aktivierung im
+   Cloud-Projekt — derselbe OAuth-Scope (business.manage). */
+const GBP_PERFORMANCE_API = 'https://businessprofileperformance.googleapis.com/v1';
 
 /* ─────────────────────────────────────────────
    RETRY-PARAMETER
@@ -1885,6 +1896,49 @@ class GbpApiClient {
     await this.transport.request<void>(
       GBP_LEGACY_API, mediaName.replace(/^\//, ''),
       { operation: 'deleteMedia', method: 'DELETE' },
+    );
+  }
+
+  /* ── Leistungsdaten (Performance API v1) — WP5 ── */
+
+  /**
+   * Tageswerte mehrerer Metriken in einem Aufruf.
+   *
+   * GET locations/{id}:fetchMultiDailyMetricsTimeSeries
+   *   ?dailyMetrics=A&dailyMetrics=B&dailyRange.startDate.year=…
+   *
+   * @param locationName "locations/123" — die Listing-ID aus
+   *                     google_locations.location_resource_name. Keine
+   *                     Place-ID, keine interne UUID.
+   * @param von, bis     'YYYY-MM-DD', einschliesslich. Google liefert
+   *                     fuer die juengsten Tage oft noch nichts; das ist
+   *                     kein Fehler, sondern fehlende Tage in der
+   *                     Antwort.
+   */
+  async fetchPerformance(
+    locationName: string,
+    metrics: readonly string[],
+    von: string,
+    bis: string,
+  ): Promise<unknown> {
+    const [vy, vm, vd] = von.split('-').map(Number);
+    const [by, bm, bd] = bis.split('-').map(Number);
+    if (![vy, vm, vd, by, bm, bd].every(Number.isInteger)) {
+      throw new GbpError('bad_request', 'fetchPerformance: Zeitraum nicht im Format YYYY-MM-DD');
+    }
+
+    return await this.transport.request<unknown>(
+      GBP_PERFORMANCE_API,
+      `${normalizeName(locationName, 'locations')}:fetchMultiDailyMetricsTimeSeries`,
+      {
+        operation: 'fetchPerformance',
+        query: {
+          /* Als Liste — buildUrl wiederholt den Parameter. */
+          dailyMetrics: [...metrics],
+          'dailyRange.startDate.year': vy, 'dailyRange.startDate.month': vm, 'dailyRange.startDate.day': vd,
+          'dailyRange.endDate.year': by,   'dailyRange.endDate.month': bm,   'dailyRange.endDate.day': bd,
+        },
+      },
     );
   }
 
@@ -5036,6 +5090,14 @@ class SyncScheduler {
         // reauth_required ist kein transienter Fehler — der Kunde muss
         // handeln. Weitere Versuche kosten nur Quota, also sofort
         // aufgeben statt dreimal zu wiederholen.
+        //
+        // performance_api_disabled (WP5) steht ABSICHTLICH nicht hier:
+        // Diese Liste spiegelt sich in AUFGEGEBEN_CODES des Dashboards
+        // und heisst dort "der Kunde muss neu verbinden". Eine nicht
+        // aktivierte API ist Ivers Aufgabe, nicht die des Kunden. Der
+        // Job laeuft drei Versuche (1, 4, 9 Min) und steht dann als
+        // failed in ops_alerts §5 — drei billige 403 pro Standort und
+        // Tag, kein falscher Handlungsaufruf.
         if (gbpError.code === 'reauth_required' || gbpError.code === 'not_connected') {
           await this.abandon(job.id, gbpError.code, gbpError.message);
         } else {
@@ -5082,6 +5144,196 @@ class SyncScheduler {
     }).eq('id', jobId);
 
     if (error) this.log.error('abandon_job_failed', { jobId, message: error.message });
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10d — LEISTUNGSDATEN (WP5)
+
+   Ein eigener Jobtyp (sync_insights), ein Job je Standort. Dadurch
+   gilt von sich aus:
+
+     - Ein Fehler hier blockiert weder Bewertungen noch Profil noch
+       Fotos: andere Jobtypen, andere Zeilen in sync_jobs.
+     - Ein Standort blockiert den anderen nicht: ein Job je Standort.
+     - Wiederholung und Aufgabe laufen ueber den vorhandenen Scheduler
+       (finish_sync_job: 1, 4, 9 Minuten; dann failed → ops_alerts §5).
+
+   ═════════════════════════════════════════════════════════════
+   ZEITRAUM
+   ═════════════════════════════════════════════════════════════
+
+   Normal: die letzten 14 Tage bis gestern. Google liefert Werte mit
+   Verzoegerung und korrigiert nachtraeglich; wer nur „gestern" holt,
+   friert Luecken und Fehler ein. 14 Tage sind ein Aufruf, dieselbe
+   Quota wie 1 Tag — die API nimmt den Zeitraum als Parameter.
+
+   Erster Lauf (noch keine Zeile fuer den Standort): 90 Tage. Mehr
+   Vergangenheit braucht die Mail nicht, und ein Jahr pro Standort
+   waere ein Backfill ohne Nutzen.
+
+   ═════════════════════════════════════════════════════════════
+   FEHLER
+   ═════════════════════════════════════════════════════════════
+
+   401       Transport: Token erneuern, bei erneutem 401 Verbindung
+             needs_reauth. Das ist das einzige, was die Verbindung
+             anfasst — und es betrifft alle Jobtypen gleich.
+   403       zwei Faelle. „API has not been used / is disabled /
+             SERVICE_DISABLED": die Performance API ist im
+             Cloud-Projekt nicht aktiviert → performance_api_disabled.
+             KEIN needs_reauth, kein connection_lost; der Job wird wie
+             jeder andere Fehler dreimal versucht und steht dann als
+             failed in ops_alerts §5 (sync.exhausted) — dort gehoert
+             er hin, denn beheben muss ihn der Betreiber, nicht der
+             Kunde. Sonst insufficient_scope → ebenso.
+             Das Dashboard blendet sync_insights-Jobs aus
+             (useGoogleBusinessData): Ein Zusatznutzen darf die Karte
+             nicht auf „Abgleich fehlgeschlagen" stellen.
+   404       Standort bei Google unbekannt → not_found, wiederholt,
+             dann failed (sichtbar in ops_alerts).
+   429/5xx   Transport wiederholt mit Backoff; bleibt es, wirft er
+             retryable → Scheduler plant neu.
+═══════════════════════════════════════════════════════════════ */
+
+const PERFORMANCE_WINDOW_DAYS   = 14;
+const PERFORMANCE_BACKFILL_DAYS = 90;
+const PERFORMANCE_TABLE         = 'google_performance_daily';
+
+/** 'YYYY-MM-DD' in UTC, n Tage vor heute. */
+function tagVorHeute(n: number): string {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Googles Meldung fuer „Dienst nicht aktiviert". Der Transport sieht
+ * nur einen 403 und wirft insufficient_scope; die Unterscheidung
+ * passiert hier, am Wortlaut, weil die API keinen eigenen Statuscode
+ * dafuer hat.
+ */
+function istApiDeaktiviert(err: GbpError): boolean {
+  if (err.code !== 'insufficient_scope') return false;
+  return deutetAufDeaktivierteApi(`${err.message} ${JSON.stringify(err.context ?? {})}`);
+}
+
+interface PerformanceSyncResult {
+  locationId: string;
+  mode: 'window' | 'backfill';
+  von: string;
+  bis: string;
+  rows: number;
+  metrics: number;
+  unknownMetrics: number;
+  metricsWithoutData: number;
+  discarded: number;
+  durationMs: number;
+}
+
+class PerformanceSyncService {
+  constructor(
+    private readonly log: Logger,
+    private readonly db = adminClient(),
+  ) {}
+
+  async syncLocation(locationId: string): Promise<PerformanceSyncResult> {
+    const startedAt = Date.now();
+    const location = await new ReviewRepository(this.db).getLocation(locationId);
+
+    /* Erster Lauf oder laufendes Fenster? Entscheidet die Tabelle,
+       nicht ein Flag — ein Flag kann luegen, eine leere Tabelle nicht. */
+    const { count, error: countError } = await this.db
+      .from(PERFORMANCE_TABLE)
+      .select('metric', { count: 'exact', head: true })
+      .eq('location_id', locationId);
+    if (countError) {
+      throw new GbpError('internal_error', 'Leistungsdaten nicht lesbar', { cause: countError });
+    }
+
+    const mode: PerformanceSyncResult['mode'] = (count ?? 0) === 0 ? 'backfill' : 'window';
+    const von = tagVorHeute(mode === 'backfill' ? PERFORMANCE_BACKFILL_DAYS : PERFORMANCE_WINDOW_DAYS);
+    const bis = tagVorHeute(1);
+
+    this.log.debug('performance_sync_start', { locationId, mode, von, bis });
+
+    let antwort: unknown;
+    try {
+      antwort = await createGbpClient(location.user_id, location.account_id)
+        .fetchPerformance(location.location_resource_name, LEISTUNGS_METRIKEN, von, bis);
+    } catch (err) {
+      const gbpError = toGbpError(err);
+      const code = istApiDeaktiviert(gbpError) ? 'performance_api_disabled' : gbpError.code;
+      await this.vermerkeFehler(locationId, code);
+      if (code === 'performance_api_disabled') {
+        throw new GbpError('performance_api_disabled',
+          'Business Profile Performance API im Cloud-Projekt nicht aktiviert', {
+            cause: err, context: { locationId, operation: 'fetchPerformance' },
+          });
+      }
+      throw gbpError;
+    }
+
+    const geparst = parseLeistungsantwort(antwort);
+    if (geparst.unbekannt.length > 0) {
+      this.log.warn('performance_unknown_metrics', { locationId, metrics: geparst.unbekannt });
+    }
+
+    const now = new Date().toISOString();
+    const rows = geparst.zeilen.map((z) => ({
+      location_id: locationId,
+      user_id: location.user_id,
+      metric: z.metric,
+      date: z.date,
+      value: z.value,
+      fetched_at: now,
+    }));
+
+    /* Upsert auf den Primaerschluessel (location_id, metric, date):
+       derselbe Lauf zweimal schreibt dieselben Zeilen, eine Korrektur
+       von Google ueberschreibt den alten Tageswert. */
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const { error } = await this.db
+        .from(PERFORMANCE_TABLE)
+        .upsert(rows.slice(i, i + CHUNK), { onConflict: 'location_id,metric,date', ignoreDuplicates: false });
+      if (error) {
+        await this.vermerkeFehler(locationId, 'db_write_failed');
+        throw new GbpError('internal_error', 'Leistungsdaten nicht speicherbar', {
+          cause: error, context: { locationId, chunkStart: i },
+        });
+      }
+    }
+
+    const { error: markError } = await this.db
+      .from('google_locations')
+      .update({ performance_synced_at: now, performance_error_code: null })
+      .eq('id', locationId);
+    if (markError) {
+      throw new GbpError('internal_error', 'Standort nicht aktualisierbar', { cause: markError });
+    }
+
+    const result: PerformanceSyncResult = {
+      locationId, mode, von, bis,
+      rows: rows.length,
+      metrics: new Set(rows.map((r) => r.metric)).size,
+      unknownMetrics: geparst.unbekannt.length,
+      metricsWithoutData: geparst.ohneDaten.length,
+      discarded: geparst.verworfen,
+      durationMs: Date.now() - startedAt,
+    };
+    this.log.debug('performance_sync_done', { ...result });
+    return result;
+  }
+
+  /** Best effort: der Fehler selbst wird ohnehin geworfen. */
+  private async vermerkeFehler(locationId: string, code: string): Promise<void> {
+    const { error } = await this.db
+      .from('google_locations')
+      .update({ performance_error_code: code.slice(0, 64) })
+      .eq('id', locationId);
+    if (error) this.log.warn('performance_error_not_recorded', { locationId, message: error.message });
   }
 }
 
@@ -5137,8 +5389,18 @@ function createSyncScheduler(): SyncScheduler {
       return { ...(await new ReplyPublisher(log).publish(replyId)) };
     },
 
-    // Weitere Handler (sync_locations, sync_insights, …) kommen hier
-    // dazu — der Scheduler selbst bleibt unverändert.
+    /* WP5: Leistungsdaten. Ein Job je Standort, geplant von
+       schedule_performance_syncs(). Kein evaluateUser danach — die
+       Zahlen sind Information, keine Aufgabe (Brief §15). */
+    sync_insights: async (job) => {
+      if (!job.location_id) {
+        throw new GbpError('bad_request', 'sync_insights ohne location_id');
+      }
+      return { ...(await new PerformanceSyncService(log).syncLocation(job.location_id)) };
+    },
+
+    // Weitere Handler kommen hier dazu — der Scheduler selbst bleibt
+    // unverändert.
   };
 
   return new SyncScheduler(handlers, log);
@@ -5871,7 +6133,7 @@ async function handleSyncRun(request: Request): Promise<Response> {
 async function handleSyncSchedule(request: Request): Promise<Response> {
   requireWorkerSecret(request);
 
-  let options: { reviewAge?: string; locationAge?: string } = {};
+  let options: { reviewAge?: string; locationAge?: string; insightsAge?: string } = {};
   try {
     const raw = await request.text();
     if (raw) options = JSON.parse(raw);
@@ -5889,7 +6151,29 @@ async function handleSyncSchedule(request: Request): Promise<Response> {
     throw new GbpError('internal_error', 'Planung fehlgeschlagen', { cause: error });
   }
 
-  return jsonResponse(request, data ?? {});
+  /* WP5: Leistungsdaten — ein sync_insights-Job je Standort und Tag.
+     Eigener Aufruf statt Umbau von schedule_all_syncs: Die alte
+     Funktion bleibt wortgleich, und der Lauf hier bleibt gueltig, wenn
+     die Function vor der Migration live ist (deploy.yml deployt bei
+     jedem Push, Migrationen laufen per Hand). Fehlt die Funktion noch
+     (42883), wird das protokolliert — nicht geworfen: Bewertungen und
+     Standorte wurden oben bereits geplant. */
+  let performance: Record<string, unknown> = { skipped: 'not_migrated' };
+  const { data: perfData, error: perfError } = await adminClient().rpc('schedule_performance_syncs', {
+    p_age: options.insightsAge ?? '22 hours',
+  });
+  if (perfError) {
+    const fehltNoch = (perfError as { code?: string }).code === '42883';
+    createLogger('schedule')[fehltNoch ? 'warn' : 'error']('performance_schedule_failed', {
+      code: (perfError as { code?: string }).code ?? null, message: perfError.message,
+      hinweis: fehltNoch ? 'Migration 20261109120000 noch nicht angewendet' : undefined,
+    });
+    if (!fehltNoch) performance = { error: perfError.message };
+  } else {
+    performance = (perfData ?? {}) as Record<string, unknown>;
+  }
+
+  return jsonResponse(request, { ...(data ?? {}), performance });
 }
 
 /**

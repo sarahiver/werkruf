@@ -151,7 +151,15 @@ export function useGoogleBusinessData({ enabled = true } = {}) {
       const sum = reviews.reduce((acc, r) => acc + (r.star_rating ?? 0), 0);
 
       setLocations(loadedLocations);
-      setSyncJobs(jobsResult.data ?? []);
+      /* WP5: sync_insights (Google-Leistungsdaten) ist Zusatznutzen und
+         kein Abgleich, den der Kunde sieht oder ausloest. Ein
+         gescheiterter Leistungsdaten-Job — etwa weil die Performance
+         API im Cloud-Projekt nicht aktiviert ist — darf die Karte
+         nicht auf „Letzter Abgleich fehlgeschlagen" oder gar
+         „Verbindung erneuern" stellen. Hier gefiltert statt in der
+         Abfrage, damit die Ableitung (latestJob, lastFailedJob,
+         stalledJobs) unveraendert bleibt und nur die Kern-Syncs sieht. */
+      setSyncJobs((jobsResult.data ?? []).filter((j) => j.job_type !== 'sync_insights'));
 
       setStats({
         totalReviews: total,
