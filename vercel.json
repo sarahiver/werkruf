@@ -5,6 +5,21 @@
       "source": "/b/:code",
       "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/b/:code"
     },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/p/fp/:token",
+      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/p/fp/:token"
+    },
+    {
+      "source": "/founding-partner/:token",
+      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/fp/:token"
+    },
+    {
+      "source": "/founding-partner/:token/interesse",
+      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/fp/:token/interesse"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

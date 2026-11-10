@@ -12,7 +12,7 @@
  *   sent delivered opened clicked soft_bounce hard_bounce blocked
  *   spam error
  *
- * Alles andere (deferred, unsubscribed, unbekannt) wird ignoriert —
+ * Alles andere (deferred, unbekannt) wird ignoriert —
  * gemeldet, nicht gespeichert.
  *
  * Korrelation NUR ueber die Message-ID (email_queue.provider_id =
@@ -27,6 +27,7 @@
 export const EREIGNISSE = Object.freeze([
   'sent', 'delivered', 'opened', 'clicked',
   'soft_bounce', 'hard_bounce', 'blocked', 'spam', 'error',
+  'unsubscribed',   // WP16: Sperrgrund fuer Akquise-Mails; fuer Produktmails nur Historie
 ]);
 
 const ABBILDUNG = Object.freeze({
@@ -49,6 +50,8 @@ const ABBILDUNG = Object.freeze({
   invalid_email: 'error',
   invalid:       'error',
   error:         'error',
+  unsubscribed:  'unsubscribed',
+  unsubscribe:   'unsubscribed',
 });
 
 /** Brevo-Ereignisname → interner Name, oder null. */
