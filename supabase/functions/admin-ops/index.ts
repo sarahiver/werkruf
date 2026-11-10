@@ -387,7 +387,7 @@ async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
  * ausschliesslich die Mailadresse.
  */
 async function supportZustand(admin: SupabaseClient, userId: string) {
-  const [profil, konto, standorte, jobs, mails, events, authUser, diffs, referrals, rewards, smsRequests] = await Promise.all([
+  const [profil, konto, standorte, jobs, mails, events, authUser, diffs, referrals, rewards, smsRequests, seasonalPosts] = await Promise.all([
     admin.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
     admin.from('google_accounts')
       .select('id,status,connected_at,last_error_code,last_error_at,deleted_at')
@@ -421,9 +421,13 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
     admin.from('review_sms_requests')
       .select('id,location_id,status,segment_count,error_code,created_at,sent_at,delivered_at,failed_at')
       .eq('user_id', userId).order('created_at', { ascending: false }).limit(50),
+    /* WP15 — Saison-Beitraege: Status und Saison, kein Beitragstext. */
+    admin.from('seasonal_posts')
+      .select('id,location_id,season_key,season_year,status,google_state,error_code,created_at,published_at,failed_at')
+      .eq('user_id', userId).order('created_at', { ascending: false }).limit(20),
   ]);
 
-  for (const r of [profil, konto, standorte, jobs, mails, events, diffs, referrals, rewards, smsRequests]) {
+  for (const r of [profil, konto, standorte, jobs, mails, events, diffs, referrals, rewards, smsRequests, seasonalPosts]) {
     if ((r as { error?: unknown }).error) throw (r as { error: unknown }).error;
   }
 
@@ -442,6 +446,7 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
       referrals: referrals.data ?? [],
       referralRewards: rewards.data ?? [],
       smsRequests: smsRequests.data ?? [],
+      seasonalPosts: seasonalPosts.data ?? [],
     }),
     generatedAt: new Date().toISOString(),
   };

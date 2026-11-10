@@ -38,6 +38,10 @@ import {
   offeneFeiertage, feiertagAm, bundeslandAusAdresse, baueSonderzeit, ausIso, tageBis as feiertagTageBis,
   feiertagSubjektId, MODI as FEIERTAG_MODI, FENSTER_TAGE,
 } from '../../../src/utils/feiertage.js';
+import {
+  offeneSaisons, saisonSubjektId, saison as saisonKatalog, baueBeitragsVorschlag, pruefeBeitragstext,
+  BEITRAG_MAX_ZEICHEN,
+} from '../../../src/utils/saisonBeitraege.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import { pruefePause, heuteBerlin } from '../../../src/utils/betriebsferien.js';
@@ -1397,6 +1401,16 @@ async function getAccessToken(
 
 /** Legacy-v4-Basis. Nur für Reviews und Antworten. */
 const GBP_LEGACY_API = 'https://mybusiness.googleapis.com/v4';
+
+/* WP15 — nur die Felder, die wir lesen. */
+interface GbpLocalPost {
+  name?: string;
+  state?: 'LOCAL_POST_STATE_UNSPECIFIED' | 'REJECTED' | 'LIVE' | 'PROCESSING' | 'SCHEDULED' | 'RECURRING' | string;
+  summary?: string;
+  topicType?: string;
+  searchUrl?: string;
+  createTime?: string;
+}
 /* WP5: Leistungsdaten. Eigener Dienst mit eigener Aktivierung im
    Cloud-Projekt — derselbe OAuth-Scope (business.manage). */
 const GBP_PERFORMANCE_API = 'https://businessprofileperformance.googleapis.com/v1';
@@ -1916,6 +1930,25 @@ class GbpApiClient {
     return result.attributes ?? [];
   }
 
+  /* ── Local Posts (v4) — WP15 ──
+     create/get sind laut Google-Sunset-Liste nicht betroffen (nur
+     localPosts.reportInsights, 2023). topicType STANDARD, kein Event/
+     Offer, kein CTA, kein Media in V1. Der parent kommt aus dem eigenen
+     Standort (loadOwnLocation), nie vom Client. */
+  createLocalPost(accountName: string, locationName: string, summary: string, languageCode = 'de'): Promise<GbpLocalPost> {
+    const parent = `${normalizeName(accountName, 'accounts')}/${normalizeName(locationName, 'locations')}`;
+    return this.transport.request<GbpLocalPost>(
+      GBP_LEGACY_API, `${parent}/localPosts`,
+      { operation: 'createLocalPost', method: 'POST', body: { languageCode, summary, topicType: 'STANDARD' } },
+    );
+  }
+
+  getLocalPost(postName: string): Promise<GbpLocalPost> {
+    return this.transport.request<GbpLocalPost>(
+      GBP_LEGACY_API, postName.replace(/^\//, ''), { operation: 'getLocalPost' },
+    );
+  }
+
   async listMedia(accountName: string, locationName: string): Promise<unknown[]> {
     const parent = `${normalizeName(accountName, 'accounts')}/${normalizeName(locationName, 'locations')}`;
     const page = await this.transport.request<{ mediaItems?: unknown[] }>(
@@ -2218,6 +2251,7 @@ interface LocationRow {
   location_resource_name: string;
   title: string | null;
   place_id?: string | null;          // WP14: Quelle des Bewertungslinks
+  primary_category?: string | null;  // WP15: Heizsaison nur fuer Heizungs-Kategorien
   review_count: number;
   average_rating: number | null;
   last_synced_at: string | null;
@@ -3331,6 +3365,11 @@ interface Facts {
     locationId: string | null;
     open: Array<{ id: string; name: string; iso: string; tageBis: number; dringend: boolean; landCode: string | null }>;
   };
+  /* WP15: offene Saisons (Katalog) minus bereits veroeffentlichte/laufende Beitraege */
+  seasons: {
+    locationId: string | null;
+    open: Array<{ key: string; jahr: number; titel: string; aufgabe: string; warum: string; vonIso: string; bisIso: string; tageBisEnde: number; dringend: boolean }>;
+  };
   profileDiffs: Array<{
     id: string; fieldPath: string; prio: 'kritisch' | 'mittel' | 'info'; label: string;
     changeType: 'changed' | 'closed_by_google' | 'pending' | 'rejected';
@@ -3737,6 +3776,21 @@ function buildFacts(ctx: EvaluationContext, kontoStandorte: number | null): Fact
         heute, adresse: h.storefrontAddress ?? null, specialHourPeriods: h.specialHourPeriods ?? [],
       }) as Facts['holidays']['open'];
       return { reliable: true, locationId, open };
+    })(),
+    /* WP15: Saisonfenster (deterministisch, src/utils/saisonBeitraege.js)
+       minus Saisons, fuer die laut Kontext schon ein Beitrag publishing/
+       published ist. Heizsaison nur mit Heizungs-Kategorie. */
+    seasons: (() => {
+      const loc = ctx.locations[0];
+      const locationId = loc?.id ?? null;
+      const d = new Date(now);
+      const heute = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+      const alle = offeneSaisons({ heute, primaryCategory: loc?.category ?? null }) as Facts['seasons']['open'];
+      const erledigt = Array.isArray((ctx as unknown as { seasonalPosts?: Array<{ seasonKey: string; seasonYear: number; status: string }> }).seasonalPosts)
+        ? (ctx as unknown as { seasonalPosts: Array<{ seasonKey: string; seasonYear: number; status: string }> }).seasonalPosts
+        : [];
+      const open = alle.filter((s) => !erledigt.some((e) => e.seasonKey === s.key && Number(e.seasonYear) === s.jahr && (e.status === 'published' || e.status === 'publishing')));
+      return { locationId, open };
     })(),
     /* WP8: aus dem Kontext, leer fuer aeltere Kontexte. */
     profileDiffs: Array.isArray((ctx as unknown as { profileDiffs?: unknown[] }).profileDiffs)
@@ -4532,6 +4586,58 @@ const RULES: Rule[] = [
     },
   },
 
+  /*
+   * ── WP15 — Saison-Beitrag ──
+   *
+   * Ein saisonaler Moment aus dem Katalog liegt im Vorschlagsfenster,
+   * und fuer (Standort, Saison, Saisonjahr) ist noch kein Beitrag
+   * veroeffentlicht oder in Arbeit. Growth, nie critical, kein
+   * Sofortalarm. Subjekt: deterministische UUID (Standort, Saison,
+   * Jahr) — ein Event je Saison; nach dem Fenster oder nach der
+   * Veroeffentlichung liefert die Regel nichts → resolve_stale.
+   * Abgrenzung zu WP9: dort fehlen Oeffnungszeiten (problem), hier ist
+   * ein Beitrag sinnvoll (growth) — zwei Aufgaben, zwei Texte.
+   */
+  {
+    id: 'content.seasonal_post',
+    status: 'active',
+    meta: {
+      title: 'Saisonaler Google-Beitrag',
+      purpose: 'Schlaegt in einem saisonalen Fenster einen vorbereiteten Google-Beitrag vor, den der Betrieb prueft und veroeffentlicht.',
+      rationale: 'Ein aktueller Beitrag haelt das Profil sichtbar und gepflegt. Saisons sind deterministisch (Katalog), die Pruefung „schon veroeffentlicht?" eine Tatsache. WERKRUF postet nie selbst.',
+      createdAt: '2026-11-10',
+      author: 'Architektur',
+      version: '1.0',
+    },
+    impactMetric: 'visibility.activity',
+    source: 'google_business',
+    category: 'visibility',
+    capability: 'profile.write',
+    describes: 'Saisonaler Beitrag im Vorschlagsfenster noch nicht veroeffentlicht',
+    when: ({ facts }) => facts.seasons.open.length > 0,
+    subjects: ({ facts }) => facts.seasons.open.map((s) => ({
+      id: saisonSubjektId(facts.seasons.locationId ?? 'konto', s.key, s.jahr),
+      type: 'season',
+      data: { ...s },
+    })),
+    insight: (_, subject) => `${subject?.data.titel}: bis ${subject?.data.bisIso} wäre ein Google-Beitrag passend — noch keiner veröffentlicht.`,
+    recommend: (_, subject) => {
+      const s = subject?.data as Facts['seasons']['open'][number];
+      return {
+        type: 'content.seasonal_post',
+        title: s.aufgabe,
+        summary: 'Ein Beitragstext ist vorbereitet — prüfen, bei Bedarf anpassen, veröffentlichen.',
+        reason: s.warum,
+        expectedBenefit: 'Dein Google-Profil wirkt aktuell und gepflegt',
+        estimatedMinutes: 3,
+        actionUrl: `/dashboard/google?season=${s.key}&year=${s.jahr}`,
+        priority: s.dringend ? 'medium' : 'low',
+        confidence: 1.0,
+        sourceFacts: ['seasons.open'],
+      };
+    },
+  },
+
   {
     id: 'profile.photos_missing',
     status: 'active',
@@ -4985,6 +5091,8 @@ const REGEL_KLASSE: Record<string, 'problem' | 'growth' | 'opportunity'> = {
   'profile.incomplete':         'growth',
   'profile.opening_hours_missing': 'growth',
   'profile.photos_missing':     'growth',
+  /* WP15: ein Beitrag ist eine Chance, kein Zustand, der schadet. */
+  'content.seasonal_post':      'growth',
 
   /*
    * health.declined: growth, nicht problem.
@@ -6480,6 +6588,124 @@ async function handleProfileDiffApply(request: Request): Promise<Response> {
  *     (baueSonderzeit) und schreibt ueber fuehreLocationUpdateAus —
  *     dort greifen pruefeAlles (gbpHours) und alles Weitere.
  */
+/* ─────────────────────────────────────────────────────────────
+   WP15 — Saison-Beitrag veroeffentlichen (Google Local Post, STANDARD).
+
+   Client schickt: locationId, seasonKey, seasonYear, optional eventId,
+   summary (vom Nutzer geprueft/angepasst). Server: JWT → Pro/FP →
+   eigener Standort → Saison gueltig (Katalog + Fenster HEUTE) → Text
+   (Laenge) → Sperre (seasonal_post_begin: eine aktive Veroeffentlichung
+   je Standort/Saison/Jahr) → Google → Ergebnis → Event completed → Audit.
+
+   Nie vom Client: parent/Resource-Namen, topicType, Token. Kein
+   automatischer Retry — der Nutzer klickt erneut; failed sperrt nicht.
+   PROCESSING heisst „uebermittelt", nicht „live".
+   ───────────────────────────────────────────────────────────── */
+async function handleSeasonalPostPreview(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; seasonKey?: string; seasonYear?: number }>(request);
+  if (!body.locationId || !body.seasonKey) throw new GbpError('bad_request', 'locationId oder seasonKey fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const s = saisonKatalog(body.seasonKey);
+  if (!s) throw new GbpError('bad_request', 'keine_saison', { anzeigbar: true });
+  const d = new Date();
+  const heute = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+  const offen = (offeneSaisons({ heute, primaryCategory: location.primary_category ?? null }) as Array<{ key: string; jahr: number; bisIso: string; warum: string; aufgabe: string; titel: string }>)
+    .find((o) => o.key === body.seasonKey && (body.seasonYear === undefined || Number(body.seasonYear) === o.jahr));
+  if (!offen) return jsonResponse(request, { ok: false, reason: 'keine_saison' });
+  const { data: bisherige } = await adminClient().from('seasonal_posts')
+    .select('id, status, google_state, google_post_name, published_at, summary_snapshot, error_code')
+    .eq('user_id', user.id).eq('location_id', location.id).eq('season_key', offen.key).eq('season_year', offen.jahr)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  const vorschlag = baueBeitragsVorschlag({ key: offen.key, betrieb: (location.title ?? '').trim() });
+  return jsonResponse(request, {
+    ok: true, season: offen, vorschlag, maxZeichen: BEITRAG_MAX_ZEICHEN,
+    bisheriger: bisherige ? { status: bisherige.status, googleState: bisherige.google_state, publishedAt: bisherige.published_at, errorCode: bisherige.error_code, text: bisherige.summary_snapshot } : null,
+  });
+}
+
+async function handleSeasonalPostPublish(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; seasonKey?: string; seasonYear?: number; eventId?: string; summary?: string }>(request);
+  if (!body.locationId || !body.seasonKey) throw new GbpError('bad_request', 'locationId oder seasonKey fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+
+  /* Saison muss HEUTE offen sein — kein Beitrag ausserhalb des Fensters, kein erfundener Key */
+  const d = new Date();
+  const heute = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+  const offen = (offeneSaisons({ heute, primaryCategory: location.primary_category ?? null }) as Array<{ key: string; jahr: number }>)
+    .find((o) => o.key === body.seasonKey && (body.seasonYear === undefined || Number(body.seasonYear) === o.jahr));
+  if (!offen) throw new GbpError('bad_request', 'keine_saison', { anzeigbar: true });
+
+  /* Text: Nutzer darf anpassen; Server prueft Laenge/Leere. Leerer Body → Vorlage. */
+  const roh = typeof body.summary === 'string' && body.summary.trim() ? body.summary : (baueBeitragsVorschlag({ key: offen.key, betrieb: (location.title ?? '').trim() }) ?? '');
+  const pruefung = pruefeBeitragstext(roh) as { ok: boolean; grund?: string; text?: string };
+  if (!pruefung.ok || !pruefung.text) throw new GbpError('bad_request', pruefung.grund ?? 'leer', { anzeigbar: true });
+  const summary = pruefung.text;
+
+  /* Sperre + Zeile (Doppelklick, bereits veroeffentlicht) */
+  const admin = adminClient();
+  /* Engine-Event: optional vom Client (wird in seasonal_post_begin auf Nutzer+Standort geprueft),
+     sonst ueber die deterministische subject_id selbst gefunden — der Aufgaben-Link traegt keine Event-Id. */
+  let eventId = typeof body.eventId === 'string' && /^[0-9a-f-]{36}$/i.test(body.eventId) ? body.eventId : null;
+  if (!eventId) {
+    const { data: ev } = await admin.from('events').select('id')
+      .eq('user_id', user.id).eq('location_id', location.id).eq('type', 'content.seasonal_post')
+      .eq('subject_id', saisonSubjektId(location.id, offen.key, offen.jahr))
+      .in('lifecycle', ['new', 'seen', 'opened']).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    eventId = ev?.id ?? null;
+  }
+  const { data: beginn, error: bErr } = await admin.rpc('seasonal_post_begin', {
+    p_user_id: user.id, p_location_id: location.id, p_season_key: offen.key, p_season_year: offen.jahr, p_engine_event_id: eventId, p_summary: summary,
+  });
+  if (bErr) {
+    if ((bErr as { code?: string }).code === '42501') throw new GbpError('not_found', 'Event oder Standort gehoert nicht zum Nutzer');
+    throw new GbpError('internal_error', 'Veroeffentlichung nicht startbar', { cause: bErr });
+  }
+  const b = (beginn ?? {}) as { ok?: boolean; reason?: string; id?: string };
+  if (!b.ok || !b.id) {
+    if (b.reason === 'kein_zugang') throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
+    throw new GbpError('bad_request', b.reason ?? 'abgelehnt', { anzeigbar: true, status: 409 });
+  }
+  const postId = b.id;
+  await writeAuditLog({ userId: user.id, action: 'seasonal_post.publish_started', entityType: 'seasonal_post', entityId: postId,
+    metadata: { locationId: location.id, seasonKey: offen.key, seasonYear: offen.jahr, zeichen: [...summary].length } });
+
+  /* Google */
+  let antwort: GbpLocalPost;
+  try {
+    const client = createGbpClient(user.id, location.account_id);
+    antwort = await client.createLocalPost(location.account_resource_name, location.location_resource_name, summary, 'de');
+  } catch (err) {
+    const g = toGbpError(err);
+    await admin.rpc('seasonal_post_finish', { p_id: postId, p_status: 'failed', p_google_post_name: null, p_google_state: null, p_error_code: g.code });
+    await writeAuditLog({ userId: user.id, action: 'seasonal_post.failed', entityType: 'seasonal_post', entityId: postId,
+      metadata: { locationId: location.id, seasonKey: offen.key, seasonYear: offen.jahr, errorCode: g.code, retryable: g.retryable } });
+    throw g;   // reauth_required (401/403), rate_limited (429), google_api_error (5xx), google_validation (400) — bestehende Klassen
+  }
+
+  const state = antwort.state ?? 'PROCESSING';
+  const rejected = state === 'REJECTED';
+  await admin.rpc('seasonal_post_finish', {
+    p_id: postId, p_status: rejected ? 'rejected' : 'published', p_google_post_name: antwort.name ?? null, p_google_state: state,
+    p_error_code: rejected ? 'google_rejected' : null,
+  });
+  /* Engine-Event abhaken — nur bei echter Veroeffentlichung. Bei REJECTED bleibt die Aufgabe offen. */
+  if (!rejected && eventId) {
+    await admin.rpc('record_recommendation_action', { p_event_id: eventId, p_action: 'completed', p_channel: 'dashboard', p_user_id: user.id });
+  }
+  await writeAuditLog({ userId: user.id, action: rejected ? 'seasonal_post.failed' : 'seasonal_post.published', entityType: 'seasonal_post', entityId: postId,
+    metadata: { locationId: location.id, seasonKey: offen.key, seasonYear: offen.jahr, googleState: state, ...(rejected ? { errorCode: 'google_rejected' } : {}) } });
+
+  return jsonResponse(request, {
+    ok: !rejected, postId, status: rejected ? 'rejected' : 'published', googleState: state,
+    live: state === 'LIVE',   // PROCESSING ist NICHT live
+    searchUrl: antwort.searchUrl ?? null,
+  });
+}
+
 async function handleHolidayHours(request: Request): Promise<Response> {
   const user = await requireUser(request);
   await requirePaidAccess(user.id);
@@ -9020,6 +9246,8 @@ const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
   'diff-apply': { method: 'POST', handler: handleProfileDiffApply },
   /* WP9 — Feiertags-Sonderzeit (geschlossen / regulaer / andere). */
   'holiday-hours': { method: 'POST', handler: handleHolidayHours },
+  'seasonal-post-preview': { method: 'POST', handler: handleSeasonalPostPreview },   // WP15
+  'seasonal-post':         { method: 'POST', handler: handleSeasonalPostPublish },   // WP15
   select: { method: 'POST', handler: handleLocationSelect },
   'google-updated': { method: 'GET', handler: handleGoogleUpdated },
 };

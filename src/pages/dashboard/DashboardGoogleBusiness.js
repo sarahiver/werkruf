@@ -17,6 +17,7 @@ import GoogleProfilVerwalten from '../../components/dashboard/GoogleProfilVerwal
 import StammdatenEditor from '../../components/dashboard/StammdatenEditor';
 import ProfilWaechter from '../../components/dashboard/ProfilWaechter';
 import FeiertagDialog from '../../components/dashboard/FeiertagDialog';
+import SaisonBeitragDialog from '../../components/dashboard/SaisonBeitragDialog';
 import { useProfilDiffs } from '../../hooks/useProfilDiffs';
 import OeffnungszeitenEditor from '../../components/dashboard/OeffnungszeitenEditor';
 import KategorienEditor from '../../components/dashboard/KategorienEditor';
@@ -338,6 +339,15 @@ export default function DashboardGoogleBusiness() {
   /* WP9: ?holiday=YYYY-MM-DD aus der Aufgabe oeffnet den Feiertags-Dialog. */
   const feiertagIso = (() => {
     try { return new URLSearchParams(window.location.search).get('holiday'); } catch { return null; }
+  })();
+  /* WP15: ?season=<key>&year=<jahr>[&event=<id>] aus der Aufgabe oeffnet den Beitrags-Dialog.
+     Keine Saisonlogik hier — der Server sagt, ob die Saison offen ist. */
+  const saisonParams = (() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const key = q.get('season');
+      return key && /^[a-z_]{3,40}$/.test(key) ? { key, jahr: q.get('year'), eventId: q.get('event') } : null;
+    } catch { return null; }
   })();
   const abschlussRef = React.useRef(false);
   /* Die serverseitig bestaetigte Auswahl — hier schon gebraucht, weiter
@@ -936,6 +946,18 @@ export default function DashboardGoogleBusiness() {
           {/* ── WP9 FEIERTAG ──
               Nur mit ?holiday=…: eine Frage, drei Antworten, derselbe
               Schreibweg wie der Editor. */}
+          {/* ── WP15 SAISON-BEITRAG ──
+              Nur mit ?season=…: vorbereiteter Text, pruefen, anpassen,
+              bewusst veroeffentlichen. Server entscheidet alles andere. */}
+          {!loading && ausgewaehlterStandort && saisonParams && (
+            <SaisonBeitragDialog
+              location={ausgewaehlterStandort}
+              seasonKey={saisonParams.key}
+              seasonYear={saisonParams.jahr}
+              eventId={saisonParams.eventId}
+            />
+          )}
+
           {!loading && ausgewaehlterStandort && feiertagIso && (
             <FeiertagDialog
               location={ausgewaehlterStandort}
