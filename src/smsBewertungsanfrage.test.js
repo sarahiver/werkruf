@@ -199,6 +199,9 @@ describe('Route — Server-Wahrheit', () => {
   it('T34/T35 — Webhook: Secret, nur messageId + event, Payload nie geloggt, DB idempotent', () => {
     expect(HOOK).toMatch(/if \(!expected \|\| geliefert !== expected\) throw new GbpError\('unauthenticated'/);
     expect(HOOK).toMatch(/rpc\('review_sms_delivery'/);
+    /* Brevo SMS schickt msg_status, nicht event (Fix 10.11.2026 — erste Test-SMS blieb auf 'sent') */
+    expect(HOOK).toMatch(/typeof roh\.msg_status === 'string' \? roh\.msg_status : \(typeof roh\.event === 'string' \? roh\.event : ''\)/);
+    for (const k of ['delivered', 'hard_bounce', 'soft_bounce', 'rej', 'bl', 'skip', 'unsubscribed']) expect(HOOK).toMatch(new RegExp(`\\b${k}: '(delivered|failed)'`));
     const logs = ohneKommentare(HOOK).match(/console\.(log|error|warn)\([^;]*\)/g) || [];
     for (const l of logs) expect(l).not.toMatch(/payload|roh|\bto\b/);
     expect(MIG).toMatch(/if p_event = 'delivered' and v_status in \('queued', 'sent'\) then/);

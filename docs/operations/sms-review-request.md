@@ -160,9 +160,10 @@ SMS ist etwas anderes. Die Route ruft `is_account_paused` nicht auf
 - Webhook `POST /google-business/review-request/sms-webhook?secret=<SMS_WEBHOOK_SECRET>`
   (als `webUrl` je Nachricht mitgegeben; eigenes Secret seit WP14.2 — ein
   geloggter `webUrl` gefährdet nicht mehr das Mail-Webhook-Secret):
-  `delivered` → `delivered`;
-  `hard_bounce/soft_bounce/blocked/rejected/unsubscribed/error` →
-  `failed`; alles andere ignoriert. Nur bekannte `messageId`; idempotent;
+  Brevo schickt das Statusfeld als **`msg_status`** (nicht `event` wie beim
+  Mail-Webhook): `delivered` → `delivered`;
+  `hard_bounce/soft_bounce/blocked/bl/rejected/rej/skip/unsubscribed/error` →
+  `failed`; `sent/accepted/replied` → ignoriert; alles andere ignoriert. Nur bekannte `messageId`; idempotent;
   rückwärts nie. Kein „gelesen“ — SMS hat keine Open-Metrik.
 
 ## UI
