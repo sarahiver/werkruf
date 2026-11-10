@@ -501,6 +501,7 @@ export function leiteImportZustandAb(importJobs = [], anzahlStandorte = 0) {
  * @param {Zeile[]} [eingabe.referrals]
  * @param {Zeile[]} [eingabe.referralRewards]
  * @param {Zeile[]} [eingabe.smsRequests] WP14 — Versandhistorie (nur technische Felder, keine Nummer)
+ * @param {Zeile[]} [eingabe.seasonalPosts] WP15 — Saison-Beitraege (Status, Saison, Google-State; kein Text)
  * @param {Date} [eingabe.jetzt]
  * @returns {Zeile|null}
  */
@@ -516,6 +517,7 @@ export function baueSupportSnapshot({
   referrals = [],
   referralRewards = [],
   smsRequests = [],
+  seasonalPosts = [],
   jetzt = new Date(),
 } = {}) {
   if (!profil?.id) return null;
@@ -675,6 +677,22 @@ export function baueSupportSnapshot({
         herkunft: d.origin,
         seit: d.first_seen_at,
       })),
+    },
+    /* WP14 — SMS-Bewertungsanfragen: Zaehler, kein Empfaenger. */
+    smsBewertungsanfragen: {
+      gesendet: (smsRequests || []).filter((r) => r.status === 'sent' || r.status === 'delivered').length,
+      fehlgeschlagen: (smsRequests || []).filter((r) => r.status === 'failed').length,
+      letzte: (smsRequests || [])[0] ? { status: smsRequests[0].status, am: smsRequests[0].created_at, fehlerCode: smsRequests[0].error_code || null } : null,
+    },
+    /* WP15 — Saison-Beitraege: was wurde an Google uebermittelt, was scheiterte.
+       PROCESSING ist „uebermittelt", nicht „live". Kein Beitragstext im Snapshot. */
+    saisonBeitraege: {
+      uebermittelt: (seasonalPosts || []).filter((p) => p.status === 'published').length,
+      fehlgeschlagen: (seasonalPosts || []).filter((p) => p.status === 'failed' || p.status === 'rejected').length,
+      letzter: (seasonalPosts || [])[0] ? {
+        saison: seasonalPosts[0].season_key, jahr: seasonalPosts[0].season_year, status: seasonalPosts[0].status,
+        googleState: seasonalPosts[0].google_state || null, fehlerCode: seasonalPosts[0].error_code || null, am: seasonalPosts[0].created_at,
+      } : null,
     },
     /* WP10 — Empfehlungen: geworben von / geworben hat, Reward-Status. */
     empfehlungen: {

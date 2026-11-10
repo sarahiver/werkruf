@@ -316,7 +316,16 @@ function fnv1a32(text, seed) {
 }
 
 export function feiertagSubjektId(locationId, iso) {
-  const text = `holiday:${locationId}:${iso}`;
+  return deterministischeUuid(`holiday:${locationId}:${iso}`);
+}
+
+/**
+ * Deterministische UUID (v8) aus beliebigem Text — vier FNV-1a-32-Hashes
+ * mit verschiedenen Seeds. Fuer events.subject_id (uuid): gleicher Text,
+ * gleiche ID, ueber Tage und Laeufe stabil. Auch von WP15 (Saison-
+ * Beitraege) genutzt.
+ */
+export function deterministischeUuid(text) {
   const hex = [0x811c9dc5, 0x01000193, 0x9e3779b9, 0x7f4a7c15]
     .map((seed) => fnv1a32(text, seed).toString(16).padStart(8, '0')).join('');
   /* Version 8, Variante 10xx */
