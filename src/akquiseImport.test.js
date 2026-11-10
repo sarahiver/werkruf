@@ -170,42 +170,26 @@ describe('pruefeInboxZugang', () => {
   });
 });
 
-/* ───────── Server (admin-ops) ───────── */
-describe('admin-ops: Import und Inbox', () => {
+/* ───────── Server (admin-ops, CSV) ───────── */
+/* Die externe Inbox ist seit dem WP16.1-Fix eine eigene Function —
+   Tests dafuer: src/akquiseInbox.test.js. */
+describe('admin-ops: CSV-Import', () => {
   const code = ohneKommentare(AO);
-  const inbox = code.slice(code.indexOf('async function leadInbox'));
   const importFn = code.slice(code.indexOf('async function importiereZeilen'), code.indexOf('async function akquiseImport'));
 
-  it('Inbox-Weiche liegt VOR dem Admin-Tor (Secret statt Admin-JWT) und nur fuer genau diesen Pfad', () => {
-    const serve = code.indexOf('serve(');
-    const weiche = code.indexOf("endsWith('/acquisition-inbox')");
-    const tor = code.indexOf('if (!urteil.erlaubt)');
-    expect(weiche).toBeGreaterThan(serve);
-    expect(weiche).toBeLessThan(tor);
+  it('admin-ops hat keine Inbox-Route mehr und kennt kein Inbox-Secret', () => {
+    expect(code).not.toMatch(/acquisition-inbox|leadInbox|ACQUISITION_IMPORT_SECRET|x-werkruf-import-secret|pruefeInboxZugang/);
   });
-  it('Inbox nutzt die geteilte Secret-Pruefung VOR dem Lesen des Bodys; Secret wird nie geloggt', () => {
-    expect(inbox.indexOf('pruefeInboxZugang(')).toBeGreaterThan(-1);
-    expect(inbox.indexOf('pruefeInboxZugang(')).toBeLessThan(inbox.indexOf('req.json()'));
-    expect(inbox).toMatch(/x-werkruf-import-secret/);
-    expect(inbox).toMatch(/if \(!zugang\.ok\)[\s\S]*?return json\(\{ error: zugang\.fehler \}, zugang\.status\)/);
-    expect(inbox).not.toMatch(/log\([^)]*(ACQUISITION_IMPORT_SECRET|x-werkruf-import-secret)/);
-  });
-  it('EIN Importpfad: CSV und Inbox rufen dieselbe Funktion, die nur acquisition_import_rows ruft', () => {
-    expect((code.match(/importiereZeilen\(admin, \{/g) || []).length).toBe(2);
+  it('CSV geht ueber acquisition_import_rows, Kanal csv', () => {
+    expect((code.match(/importiereZeilen\(admin, \{/g) || []).length).toBe(1);
     expect(code).toMatch(/channel: 'csv'/);
-    expect(inbox).toMatch(/channel: 'inbox'/);
     expect(importFn).toMatch(/rpc\('acquisition_import_rows'/);
-    expect(inbox).toMatch(/bereiteImportVor\(/);
   });
-  it('Inbox und Import verschicken nichts und setzen keinen Status', () => {
-    for (const teil of [inbox.slice(0, inbox.indexOf('\n}\n')), importFn]) {
-      expect(teil).not.toMatch(/send-email|enqueue_email|outreach_messages|acquisition_send|founding_partner|interesse|\.update\(/);
-    }
+  it('Import verschickt nichts und setzt keinen Status', () => {
+    expect(importFn).not.toMatch(/send-email|enqueue_email|outreach_messages|acquisition_send|founding_partner|interesse|\.update\(/);
   });
-  it('Commit wird auditiert (Admin- und System-Weg), Fehler neutral', () => {
+  it('Commit wird auditiert', () => {
     expect(code).toMatch(/aktion: 'acquisition_import'[\s\S]*?entityType: 'acquisition_imports'/);
-    expect(inbox).toMatch(/actor_type: 'system', actor_id: null, action: 'system.acquisition_inbox_import'/);
-    expect(inbox).toMatch(/json\(\{ error: 'Import fehlgeschlagen' \}, 500\)/);
   });
   it('Migration: nur neue Leads (INSERT, kein Upsert auf leads), Advisory-Lock, Selbstpruefung', () => {
     const m = ohneKommentare(MIG);

@@ -27,6 +27,9 @@
  *   requireWorkerSecret( / X-Worker-Secret
  *                                  Cron- und Service-Aufrufe
  *   constructEvent                 Stripe-Signatur (Webhook)
+ *   verarbeiteInboxAnfrage(        Lead-Inbox: Shared Secret
+ *                                  (pruefeInboxZugang, 503/401, vor
+ *                                  dem Body) — akquiseInbox.test.js
  *
  * Bewusst oeffentliche Functions stehen in OEFFENTLICH, mit dem
  * Grund. Eine Function dort braucht einen anderen Schutz — Origin,
@@ -39,7 +42,7 @@ const WURZEL = path.resolve(__dirname, '..');
 const CONFIG = fs.readFileSync(path.join(WURZEL, 'supabase/config.toml'), 'utf8');
 const FUNKTIONEN = path.join(WURZEL, 'supabase/functions');
 
-const PRUEFUNG = /auth\.getUser\(|requireUser\(|requireWorkerSecret\(|X-Worker-Secret|constructEvent/;
+const PRUEFUNG = /auth\.getUser\(|requireUser\(|requireWorkerSecret\(|X-Worker-Secret|constructEvent|verarbeiteInboxAnfrage\(/;
 
 /* Oeffentlich erreichbar, mit anderem Schutz. */
 const OEFFENTLICH = {

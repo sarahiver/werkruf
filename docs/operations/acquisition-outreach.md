@@ -160,9 +160,9 @@ Die Navigation ist eine Link-Liste (`aria-current="page"`, Tastatur, Mittelklick
 ## Ein Importpfad
 
 ```
-CSV im Admin ─┐
-              ├─ bereiteImportVor()  (Lead-Kanon pruefeLeadEingabe, serverseitig)
-Inbox (API) ──┘     └─ acquisition_import_rows(mode, channel, source, import_id, rows)
+CSV im Admin ── admin-ops (Admin, getUser) ──────┐
+                                                 ├─ bereiteImportVor()  (Lead-Kanon, serverseitig)
+Inbox (API) ─── acquisition-inbox (Secret) ──────┘     └─ acquisition_import_rows(mode, channel, source, import_id, rows)
 ```
 
 `acquisition_import_rows` (nur `service_role`) entscheidet je Zeile:
@@ -199,8 +199,12 @@ Ablauf: Datei wählen → **Vorschau** (nichts gespeichert; Zusammenfassung, Rei
 
 ## Externe Lead-Inbox
 
+Eigene Edge Function `acquisition-inbox` (seit dem WP16.1-Fix; vorher Route `admin-ops/acquisition-inbox`, die gibt es nicht mehr). Sie kann nur eines: Leads über `acquisition_import_rows` anlegen. Kein Admin, keine Mail, kein CORS (keine Browser-API), nur `POST` — alles andere 405.
+
+`verify_jwt = false` steht in `supabase/config.toml` (der Aufrufer hat kein Supabase-JWT); der Deploy-Workflow (`supabase functions deploy`) übernimmt das. Schutz ist das Secret, geprüft vor jedem Lesen des Bodys.
+
 ```
-POST https://<projekt>.supabase.co/functions/v1/admin-ops/acquisition-inbox
+POST https://<projekt>.supabase.co/functions/v1/acquisition-inbox
 X-Werkruf-Import-Secret: <ACQUISITION_IMPORT_SECRET>
 Content-Type: application/json
 
@@ -224,6 +228,10 @@ Antwort (200):
   "rows": [ { "i": 1, "status": "new", "grund": null, "leadId": "<uuid>", "companyName": "Elektro Krause GmbH", "email": "info@elektro-krause.de" } ] }
 ```
 
-`rows[].status` und `rows[].leadId` gehören in `import_status` / `werkruf_lead_id` der externen Liste. Fehler: 503 Secret nicht gesetzt (oder kürzer als 16 Zeichen) — die Inbox ist dann aus, nie offen; 401 Secret fehlt/falsch; 400 Payload ungültig; 500 „Import fehlgeschlagen" (Details nur im Function-Log). Jeder Commit steht im Audit (`system.acquisition_inbox_import`, ohne Zeileninhalte). Das Secret wird nie geloggt.
+`rows[].status` und `rows[].leadId` gehören in `import_status` / `werkruf_lead_id` der externen Liste. Fehler: 503 Secret nicht gesetzt (oder kürzer als 16 Zeichen) — die Inbox ist dann aus, nie offen; 401 Secret fehlt/falsch; 400 Payload ungültig; 500 „Import fehlgeschlagen" (Details nur im Function-Log). Jeder Commit steht im Audit (`system.acquisition_inbox_import`, nur `source`, `externalImportId`, `importId`, Zähler — keine Zeileninhalte). Logs: `inbox_import_success` / `inbox_import_failed` (mit Fehlercode, z. B. `PGRST202` = Migration fehlt), nie Mailadressen, Namen, Zeilen oder das Secret.
 
-Einrichtung: Supabase → Edge Functions → Secrets → `ACQUISITION_IMPORT_SECRET` = langer Zufallswert (mind. 32 Zeichen empfohlen). Nur an das aufrufende System geben.
+Einrichtung:
+1. Actions → Deploy (deployt `acquisition-inbox` mit `verify_jwt = false` aus `config.toml`; per CLI entspräche das `supabase functions deploy acquisition-inbox --no-verify-jwt`).
+2. Supabase → Edge Functions → Secrets → `ACQUISITION_IMPORT_SECRET` = Zufallswert, mind. 32 Zeichen. Nur an das aufrufende System geben.
+
+Fehlermeldungen im Admin: Antwortet admin-ops mit einem Fehler, zeigt der Admin jetzt dessen Text samt Status und Code (z. B. „Aktion fehlgeschlagen (500, PGRST202)") statt „Edge Function returned a non-2xx status code".

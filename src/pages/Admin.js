@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle, Send } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
+import { serverFehlertext } from '../utils/adminFehler';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
 import { BEREICHE, bereichAusSuche, sucheFuerBereich } from '../utils/adminBereiche';
 import FoundingPartnerCockpit from '../components/admin/FoundingPartnerCockpit';
@@ -283,7 +284,7 @@ export default function Admin() {
     const { data, error } = await supabase.functions.invoke('admin-ops', {
       body: { action, params },
     });
-    if (error) throw new Error(error.message || 'Aufruf fehlgeschlagen');
+    if (error) throw new Error(await serverFehlertext(error));
     if (data?.error) throw new Error(data.error);
     return data;
   }, []);
