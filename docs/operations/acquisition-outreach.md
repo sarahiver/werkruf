@@ -76,16 +76,25 @@ Brevo-Einstellung: Öffnungs- und Klick-Tracking für transaktionale Mails muss 
 
 „Öffnung erkannt" = ein geladenes Tracking-Pixel. Apple Mail Privacy, Proxys und Scanner erzeugen Opens ohne Menschen. Deshalb: `first_open` = erster erkannter Zeitpunkt; weitere Opens ergänzen nur die Historie; KPI „Öffnung erkannt" zählt **Leads mit ≥ 1 Open**, nicht Opens. Nie „gelesen".
 
-## Links, Scanner-Schutz
+## Links, Scanner-Schutz (Stand WP16-Fix1)
 
-| URL (werkruf.com) | Function | Wirkung |
-|---|---|---|
-| `GET /p/fp/<token>` | `google-business/p/fp/<token>` | `presentation_clicked` in die Historie, `302` auf die PDF. **Kein** Status. |
-| `GET /founding-partner/<token>` | `google-business/fp/<token>` | Seite „Interesse? [Ja, Interesse]", `cta_viewed`. **Kein** Status. |
-| `POST /founding-partner/<token>/interesse` | `google-business/fp/<token>/interesse` | `cta_clicked` (einmal je Nachricht) + Status → `interesse` (nur aufwärts). |
-| `GET …/interesse` | | `405` — ein Scanner folgt Links, schickt aber kein Formular ab. |
+**Warum Fix1:** Das Supabase-Gateway liefert HTML-Antworten von Edge Functions auf `*.supabase.co` als `text/plain` mit `Content-Security-Policy: default-src 'none'; sandbox` aus. Seiten aus Functions rendern deshalb nicht mehr — das traf `/founding-partner/<token>` (WP16) **und** die Aufgaben-Links `/a/<token>` der Wochenmails. Seit Fix1 rendert das Frontend die Seiten; die Function liefert nur noch JSON und Redirects.
 
-Token: opaque, nicht erratbar, gebunden an die Nachricht, keine PII im Pfad; in der DB nur der SHA-256. Unbekannt/ungültig → `404`, ohne Unterscheidung. Kein TTL (die Präsentation darf lange klickbar bleiben); Widerruf = Zeile löschen. Vercel-Rewrites in `vercel.json`.
+| Browser-URL (werkruf.com) | Wer rendert | Function-Aufruf | Wirkung |
+|---|---|---|---|
+| `GET /p/fp/<token>` | Vercel-Rewrite → Function | `GET …/p/fp/<token>` | `presentation_clicked` in die Historie, `302` auf die PDF. **Kein** Status. |
+| `GET /founding-partner/<token>` | **React** (`FoundingPartnerInteresse.js`) | `GET …/fp/<token>/info` → JSON `{valid}` | `cta_viewed` (nur Historie). **Kein** Status. |
+| Button „Ja, Interesse" | `<form method="POST">` direkt an die Function | `POST …/fp/<token>/interesse` | `cta_clicked` (einmal je Nachricht) + Status → `interesse` (nur aufwärts); Antwort `302 → /founding-partner/<token>?danke=1` |
+| `GET /a/<token>` | **React** (`ActionLink.js`) | `GET …/a/<token>/info` → JSON `{valid,title,businessName,effort,done}` | zeigt nur an; prüft Rate-Limit und Token, verbraucht nichts |
+| Button „Weiter zu WERKRUF" | `<form method="POST">` an die Function | `POST …/a/<token>/continue` | wie bisher: opened, Betrieb umstellen, Magic-Link, `302`; Abweisung = `302 → /a/<token>?status=ungueltig\|erledigt` |
+| alte Mail-Links direkt auf `…supabase.co/…/a/<token>` bzw. `…/fp/<token>` | Function | `GET` | `302` ins Frontend (`werkruf.com/a/<token>` bzw. `/founding-partner/<token>`), Token bleibt im Pfad, nichts geprüft oder verbraucht |
+| `GET …/interesse`, `GET …/continue` | Function | | `405` — ein Scanner folgt Links, schickt aber kein Formular ab |
+
+Neue Wochenmail-Links zeigen auf `https://werkruf.com/a/<token>` (`send-email`, `ACTION_LINK_BASIS` = `APP_URL`, Default `https://www.werkruf.com`).
+
+Frontend-Regeln (`src/utils/tokenSeite.js`): Token nur aus der URL, kein localStorage, kein Log, kein Analytics; `robots noindex,nofollow`, `referrer no-referrer`; Fehler neutral („Dieser Link ist nicht mehr gültig.") ohne Unterscheidung von unbekannt/abgelaufen/widerrufen/fremd; Netzwerkfehler getrennt („Die Seite konnte gerade nicht geladen werden…").
+
+Token: opaque, nicht erratbar, gebunden an die Nachricht, keine PII im Pfad; in der DB nur der SHA-256. Unbekannt/ungültig → `404` (Info) bzw. Redirect mit `status=ungueltig`. Kein TTL für den Präsentationslink; Widerruf = Zeile löschen. Vercel-Rewrites nur noch für `/b/*` und `/p/fp/*` — `/a/*` und `/founding-partner/*` rendert die SPA.
 
 **Präsentation:** `WERKRUF_Founding_Partner_Praesentation_v2.pdf` liegt **nicht** im Repo. Ablage: `public/downloads/WERKRUF_Founding_Partner_Praesentation_v2.pdf` (Vercel liefert sie unter `https://werkruf.com/downloads/…`). Abweichender Ort → Secret `FP_PRESENTATION_URL` in `google-business`. Bis die Datei liegt, endet der Link in 404 — das Ereignis wird trotzdem gezählt.
 
@@ -128,3 +137,4 @@ Prüfen in SQL: `select company_name, acquisition_status, last_outreach_at from 
 - `src/akquise.test.js` (31): Modul, Allowlist, admin-ops/send-email/google-business/vercel (Quelltext), Migration (Trennung/Sperre), UI (Vorschau → Bestätigung → ein Versand, Testmodus, Sperre, Historie, Anlegen).
 - `supabase/tests/akquise.test.sql`: T1–T4 Lead-Kanon (SmartCheck, claim_own_lead, Statuswerte, Löschung), Rechte mit RLS-Wirkung, Lead-CRUD, Versand/Idempotenz/Race, Queue-Sync, Brevo-Ereignisse (first_open, Duplikat, unbekannt, Sperren, Status unberührt, founding_partner/interesse stabil), Link-Ereignisse (GET ≠ Interesse, POST idempotent, Scanner), Übersicht/KPI/Detail, WP6-Regression, Rate-Schutz, Löschkaskaden.
 - Gegenproben C1–C12 jeweils rot → wiederhergestellt → grün.
+- Fix1: `src/tokenSeiten.test.js` (16: Action Page, Founding Partner, alte Links, Mail-Links, Architektur), `src/utils/actionScanner.test.js` auf die Frontend-Seite umgestellt; Gegenproben Fix1 C1–C7 rot → grün.

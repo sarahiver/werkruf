@@ -1,6 +1,8 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LinkAbgelaufen from './pages/LinkAbgelaufen';
+import ActionLink from './pages/ActionLink';
+import FoundingPartnerInteresse from './pages/FoundingPartnerInteresse';
 import Bestaetigen    from './pages/Bestaetigen';
 import Einstieg from './pages/Einstieg';
 
@@ -130,6 +132,12 @@ function App() {
             {/* Mail-Link nicht mehr gueltig. Oeffentlich — der
                 Besucher ist per Definition nicht angemeldet. */}
             <Route path="/link-abgelaufen" element={<LinkAbgelaufen />} />
+
+            {/* WP16-Fix1: Token-Seiten rendert das Frontend. Die Edge
+                Function liefert nur JSON (…/info) und Redirects (POST).
+                GET zeigt an, das Formular (POST) handelt — Scanner-Schutz. */}
+            <Route path="/a/:token" element={<ActionLink />} />
+            <Route path="/founding-partner/:token" element={<FoundingPartnerInteresse />} />
 
             {/* Zwischenseite fuer den Bestaetigungslink aus der
                 Registrierungsmail. Oeffentlich und OHNE OnboardingWeiche

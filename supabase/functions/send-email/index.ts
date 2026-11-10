@@ -95,6 +95,13 @@ interface Brand {
 
 const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
+/* WP16-Fix1: Aufgaben-Links zeigen auf das Frontend (werkruf.com/a/<token>),
+   nicht mehr auf *.supabase.co. Das Supabase-Gateway liefert HTML von
+   Edge Functions nur noch als text/plain aus; die Seite rendert deshalb
+   die React-Route /a/:token, die Function liefert JSON und Redirects. */
+const ACTION_LINK_BASIS = (Deno.env.get('APP_URL') ?? 'https://www.werkruf.com').replace(/\/+$/, '');
+const actionLinkUrl = (klartext: string) => `${ACTION_LINK_BASIS}/a/${klartext}`;
+
 /*
  * Absenderdaten und Farben je Vertikale.
  *
@@ -547,7 +554,6 @@ async function ergaenzeMailLinks(
 
   if (!userId || events.length === 0) return payload;
 
-  const basis = Deno.env.get('SUPABASE_URL') ?? '';
   const db = adminClient();
 
   const mitLinks = await Promise.all(events.map(async (e) => {
@@ -577,7 +583,7 @@ async function ergaenzeMailLinks(
         return e;
       }
 
-      const link = `${basis}/functions/v1/google-business/a/${klartext}`;
+      const link = actionLinkUrl(klartext);
 
       /* mailLink fuer neue Vorlagen, action_url fuer die bestehende:
          Die Wochenmail rendert ihre Knoepfe aus action_url. Ohne das
@@ -627,7 +633,6 @@ async function ergaenzeSofortmailLink(
   if (!userId || !locationId) return payload;
 
   const db = adminClient();
-  const basis = Deno.env.get('SUPABASE_URL') ?? '';
   let eventId: string | null = null;
   let reviewId: string | null = null;
 
@@ -665,7 +670,7 @@ async function ergaenzeSofortmailLink(
       console.warn(JSON.stringify({ scope: 'sofortmail', event: 'token_failed', code: error.code }));
       return payload;
     }
-    return { ...payload, ctaUrl: `${basis}/functions/v1/google-business/a/${klartext}` };
+    return { ...payload, ctaUrl: actionLinkUrl(klartext) };
   } catch (err) {
     console.warn(JSON.stringify({ scope: 'sofortmail', event: 'token_error', message: String(err).slice(0, 200) }));
     return payload;
@@ -693,7 +698,6 @@ async function ergaenzeProfilDiffLink(
     + (diffId ? `&diff=${encodeURIComponent(diffId)}` : '');
   if (!zielErlaubt(ziel)) return payload;
 
-  const basis = Deno.env.get('SUPABASE_URL') ?? '';
   try {
     const { klartext, hash } = await erzeugeToken();
     const { error } = await adminClient().rpc('create_action_token', {
@@ -709,7 +713,7 @@ async function ergaenzeProfilDiffLink(
       console.warn(JSON.stringify({ scope: 'profilmail', event: 'token_failed', code: error.code }));
       return payload;
     }
-    return { ...payload, ctaUrl: `${basis}/functions/v1/google-business/a/${klartext}` };
+    return { ...payload, ctaUrl: actionLinkUrl(klartext) };
   } catch (err) {
     console.warn(JSON.stringify({ scope: 'profilmail', event: 'token_error', message: String(err).slice(0, 200) }));
     return payload;
