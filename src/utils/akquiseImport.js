@@ -177,9 +177,9 @@ export function neueImportId(zufall = (n) => { const b = new Uint8Array(n); (typ
   return `csv-${[...zufall(16)].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/* ── Externe Lead-Inbox: Zugang per Secret (admin-ops/acquisition-inbox) ──
-   Geteilt, damit Jest die Entscheidung mit Wirkung prueft und admin-ops
-   genau diese Funktion nutzt. Vergleich zeitkonstant (Laenge geht mit ein,
+/* ── Externe Lead-Inbox: Zugang per Secret (Function acquisition-inbox) ──
+   Geteilt, damit Jest die Entscheidung mit Wirkung prueft und die
+   Function genau diese Funktion nutzt (ueber akquiseInbox.js). Vergleich zeitkonstant (Laenge geht mit ein,
    bricht aber nicht frueh ab). Kein Secret konfiguriert → 503, die Inbox
    ist dann aus — nie „offen". */
 function zeitkonstantGleich(a, b) {

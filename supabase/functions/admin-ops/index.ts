@@ -50,9 +50,10 @@
 // §45: keine destruktiven Aktionen. Kein Loeschen, kein Leeren von
 // Queues, keine Stripe-Manipulation, keine Google-Schreibaktion.
 //
-// Deploy via Supabase Dashboard:
-//   Edge Functions → admin-ops → Code ersetzen → Deploy
-//   Verify JWT: AN (der Aufruf kommt aus dem eingeloggten Admin-UI)
+// Deploy: Actions-Workflow (supabase functions deploy).
+//   verify_jwt = false seit 21.10.2026 (ES256, siehe supabase/config.toml);
+//   der Aufrufer wird unten SELBST per auth.getUser(token) geprueft und
+//   muss Admin sein — vor jeder Aktion.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
@@ -64,8 +65,6 @@ import {
 } from '../../../src/utils/adminOps.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
 import { renderFpMail } from '../../../src/utils/akquise.js';
-// @ts-ignore: JavaScript-Modul ohne Typen (WP16.1)
-import { bereiteImportVor, MAX_ZEILEN, pruefeInboxZugang } from '../../../src/utils/akquiseImport.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,13 +91,6 @@ function umgebung(name: string): string {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-
-  /* WP16.1 — Externe Lead-Inbox: Server-zu-Server, eigenes Secret statt
-     Admin-JWT (kein gefaktes Admin). Eigener Pfad, eigenes Urteil; ohne
-     gueltiges Secret wird nichts gelesen und nichts geschrieben. */
-  if (new URL(req.url).pathname.replace(/\/+$/, '').endsWith('/acquisition-inbox')) {
-    return leadInbox(req);
-  }
 
   const url = umgebung('SUPABASE_URL');
 
@@ -1061,7 +1053,7 @@ async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<s
 }
 
 /* ═════════════════════════════════════════════
-   WP16.1 — LEAD-IMPORT (CSV und Inbox, EIN Pfad)
+   WP16.1 — LEAD-IMPORT (CSV; die Inbox-Function nutzt dieselbe SQL-Funktion)
    Zeilen → bereiteImportVor (Lead-Kanon) → acquisition_import_rows (SQL:
    Dedupe, nur neue Leads, idempotent je Import-ID). Kein Versand, kein
    Status ausser neu, keine Aenderung bestehender Leads.
@@ -1070,7 +1062,7 @@ async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<s
 type ImportZeile = { i: number; werte: Record<string, unknown> | null; quelle: string | null; fehler: string | null };
 
 async function importiereZeilen(admin: SupabaseClient, e: {
-  mode: 'preview' | 'commit'; channel: 'csv' | 'inbox'; source: string; importId: string; zeilen: ImportZeile[]; createdBy: string | null;
+  mode: 'preview' | 'commit'; channel: 'csv'; source: string; importId: string; zeilen: ImportZeile[]; createdBy: string | null;
 }) {
   const { data, error } = await admin.rpc('acquisition_import_rows', {
     p_mode: e.mode, p_channel: e.channel, p_source: e.source, p_external_import_id: e.importId,
@@ -1102,47 +1094,6 @@ async function akquiseImport(admin: SupabaseClient, adminId: string, p: Record<s
   }
 }
 
-/* POST /admin-ops/acquisition-inbox
-   Header X-Werkruf-Import-Secret: <ACQUISITION_IMPORT_SECRET>
-   Body { source, externalImportId, rows: [{company_name, email, …}], mode? }
-   Antwort je Zeile status + leadId (fuer werkruf_lead_id/import_status der
-   externen Liste). Darf AUSSCHLIESSLICH Leads anlegen. */
-async function leadInbox(req: Request): Promise<Response> {
-  /* Secret-Pruefung geteilt mit Jest (pruefeInboxZugang): ohne Secret 503,
-     falsch 401, zeitkonstant. Der Wert wird nie geloggt. */
-  const zugang = pruefeInboxZugang(req.headers.get('x-werkruf-import-secret'), Deno.env.get('ACQUISITION_IMPORT_SECRET')) as
-    { ok: true } | { ok: false; status: number; fehler: string };
-  if (!zugang.ok) {
-    log(zugang.status === 503 ? 'inbox_nicht_konfiguriert' : 'inbox_abgelehnt', { status: zugang.status });
-    return json({ error: zugang.fehler }, zugang.status);
-  }
-
-  let body: Record<string, unknown> = {};
-  try { body = (await req.json()) as Record<string, unknown>; } catch { return json({ error: 'Kein JSON' }, 400); }
-  const source = typeof body.source === 'string' ? body.source.trim().toLowerCase() : '';
-  const importId = typeof body.externalImportId === 'string' ? body.externalImportId.trim() : '';
-  const mode = body.mode === 'preview' ? 'preview' : 'commit';
-  if (!/^[a-z0-9_-]{2,40}$/.test(source)) return json({ error: 'source ungültig (a-z, 0-9, _ -, 2–40 Zeichen)' }, 400);
-  if (!/^[A-Za-z0-9_.:-]{4,120}$/.test(importId)) return json({ error: 'externalImportId ungültig (4–120 Zeichen)' }, 400);
-  if (!Array.isArray(body.rows) || body.rows.length === 0) return json({ error: 'rows fehlt' }, 400);
-  if (body.rows.length > MAX_ZEILEN) return json({ error: `Höchstens ${MAX_ZEILEN} Zeilen je Import` }, 400);
-
-  /* Zeilen als flache Objekte; Zeilennummer = Position (1-basiert). */
-  const zeilen = bereiteImportVor((body.rows as unknown[]).map((roh, idx) => ({ i: idx + 1, roh: (roh && typeof roh === 'object' ? roh : {}) as object }))) as ImportZeile[];
-
-  const admin = createClient(umgebung('SUPABASE_URL'), umgebung('SUPABASE_SERVICE_ROLE_KEY'), {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  try {
-    const r = await importiereZeilen(admin, { mode, channel: 'inbox', source, importId, zeilen, createdBy: null });
-    if (mode === 'commit') {
-      await auditiere(admin, { user_id: null, actor_type: 'system', actor_id: null, action: 'system.acquisition_inbox_import',
-        entity_type: 'acquisition_imports', entity_id: r.importId, metadata: { source, reused: r.reused, counts: r.counts } });
-      log('inbox_import', { source, importId: r.importId, reused: r.reused, ...r.counts });
-    }
-    return json(r);
-  } catch (err) {
-    log('inbox_fehler', { source, message: String((err as { message?: string })?.message ?? err).slice(0, 200) });
-    return json({ error: 'Import fehlgeschlagen' }, 500);
-  }
-}
+/* Die externe Lead-Inbox ist eine eigene Function: supabase/functions/
+   acquisition-inbox (Shared Secret statt Admin-Nutzer). admin-ops kennt
+   nur Admin-Aktionen. */

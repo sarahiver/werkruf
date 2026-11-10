@@ -72,6 +72,14 @@ verify_jwt = false
 # die ueberwachte Maschinerie nutzt, kann deren Ausfall nicht melden.
 verify_jwt = false
 
+[functions.acquisition-inbox]
+# Externe Lead-Inbox, Server zu Server (WP16.1-Fix). Der Aufrufer hat
+# kein Supabase-JWT. Schutz: Shared Secret ACQUISITION_IMPORT_SECRET im
+# Header X-Werkruf-Import-Secret (pruefeInboxZugang: ohne Secret 503,
+# falsch 401, zeitkonstant) — vor jedem Lesen des Bodys. Kann nur Leads
+# anlegen (acquisition_import_rows), kein Admin, keine Mail.
+verify_jwt = false
+
 # ── Mit JWT ──────────────────────────────────────────────────────────
 # Werden aus dem Frontend mit gueltiger Session aufgerufen.
 #
