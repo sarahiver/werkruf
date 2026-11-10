@@ -62,6 +62,8 @@ import {
   baueSupportSnapshot,
   baueAuditEintrag,
 } from '../../../src/utils/adminOps.js';
+// @ts-ignore: JavaScript-Modul ohne Typen (WP16)
+import { renderFpMail } from '../../../src/utils/akquise.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -242,6 +244,22 @@ serve(async (req) => {
 
       case 'set_fp_feedback':
         return json(await setzeFpFeedback(admin, adminId, parameter));
+
+      /* WP16: Akquise */
+      case 'acquisition_list':
+        return json(await akquiseListe(admin, parameter));
+      case 'acquisition_lead_detail':
+        return json(await akquiseDetail(admin, parameter.leadId as string));
+      case 'acquisition_preview':
+        return json(await akquiseVorschau(admin, parameter.leadId as string));
+      case 'acquisition_lead_create':
+        return json(await akquiseLeadAnlegen(admin, adminId, parameter));
+      case 'acquisition_lead_update':
+        return json(await akquiseLeadAendern(admin, adminId, parameter));
+      case 'acquisition_set_status':
+        return json(await akquiseStatusSetzen(admin, adminId, parameter));
+      case 'acquisition_send':
+        return json(await akquiseSenden(admin, adminId, parameter));
 
       default:
         /* Unerreichbar: pruefeAnfrage laesst nur die Allowlist durch.
@@ -863,4 +881,169 @@ async function beantworteSupportAnfrage(
   }));
   log('support_beantwortet', { adminId, requestId, zeichen: ergebnis.zeichen });
   return ergebnis;
+}
+
+/* ═════════════════════════════════════════════
+   WP16 — AKQUISE
+   Lead → Vorschau → EINE Mail → email_queue → Brevo → Historie.
+   Der Browser liefert leadId und fachliche Aenderungen; Adresse,
+   Betrieb, Satz kommen aus der Datenbank. Links sind Token-Links
+   (opaque, SHA-256-Hash in der DB, Klartext nur in der Mail).
+   ═════════════════════════════════════════════ */
+
+const AKQUISE_BASIS_URL = (Deno.env.get('APP_PUBLIC_URL') ?? 'https://werkruf.com').replace(/\/+$/, '');
+const AKQUISE_STATUS_WERTE = ['neu', 'vorbereitet', 'angeschrieben', 'interesse', 'kein_interesse', 'founding_partner', 'zurueckgestellt'];
+
+function versandModus(): { mode: 'production' | 'test'; testRecipient: string | null } {
+  const mode = (Deno.env.get('EMAIL_DELIVERY_MODE') ?? 'production').toLowerCase() === 'test' ? 'test' : 'production';
+  return { mode, testRecipient: mode === 'test' ? (Deno.env.get('EMAIL_TEST_RECIPIENT') ?? null) : null };
+}
+
+function akquiseLinks(token: string) {
+  return {
+    presentationUrl: `${AKQUISE_BASIS_URL}/p/fp/${token}`,
+    ctaUrl: `${AKQUISE_BASIS_URL}/founding-partner/${token}`,
+  };
+}
+
+function base64url(bytes: Uint8Array): string {
+  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* Audit je Akquise-Aktion — entity_type leads, keine Nutzer-ID, nie ein Token. */
+function leadAudit(e: { aktion: string; adminId: string; leadId: string | null; erfolg: boolean; extra?: Record<string, unknown> }) {
+  return baueAuditEintrag({ aktion: e.aktion, adminId: e.adminId, userId: null, erfolg: e.erfolg, ergebnis: e.extra ?? {}, entityType: 'leads', entityId: e.leadId });
+}
+
+async function akquiseListe(admin: SupabaseClient, p: Record<string, unknown>) {
+  const { data, error } = await admin.rpc('acquisition_overview', {
+    p_status: p.status === 'alle' ? null : (p.status as string), p_suche: (p.suche as string) || null, p_limit: (p.limit as number) ?? 100,
+  });
+  if (error) throw error;
+  const { mode } = versandModus();
+  return { ...(data as Record<string, unknown>), deliveryMode: mode, generatedAt: new Date().toISOString() };
+}
+
+async function akquiseDetail(admin: SupabaseClient, leadId: string) {
+  const { data, error } = await admin.rpc('acquisition_lead_detail', { p_lead_id: leadId });
+  if (error) throw error;
+  if (!data) return { lead: null, error: 'Lead nicht gefunden' };
+  const { mode } = versandModus();
+  return { ...(data as Record<string, unknown>), deliveryMode: mode };
+}
+
+/* Vorschau = dieselbe Renderfunktion wie der Worker, mit Platzhalter-
+   Token. Beim Versand ersetzt nur der Token den Platzhalter. */
+async function akquiseVorschau(admin: SupabaseClient, leadId: string) {
+  const { data, error } = await admin.rpc('acquisition_lead_detail', { p_lead_id: leadId });
+  if (error) throw error;
+  const lead = (data as { lead?: Record<string, unknown> } | null)?.lead;
+  if (!lead) return { ok: false, error: 'Lead nicht gefunden' };
+  const links = akquiseLinks('VORSCHAU-TOKEN');
+  const r = renderFpMail({
+    companyName: lead.companyName, contactPerson: lead.contactPerson, personalizedSentence: lead.personalizedSentence, ...links,
+  }) as { subject: string; text: string; html: string };
+  const modus = versandModus();
+  return {
+    ok: true,
+    to: lead.email, toName: lead.contactPerson ?? null,
+    subject: r.subject, text: r.text, html: r.html,
+    personalizedSentence: lead.personalizedSentence ?? null,
+    presentationUrl: links.presentationUrl, ctaUrl: links.ctaUrl,
+    sender: { name: 'WERKRUF', email: 'info@werkruf.com' },
+    deliveryMode: modus.mode, testRecipient: modus.testRecipient,
+    blockReason: lead.blockReason ?? null,
+  };
+}
+
+async function akquiseLeadAnlegen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const { data, error } = await admin.rpc('acquisition_lead_create', { p_admin_id: adminId, p: p.lead });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_lead_create', adminId: adminId, leadId: null, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  const leadId = data as string;
+  await auditiere(admin, leadAudit({ aktion: 'acquisition_lead_create', adminId: adminId, leadId: leadId, erfolg: true, extra: { felder: Object.keys(p.lead as Record<string, unknown>) } }));
+  log('akquise_lead_angelegt', { adminId, leadId });
+  return { ok: true, leadId };
+}
+
+async function akquiseLeadAendern(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  const { data, error } = await admin.rpc('acquisition_lead_update', { p_admin_id: adminId, p_lead_id: leadId, p: p.lead });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_lead_update', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  const ok = data === true;
+  await auditiere(admin, leadAudit({ aktion: 'acquisition_lead_update', adminId: adminId, leadId: leadId, erfolg: ok, extra: { felder: Object.keys(p.lead as Record<string, unknown>) } }));
+  return ok ? { ok: true } : { ok: false, code: 'kein_lead' };
+}
+
+async function akquiseStatusSetzen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  if (!AKQUISE_STATUS_WERTE.includes(p.status as string)) return { ok: false, code: 'status_ungueltig' };
+  const { data, error } = await admin.rpc('acquisition_set_status', {
+    p_admin_id: adminId, p_lead_id: leadId, p_status: p.status, p_note: (p.note as string | null) ?? null,
+  });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_set_status', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  const r = (data ?? {}) as { ok?: boolean; vorher?: string | null; nachher?: string; reason?: string };
+  await auditiere(admin, leadAudit({ aktion: 'acquisition_set_status', adminId: adminId, leadId: leadId, erfolg: Boolean(r.ok), extra: { vorher: r.vorher ?? null, nachher: r.nachher ?? null, ...(r.reason ? { grund: r.reason } : {}) } }));
+  return r.ok ? { ok: true, vorher: r.vorher ?? null, nachher: r.nachher } : { ok: false, code: r.reason ?? 'abgelehnt' };
+}
+
+/* EINE Mail an EINEN Lead. Reihenfolge: Lead laden (Wahrheit aus der DB)
+   → Token erzeugen → Links → Payload → acquisition_outreach_begin (Sperre,
+   Idempotenz, Rate, enqueue_email) → Audit ohne Token. */
+async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  const { data: detail, error: leseFehler } = await admin.rpc('acquisition_lead_detail', { p_lead_id: leadId });
+  if (leseFehler) throw leseFehler;
+  const lead = (detail as { lead?: Record<string, unknown> } | null)?.lead;
+  if (!lead) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: 'kein_lead' } }));
+    return { ok: false, code: 'kein_lead' };
+  }
+
+  const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const tokenHash = await sha256Hex(token);
+  const links = akquiseLinks(token);
+  const modus = versandModus();
+  const r = renderFpMail({
+    companyName: lead.companyName, contactPerson: lead.contactPerson, personalizedSentence: lead.personalizedSentence, ...links,
+  }) as { subject: string };
+
+  const { data, error } = await admin.rpc('acquisition_outreach_begin', {
+    p_admin_id: adminId, p_lead_id: leadId, p_idempotency_key: p.idempotencyKey,
+    p_subject: r.subject, p_sentence_snapshot: lead.personalizedSentence ?? null,
+    p_token_hash: tokenHash, p_delivery_mode: modus.mode,
+    p_payload: {
+      companyName: lead.companyName, contactPerson: lead.contactPerson ?? null,
+      personalizedSentence: lead.personalizedSentence ?? null,
+      presentationUrl: links.presentationUrl, ctaUrl: links.ctaUrl,
+    },
+  });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  const b = (data ?? {}) as { ok?: boolean; reason?: string; grund?: string; messageId?: string; emailQueueId?: string; reused?: boolean; status?: string };
+  if (!b.ok) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { grund: b.reason ?? 'abgelehnt', ...(b.grund ? { sperre: b.grund } : {}) } }));
+    return { ok: false, code: b.reason ?? 'abgelehnt', grund: b.grund ?? null };
+  }
+  if (!b.reused) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: true, extra: { messageId: b.messageId, emailQueueId: b.emailQueueId, deliveryMode: modus.mode } }));
+    log('akquise_mail_eingereiht', { adminId, leadId, messageId: b.messageId, deliveryMode: modus.mode });
+  }
+  return { ok: true, messageId: b.messageId, emailQueueId: b.emailQueueId ?? null, reused: Boolean(b.reused), status: b.status ?? 'queued', deliveryMode: modus.mode, testRecipient: modus.testRecipient };
 }

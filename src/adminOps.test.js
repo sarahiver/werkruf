@@ -104,6 +104,16 @@ describe('das Tor', () => {
     const namen = Object.keys(ADMIN_AKTIONEN).join(' ');
     expect(namen).not.toMatch(/delete|loesch|drop|truncate|purge|refund|cancel_subscription/i);
     expect(Object.keys(ADMIN_AKTIONEN).sort()).toEqual([
+      /* 10.11.2026 (WP16): Akquise. Lesen (Liste, Detail, Vorschau),
+         Lead anlegen/aendern, Vertriebsstatus, EIN Mailversand mit
+         Bestaetigung — kein Loeschen, kein Bulk, kein Plan-Eingriff. */
+      'acquisition_lead_create',
+      'acquisition_lead_detail',
+      'acquisition_lead_update',
+      'acquisition_list',
+      'acquisition_preview',
+      'acquisition_send',
+      'acquisition_set_status',
       'clear_founding_partner',
       /* 09.11.2026 (WP6): Founding-Partner-Cockpit. Zwei Lesezugriffe,
          ein Schreibzugriff auf eine eigene Tabelle (49-€-Feedback) —

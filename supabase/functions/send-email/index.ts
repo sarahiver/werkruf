@@ -31,6 +31,8 @@ import {
 } from '../../../src/utils/wochenstatus.js';
 /* WP6: Brevo-Zustellereignisse → feste Ereignismenge. */
 import { normalisierePayload } from '../../../src/utils/zustellEreignisse.js';
+// @ts-ignore: JavaScript-Modul ohne Typen (WP16)
+import { renderFpMail } from '../../../src/utils/akquise.js';
 /* WP8 — Profil-Waechter: Werte und ehrliche Ueberschrift je Diff. */
 import { formatWert as formatDiffWert, diffUeberschrift } from '../../../src/utils/profilDiff.js';
 
@@ -46,7 +48,8 @@ type EmailTemplate =
   | 'profile_change_alert'
   | 'support_reply'
   | 'consent_reminder'
-  | 'account_deleted';
+  | 'account_deleted'
+  | 'founding_partner_outreach';
 
 interface EmailRow {
   id: string;
@@ -828,6 +831,22 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
         { label: 'Zum Direkten Draht', url: `${brand.appUrl}/dashboard/support` },
       );
       return { subject: title, html, text: toPlainText(html) };
+    }
+
+    /* WP16 — Founding-Partner-Akquise. Persoenliche Mail von Iver, kein
+       Produktlayout, kein Produkt-Footer. Inhalt und Links kommen aus dem
+       geteilten Modul (admin-ops zeigt dieselbe Funktion als Vorschau).
+       Alles aus Lead-Feldern ist dort escaped; Links sind serverseitig
+       erzeugte Token-Links, nie Lead-Eingabe. */
+    case 'founding_partner_outreach': {
+      const r = renderFpMail({
+        companyName: String(payload.companyName ?? ''),
+        contactPerson: toName ?? String(payload.contactPerson ?? ''),
+        personalizedSentence: String(payload.personalizedSentence ?? ''),
+        presentationUrl: String(payload.presentationUrl ?? ''),
+        ctaUrl: String(payload.ctaUrl ?? ''),
+      }) as RenderedEmail;
+      return { subject: r.subject, html: r.html, text: r.text };
     }
 
     case 'visibility_report': {

@@ -34,6 +34,7 @@
 
 import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
 import { istPausiert } from './betriebsferien.js';
+import { AKQUISE_STATUS, pruefeLeadEingabe } from './akquise.js';
 
 /* ═══════════════════════════════════════════════════════════════
    0 — DARSTELLUNG FUER DIE KUNDENLISTE
@@ -190,7 +191,47 @@ export const ADMIN_AKTIONEN = {
     parameter: ['userId', 'paymentIntent', 'note'],
     auditAktion: 'admin.fp_feedback_gesetzt',
   },
+  /* WP16 (10.11.2026): Akquise. Leads sind keine Nutzer — keine userId;
+     Ziel ist leadId. Alles laeuft ueber acquisition_*-Funktionen in der
+     Datenbank (service_role), der Browser schreibt nie direkt. Der
+     Versand ist EINE Mail an EINEN Lead nach bewusstem Klick — mit
+     Bestaetigung, mit Idempotenzschluessel gegen Doppelklick. */
+  acquisition_list: {
+    schreibt: false,
+    parameter: ['status', 'suche', 'limit'],
+  },
+  acquisition_lead_detail: {
+    schreibt: false,
+    parameter: ['leadId'],
+  },
+  acquisition_preview: {
+    schreibt: false,
+    parameter: ['leadId'],
+  },
+  acquisition_lead_create: {
+    schreibt: true,
+    parameter: ['lead'],
+    auditAktion: 'admin.acquisition_lead_created',
+  },
+  acquisition_lead_update: {
+    schreibt: true,
+    parameter: ['leadId', 'lead'],
+    auditAktion: 'admin.acquisition_lead_updated',
+  },
+  acquisition_set_status: {
+    schreibt: true,
+    parameter: ['leadId', 'status', 'note'],
+    auditAktion: 'admin.acquisition_status_changed',
+  },
+  acquisition_send: {
+    schreibt: true,
+    parameter: ['leadId', 'idempotencyKey'],
+    auditAktion: 'admin.acquisition_email_sent',
+    bestaetigung: true,
+  },
 };
+
+const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send'];
 
 /* „Wuerde 49 EUR zahlen?" — dieselben Werte wie
    founding_partner_feedback_intent_check in der Datenbank. */
@@ -299,7 +340,7 @@ function pruefeParameter(aktion, roh) {
      Liste der Supportanfragen. Der Statuswechsel identifiziert ueber
      requestId; die zugehoerige userId holt der Server fuer das Audit
      selbst aus der Zeile. */
-  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request', 'fp_cockpit_overview'].includes(aktion);
+  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request', 'fp_cockpit_overview', ...AKQUISE_AKTIONEN].includes(aktion);
 
   if (brauchtUser) {
     if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -403,6 +444,45 @@ function pruefeParameter(aktion, roh) {
     } else {
       werte.note = null;
     }
+  }
+
+  /* WP16 — Akquise */
+  if (['acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send'].includes(aktion)) {
+    const leadId = roh?.leadId;
+    if (typeof leadId !== 'string' || !UUID.test(leadId)) return { fehler: 'leadId fehlt oder ist keine UUID' };
+    werte.leadId = leadId.toLowerCase();
+  }
+  if (aktion === 'acquisition_list') {
+    const status = roh?.status === undefined || roh?.status === null || roh?.status === '' ? 'alle' : roh.status;
+    if (status !== 'alle' && !AKQUISE_STATUS.includes(status)) return { fehler: `Status nicht erlaubt: ${String(status)}` };
+    werte.status = status;
+    const suche = typeof roh?.suche === 'string' ? roh.suche.trim() : '';
+    if (suche.length > 200) return { fehler: 'Suchbegriff zu lang' };
+    werte.suche = suche;
+    const limit = Number(roh?.limit);
+    werte.limit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 100;
+  }
+  if (aktion === 'acquisition_lead_create' || aktion === 'acquisition_lead_update') {
+    const geprueft = pruefeLeadEingabe(roh?.lead, { neu: aktion === 'acquisition_lead_create' });
+    if (!geprueft.ok) return { fehler: geprueft.fehler };
+    if (aktion === 'acquisition_lead_update' && Object.keys(geprueft.werte).length === 0) return { fehler: 'Keine Änderung' };
+    werte.lead = geprueft.werte;
+  }
+  if (aktion === 'acquisition_set_status') {
+    if (!AKQUISE_STATUS.includes(roh?.status)) return { fehler: `Status nicht erlaubt: ${String(roh?.status)}` };
+    werte.status = roh.status;
+    const note = roh?.note;
+    if (note !== undefined && note !== null) {
+      if (typeof note !== 'string' || note.length > 4000) return { fehler: 'Notiz muss Text unter 4000 Zeichen sein' };
+      werte.note = note.trim() || null;
+    } else {
+      werte.note = null;
+    }
+  }
+  if (aktion === 'acquisition_send') {
+    const key = roh?.idempotencyKey;
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{8,120}$/.test(key)) return { fehler: 'idempotencyKey fehlt' };
+    werte.idempotencyKey = key;
   }
 
   if (aktion === 'clear_founding_partner') {
@@ -805,17 +885,19 @@ export function supportAmpel(snapshot) {
  * @param {boolean} eingabe.erfolg
  * @param {unknown} [eingabe.ergebnis]
  * @param {unknown} [eingabe.fehler]
+ * @param {string} [eingabe.entityType] WP16: 'leads' fuer Akquise (Vorgabe user_profiles)
+ * @param {string|null} [eingabe.entityId]
  * @returns {Zeile}
  */
-export function baueAuditEintrag({ aktion, adminId, userId, erfolg, ergebnis = null, fehler = null }) {
+export function baueAuditEintrag({ aktion, adminId, userId, erfolg, ergebnis = null, fehler = null, entityType = 'user_profiles', entityId = undefined }) {
   const regel = ADMIN_AKTIONEN[aktion];
   return {
     user_id: userId || null,
     actor_type: 'admin',
     actor_id: adminId || null,
     action: regel?.auditAktion || `admin.${aktion}`,
-    entity_type: 'user_profiles',
-    entity_id: userId || null,
+    entity_type: entityType,
+    entity_id: entityId === undefined ? (userId || null) : entityId,
     metadata: {
       aktion,
       erfolg: Boolean(erfolg),

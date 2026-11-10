@@ -6,6 +6,7 @@ import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
 import FoundingPartnerCockpit from '../components/admin/FoundingPartnerCockpit';
+import Akquise from '../components/admin/Akquise';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -515,6 +516,13 @@ export default function Admin() {
             „49 €?". Alles ueber admin-ops; die Zahlen entstehen in
             fp_cockpit_overview() — siehe docs/operations/founding-partner-cockpit.md. */}
         <FoundingPartnerCockpit rufeAdminOps={rufeAdminOps} />
+
+        {/* ── AKQUISE (WP16, 10.11.2026) ──
+            Manuelle Founding-Partner-Akquise: Lead anlegen, personalisieren,
+            Vorschau, EINE Mail bewusst senden, Brevo-Ereignisse sehen,
+            Vertriebsstatus von Hand. Alles ueber admin-ops —
+            siehe docs/operations/acquisition-outreach.md. */}
+        <Akquise rufeAdminOps={rufeAdminOps} />
 
         {/* ── SUCHE (§5) ── */}
         <Section>

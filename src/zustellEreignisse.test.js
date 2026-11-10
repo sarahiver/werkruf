@@ -33,9 +33,10 @@ describe('T27–T29 — Ereignisarten', () => {
     expect(ereignisArt('invalid_email')).toBe('error');
     expect(ereignisArt('request')).toBe('sent');
   });
-  it('deferred / unsubscribed / Unsinn werden ignoriert', () => {
+  it('deferred / Unsinn werden ignoriert; unsubscribed ist seit WP16 ein Ereignis', () => {
     expect(ereignisArt('deferred')).toBeNull();
-    expect(ereignisArt('unsubscribed')).toBeNull();
+    expect(ereignisArt('unsubscribed')).toBe('unsubscribed');
+    expect(ereignisArt('unsubscribe')).toBe('unsubscribed');
     expect(ereignisArt('')).toBeNull();
     expect(ereignisArt(42)).toBeNull();
   });
