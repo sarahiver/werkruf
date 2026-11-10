@@ -35,6 +35,7 @@
 import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
 import { istPausiert } from './betriebsferien.js';
 import { AKQUISE_STATUS, pruefeLeadEingabe } from './akquise.js';
+import { bereiteImportVor, MAX_ZEILEN } from './akquiseImport.js';
 
 /* ═══════════════════════════════════════════════════════════════
    0 — DARSTELLUNG FUER DIE KUNDENLISTE
@@ -198,7 +199,7 @@ export const ADMIN_AKTIONEN = {
      Bestaetigung, mit Idempotenzschluessel gegen Doppelklick. */
   acquisition_list: {
     schreibt: false,
-    parameter: ['status', 'suche', 'limit'],
+    parameter: ['status', 'suche', 'limit', 'importId'],
   },
   acquisition_lead_detail: {
     schreibt: false,
@@ -229,9 +230,18 @@ export const ADMIN_AKTIONEN = {
     auditAktion: 'admin.acquisition_email_sent',
     bestaetigung: true,
   },
+  /* WP16.1: CSV-Import. preview schreibt nichts, commit legt NUR neue
+     Leads an (acquisition_import_rows). Die Zeilen werden hier mit dem
+     Lead-Kanon aufbereitet — was der Browser „vorvalidiert" schickt,
+     zaehlt nicht. Kein Versand, kein Status ausser neu. */
+  acquisition_import: {
+    schreibt: true,
+    parameter: ['mode', 'importId', 'rows'],
+    auditAktion: 'admin.acquisition_import',
+  },
 };
 
-const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send'];
+const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_import'];
 
 /* „Wuerde 49 EUR zahlen?" — dieselben Werte wie
    founding_partner_feedback_intent_check in der Datenbank. */
@@ -461,6 +471,23 @@ function pruefeParameter(aktion, roh) {
     werte.suche = suche;
     const limit = Number(roh?.limit);
     werte.limit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 100;
+    /* WP16.1: Filter auf einen Import („Neue Leads anzeigen") */
+    const importId = roh?.importId;
+    if (importId !== undefined && importId !== null && importId !== '') {
+      if (typeof importId !== 'string' || !UUID.test(importId)) return { fehler: 'importId ist keine UUID' };
+      werte.importId = importId.toLowerCase();
+    }
+  }
+  if (aktion === 'acquisition_import') {
+    if (roh?.mode !== 'preview' && roh?.mode !== 'commit') return { fehler: 'mode muss preview oder commit sein' };
+    werte.mode = roh.mode;
+    const key = roh?.importId;
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{8,120}$/.test(key)) return { fehler: 'importId fehlt' };
+    werte.importId = key;
+    if (!Array.isArray(roh?.rows) || roh.rows.length === 0) return { fehler: 'Keine Zeilen' };
+    if (roh.rows.length > MAX_ZEILEN) return { fehler: `Höchstens ${MAX_ZEILEN} Zeilen je Import` };
+    /* Server bereitet selbst auf — Lead-Kanon, nicht Browser-Vertrauen. */
+    werte.rows = bereiteImportVor(roh.rows);
   }
   if (aktion === 'acquisition_lead_create' || aktion === 'acquisition_lead_update') {
     const geprueft = pruefeLeadEingabe(roh?.lead, { neu: aktion === 'acquisition_lead_create' });

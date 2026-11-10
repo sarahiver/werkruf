@@ -107,6 +107,7 @@ describe('das Tor', () => {
       /* 10.11.2026 (WP16): Akquise. Lesen (Liste, Detail, Vorschau),
          Lead anlegen/aendern, Vertriebsstatus, EIN Mailversand mit
          Bestaetigung — kein Loeschen, kein Bulk, kein Plan-Eingriff. */
+      'acquisition_import',
       'acquisition_lead_create',
       'acquisition_lead_detail',
       'acquisition_lead_update',
