@@ -92,7 +92,7 @@ declare f text; v_b uuid := test.id('user_b'); v_n integer; v_ok boolean; v_lead
 begin
   foreach f in array array['public.acquisition_lead_create(uuid,jsonb)', 'public.acquisition_lead_update(uuid,uuid,jsonb)',
                            'public.acquisition_set_status(uuid,uuid,text,text)', 'public.acquisition_outreach_begin(uuid,uuid,text,text,text,text,text,jsonb)',
-                           'public.acquisition_link_event(text,text)', 'public.acquisition_overview(text,text,integer)',
+                           'public.acquisition_link_event(text,text)', 'public.acquisition_overview(text,text,integer,uuid)' /* WP16.1: + p_import_id */,
                            'public.acquisition_lead_detail(uuid)', 'public.acquisition_block_reason(uuid)'] loop
     assert not pg_catalog.has_function_privilege('authenticated', f, 'EXECUTE'), format('Rechte: authenticated darf %s', f);
     assert not pg_catalog.has_function_privilege('anon', f, 'EXECUTE'), format('Rechte: anon darf %s', f);

@@ -112,7 +112,10 @@ const richteEin = ({ admin = true, snapshot = schnappschuss(), liste = [listenZe
   });
 };
 
+/* WP16.1: Kundensuche, Support-Ansicht und Direkter Draht leben im
+   Bereich „Kunden" (/admin?bereich=kunden). Funktion unveraendert. */
 const zeige = async () => {
+  window.history.pushState({}, '', '/admin?bereich=kunden');
   await act(async () => { render(<Admin />); });
 };
 

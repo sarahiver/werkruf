@@ -120,9 +120,9 @@ describe('Modul akquise.js', () => {
 
 /* ───────── Allowlist ───────── */
 describe('Allowlist (adminOps.js)', () => {
-  it('7 Akquise-Aktionen; schreibende haben Audit-Namen; send verlangt Bestaetigung', () => {
+  it('8 Akquise-Aktionen (WP16.1: + acquisition_import); schreibende haben Audit-Namen; send verlangt Bestaetigung', () => {
     const akq = Object.keys(ADMIN_AKTIONEN).filter((k) => k.startsWith('acquisition_')).sort();
-    expect(akq).toEqual(['acquisition_lead_create', 'acquisition_lead_detail', 'acquisition_lead_update', 'acquisition_list', 'acquisition_preview', 'acquisition_send', 'acquisition_set_status']);
+    expect(akq).toEqual(['acquisition_import', 'acquisition_lead_create', 'acquisition_lead_detail', 'acquisition_lead_update', 'acquisition_list', 'acquisition_preview', 'acquisition_send', 'acquisition_set_status']);
     expect(ADMIN_AKTIONEN.acquisition_lead_create.auditAktion).toBe('admin.acquisition_lead_created');
     expect(ADMIN_AKTIONEN.acquisition_lead_update.auditAktion).toBe('admin.acquisition_lead_updated');
     expect(ADMIN_AKTIONEN.acquisition_set_status.auditAktion).toBe('admin.acquisition_status_changed');
@@ -341,9 +341,12 @@ describe('Akquise-Bauteil', () => {
     expect(kpi).toHaveTextContent('Leads'); expect(kpi).toHaveTextContent('Öffnung erkannt'); expect(kpi).toHaveTextContent('Founding Partner');
     expect(screen.getAllByTestId('akquise-lead')).toHaveLength(2);
     const signale = screen.getAllByTestId('akquise-signale')[0];
-    expect(within(signale).getByText(/^Zugestellt/)).toHaveAttribute('data-ja', 'true');
-    expect(within(signale).getByText(/^Öffnung erkannt/)).toHaveAttribute('data-ja', 'true');
-    expect(within(signale).getByText(/^Präsentation geklickt/)).toHaveAttribute('data-ja', 'false');
+    /* WP16.1: kompakte Signal-Chips; der volle Wortlaut steht im aria-label/title
+       („Öffnung erkannt", nie „gelesen"). */
+    expect(within(signale).getByLabelText(/^Zugestellt /)).toHaveAttribute('data-ja', 'true');
+    expect(within(signale).getByLabelText(/^Öffnung erkannt \(kein Lesebeweis\) /)).toHaveAttribute('data-ja', 'true');
+    expect(within(signale).getByLabelText(/^Präsentation geklickt: noch nicht/)).toHaveAttribute('data-ja', 'false');
+    expect(within(signale).getByLabelText(/^Interesse bestätigt: noch nicht/)).toHaveAttribute('data-ja', 'false');
     expect(screen.getByTestId('akquise-gesperrt')).toHaveTextContent('Hard Bounce');
     expect(document.body.textContent).not.toMatch(/gelesen/);
     expect(screen.queryByTestId('akquise-testmodus')).toBeNull();
@@ -398,7 +401,7 @@ describe('Akquise-Bauteil', () => {
     expect(screen.queryByTestId('akquise-vorschau')).toBeNull();
     expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);
     /* Server lehnt trotzdem ab (zweite Verteidigung) → Text */
-    fireEvent.click(screen.getByText('Bounce AG'));   // zu
+    /* WP16.1: Detail-Panel statt Aufklappen — ein Klick auf einen anderen Lead wechselt. */
     fireEvent.click(screen.getByText('Krause GmbH'));
     fireEvent.click(await screen.findByTestId('akquise-vorschau'));
     fireEvent.click(await screen.findByTestId('akquise-senden'));

@@ -64,6 +64,8 @@ import {
 } from '../../../src/utils/adminOps.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
 import { renderFpMail } from '../../../src/utils/akquise.js';
+// @ts-ignore: JavaScript-Modul ohne Typen (WP16.1)
+import { bereiteImportVor, MAX_ZEILEN, pruefeInboxZugang } from '../../../src/utils/akquiseImport.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,6 +92,13 @@ function umgebung(name: string): string {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  /* WP16.1 — Externe Lead-Inbox: Server-zu-Server, eigenes Secret statt
+     Admin-JWT (kein gefaktes Admin). Eigener Pfad, eigenes Urteil; ohne
+     gueltiges Secret wird nichts gelesen und nichts geschrieben. */
+  if (new URL(req.url).pathname.replace(/\/+$/, '').endsWith('/acquisition-inbox')) {
+    return leadInbox(req);
+  }
 
   const url = umgebung('SUPABASE_URL');
 
@@ -260,6 +269,8 @@ serve(async (req) => {
         return json(await akquiseStatusSetzen(admin, adminId, parameter));
       case 'acquisition_send':
         return json(await akquiseSenden(admin, adminId, parameter));
+      case 'acquisition_import':
+        return json(await akquiseImport(admin, adminId, parameter));
 
       default:
         /* Unerreichbar: pruefeAnfrage laesst nur die Allowlist durch.
@@ -924,6 +935,7 @@ function leadAudit(e: { aktion: string; adminId: string; leadId: string | null; 
 async function akquiseListe(admin: SupabaseClient, p: Record<string, unknown>) {
   const { data, error } = await admin.rpc('acquisition_overview', {
     p_status: p.status === 'alle' ? null : (p.status as string), p_suche: (p.suche as string) || null, p_limit: (p.limit as number) ?? 100,
+    p_import_id: (p.importId as string | undefined) ?? null,
   });
   if (error) throw error;
   const { mode } = versandModus();
@@ -1046,4 +1058,91 @@ async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<s
     log('akquise_mail_eingereiht', { adminId, leadId, messageId: b.messageId, deliveryMode: modus.mode });
   }
   return { ok: true, messageId: b.messageId, emailQueueId: b.emailQueueId ?? null, reused: Boolean(b.reused), status: b.status ?? 'queued', deliveryMode: modus.mode, testRecipient: modus.testRecipient };
+}
+
+/* ═════════════════════════════════════════════
+   WP16.1 — LEAD-IMPORT (CSV und Inbox, EIN Pfad)
+   Zeilen → bereiteImportVor (Lead-Kanon) → acquisition_import_rows (SQL:
+   Dedupe, nur neue Leads, idempotent je Import-ID). Kein Versand, kein
+   Status ausser neu, keine Aenderung bestehender Leads.
+   ═════════════════════════════════════════════ */
+
+type ImportZeile = { i: number; werte: Record<string, unknown> | null; quelle: string | null; fehler: string | null };
+
+async function importiereZeilen(admin: SupabaseClient, e: {
+  mode: 'preview' | 'commit'; channel: 'csv' | 'inbox'; source: string; importId: string; zeilen: ImportZeile[]; createdBy: string | null;
+}) {
+  const { data, error } = await admin.rpc('acquisition_import_rows', {
+    p_mode: e.mode, p_channel: e.channel, p_source: e.source, p_external_import_id: e.importId,
+    p_rows: e.zeilen, p_created_by: e.createdBy,
+  });
+  if (error) throw error;
+  return data as { ok: boolean; mode: string; reused: boolean; importId: string | null; counts: Record<string, number>; rows: unknown[] };
+}
+
+/* CSV aus dem Admin. Die Zeilen sind bereits in pruefeAnfrage durch
+   bereiteImportVor gelaufen (Server, nicht Browser). */
+async function akquiseImport(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const mode = p.mode as 'preview' | 'commit';
+  const zeilen = p.rows as ImportZeile[];
+  try {
+    const r = await importiereZeilen(admin, { mode, channel: 'csv', source: 'csv', importId: p.importId as string, zeilen, createdBy: adminId });
+    if (mode === 'commit') {
+      await auditiere(admin, baueAuditEintrag({ aktion: 'acquisition_import', adminId, userId: null, erfolg: true,
+        ergebnis: { importId: r.importId, reused: r.reused, counts: r.counts }, entityType: 'acquisition_imports', entityId: r.importId }));
+      log('akquise_import', { adminId, importId: r.importId, reused: r.reused, ...r.counts });
+    }
+    return r;
+  } catch (err) {
+    if (mode === 'commit') {
+      await auditiere(admin, baueAuditEintrag({ aktion: 'acquisition_import', adminId, userId: null, erfolg: false,
+        fehler: String((err as { message?: string })?.message ?? err).slice(0, 200), entityType: 'acquisition_imports', entityId: null }));
+    }
+    throw err;
+  }
+}
+
+/* POST /admin-ops/acquisition-inbox
+   Header X-Werkruf-Import-Secret: <ACQUISITION_IMPORT_SECRET>
+   Body { source, externalImportId, rows: [{company_name, email, …}], mode? }
+   Antwort je Zeile status + leadId (fuer werkruf_lead_id/import_status der
+   externen Liste). Darf AUSSCHLIESSLICH Leads anlegen. */
+async function leadInbox(req: Request): Promise<Response> {
+  /* Secret-Pruefung geteilt mit Jest (pruefeInboxZugang): ohne Secret 503,
+     falsch 401, zeitkonstant. Der Wert wird nie geloggt. */
+  const zugang = pruefeInboxZugang(req.headers.get('x-werkruf-import-secret'), Deno.env.get('ACQUISITION_IMPORT_SECRET')) as
+    { ok: true } | { ok: false; status: number; fehler: string };
+  if (!zugang.ok) {
+    log(zugang.status === 503 ? 'inbox_nicht_konfiguriert' : 'inbox_abgelehnt', { status: zugang.status });
+    return json({ error: zugang.fehler }, zugang.status);
+  }
+
+  let body: Record<string, unknown> = {};
+  try { body = (await req.json()) as Record<string, unknown>; } catch { return json({ error: 'Kein JSON' }, 400); }
+  const source = typeof body.source === 'string' ? body.source.trim().toLowerCase() : '';
+  const importId = typeof body.externalImportId === 'string' ? body.externalImportId.trim() : '';
+  const mode = body.mode === 'preview' ? 'preview' : 'commit';
+  if (!/^[a-z0-9_-]{2,40}$/.test(source)) return json({ error: 'source ungültig (a-z, 0-9, _ -, 2–40 Zeichen)' }, 400);
+  if (!/^[A-Za-z0-9_.:-]{4,120}$/.test(importId)) return json({ error: 'externalImportId ungültig (4–120 Zeichen)' }, 400);
+  if (!Array.isArray(body.rows) || body.rows.length === 0) return json({ error: 'rows fehlt' }, 400);
+  if (body.rows.length > MAX_ZEILEN) return json({ error: `Höchstens ${MAX_ZEILEN} Zeilen je Import` }, 400);
+
+  /* Zeilen als flache Objekte; Zeilennummer = Position (1-basiert). */
+  const zeilen = bereiteImportVor((body.rows as unknown[]).map((roh, idx) => ({ i: idx + 1, roh: (roh && typeof roh === 'object' ? roh : {}) as object }))) as ImportZeile[];
+
+  const admin = createClient(umgebung('SUPABASE_URL'), umgebung('SUPABASE_SERVICE_ROLE_KEY'), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  try {
+    const r = await importiereZeilen(admin, { mode, channel: 'inbox', source, importId, zeilen, createdBy: null });
+    if (mode === 'commit') {
+      await auditiere(admin, { user_id: null, actor_type: 'system', actor_id: null, action: 'system.acquisition_inbox_import',
+        entity_type: 'acquisition_imports', entity_id: r.importId, metadata: { source, reused: r.reused, counts: r.counts } });
+      log('inbox_import', { source, importId: r.importId, reused: r.reused, ...r.counts });
+    }
+    return json(r);
+  } catch (err) {
+    log('inbox_fehler', { source, message: String((err as { message?: string })?.message ?? err).slice(0, 200) });
+    return json({ error: 'Import fehlgeschlagen' }, 500);
+  }
 }

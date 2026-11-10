@@ -138,3 +138,92 @@ Prüfen in SQL: `select company_name, acquisition_status, last_outreach_at from 
 - `supabase/tests/akquise.test.sql`: T1–T4 Lead-Kanon (SmartCheck, claim_own_lead, Statuswerte, Löschung), Rechte mit RLS-Wirkung, Lead-CRUD, Versand/Idempotenz/Race, Queue-Sync, Brevo-Ereignisse (first_open, Duplikat, unbekannt, Sperren, Status unberührt, founding_partner/interesse stabil), Link-Ereignisse (GET ≠ Interesse, POST idempotent, Scanner), Übersicht/KPI/Detail, WP6-Regression, Rate-Schutz, Löschkaskaden.
 - Gegenproben C1–C12 jeweils rot → wiederhergestellt → grün.
 - Fix1: `src/tokenSeiten.test.js` (16: Action Page, Founding Partner, alte Links, Mail-Links, Architektur), `src/utils/actionScanner.test.js` auf die Frontend-Seite umgestellt; Gegenproben Fix1 C1–C7 rot → grün.
+
+---
+
+# Lead-Import + Lead-Inbox + Admin-Bereiche (WP16.1)
+
+## Admin-Bereiche
+
+`/admin` ist keine lange Seite mehr. Fünf Bereiche, immer genau einer sichtbar, adressierbar über `?bereich=` (Reload und Deep Link funktionieren, unbekannter Wert → Übersicht):
+
+| URL | Inhalt | lädt |
+|---|---|---|
+| `/admin` | Übersicht: Kennzahlen, Handlungsbedarf | Kundenliste (50), Setup-Leads, offene Anfragen, Akquise-KPI (`acquisition_list` limit 1) |
+| `/admin?bereich=akquise` | Akquise: Lead anlegen, CSV importieren, Liste, Detail, Vorschau/Senden | `acquisition_list` |
+| `/admin?bereich=kunden` | Direkter Draht, Kunde finden, Support-Ansicht | `list_customers`, `list_support_requests` |
+| `/admin?bereich=founding-partner` | FP-Cockpit (unverändert) | `fp_cockpit_overview` |
+| `/admin?bereich=setup` | offene Setup-Aufträge aus dem SmartCheck | `leads` |
+
+Die Navigation ist eine Link-Liste (`aria-current="page"`, Tastatur, Mittelklick). Zurück/Vor im Browser wechselt den Bereich.
+
+## Ein Importpfad
+
+```
+CSV im Admin ─┐
+              ├─ bereiteImportVor()  (Lead-Kanon pruefeLeadEingabe, serverseitig)
+Inbox (API) ──┘     └─ acquisition_import_rows(mode, channel, source, import_id, rows)
+```
+
+`acquisition_import_rows` (nur `service_role`) entscheidet je Zeile:
+
+| Status | Bedeutung | wird angelegt |
+|---|---|---|
+| `new` | neu | ja (nur bei `commit`) |
+| `duplicate` | E-Mail existiert schon (Groß/Klein, Leerzeichen egal; gelöschte Leads zählen nicht) | nein, `leadId` = bestehender Lead |
+| `duplicate_in_import` | gleiche E-Mail weiter oben in derselben Datei | nein |
+| `possible_duplicate` | gleiche Website (Host ohne `www`/Protokoll/Pfad) oder gleiches Google-Profil wie ein bestehender Lead | nein — bei Bedarf einzeln über „Lead anlegen" |
+| `invalid` | Pflichtfeld fehlt, E-Mail/URL ungültig, Text zu lang | nein |
+
+Bei geteilten Plattformen (facebook.com, instagram.com, google.com, g.page, business.site, jimdo, wix, linktr.ee, gelbeseiten.de, myhammer.de, xing.com, linkedin.com …) zählt die volle Adresse inkl. Pfad, nicht nur der Host.
+
+Regeln:
+- **Nur neue Leads.** Bestehende Leads werden nie geändert, kein Upsert.
+- Angelegt mit `status='new'`, `acquisition_status='neu'`, `source='akquise_import'` (CSV) bzw. `'akquise_inbox'`, `acquisition_import_id`, `acquisition_source` (Spalte `source` der Liste, sonst `csv` bzw. die Inbox-Quelle).
+- **Kein Versand, kein Status außer „neu", kein Founding Partner.** Angeschrieben wird weiter einzeln über Vorschau → Senden.
+- **Idempotent:** dieselbe Import-ID (je Kanal + Quelle) ein zweites Mal → `reused: true`, gespeichertes Ergebnis, nichts doppelt.
+- Commits laufen nacheinander (Advisory-Lock), damit zwei gleichzeitige Importe dieselbe Mail nicht beide als neu anlegen.
+- Höchstens 1000 Zeilen je Import. Gespeichert wird nur die Batch-Zeile mit Zählern (`acquisition_imports`), nie die CSV.
+
+## CSV
+
+Kopfzeile (Vorlage im Import-Dialog herunterladbar):
+
+```
+company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,import_status,imported_at,werkruf_lead_id
+```
+
+Pflicht: `company_name`, `email`. `import_status`, `imported_at`, `werkruf_lead_id` werden gelesen und ignoriert (Arbeitsspalten der externen Liste). Unbekannte Spalten werden angezeigt und ignoriert. Komma oder Semikolon, UTF-8 (BOM ok), Anführungszeichen mit Komma/Zeilenumbruch darin ok, höchstens 2 MB.
+
+Ablauf: Datei wählen → **Vorschau** (nichts gespeichert; Zusammenfassung, Reiter Alle | Neu | Dubletten | Prüfen | Fehler, Problemzeilen zuerst) → „N Leads importieren" → Ergebnis → „Neue Leads anzeigen" (Liste gefiltert auf diesen Import).
+
+## Externe Lead-Inbox
+
+```
+POST https://<projekt>.supabase.co/functions/v1/admin-ops/acquisition-inbox
+X-Werkruf-Import-Secret: <ACQUISITION_IMPORT_SECRET>
+Content-Type: application/json
+
+{
+  "source": "chatgpt_recherche",            // a-z 0-9 _ -, 2–40
+  "externalImportId": "recherche-2026-11-10", // 4–120, je Lauf eindeutig (Idempotenz)
+  "mode": "commit",                          // optional, "preview" prüft nur
+  "rows": [
+    { "company_name": "Elektro Krause GmbH", "email": "info@elektro-krause.de",
+      "city": "Kiel", "website": "https://elektro-krause.de",
+      "personalized_sentence": "…" }
+  ]
+}
+```
+
+Antwort (200):
+
+```json
+{ "ok": true, "mode": "commit", "reused": false, "importId": "<uuid>",
+  "counts": { "rows": 1, "new": 1, "duplicate": 0, "duplicateInImport": 0, "possibleDuplicate": 0, "invalid": 0 },
+  "rows": [ { "i": 1, "status": "new", "grund": null, "leadId": "<uuid>", "companyName": "Elektro Krause GmbH", "email": "info@elektro-krause.de" } ] }
+```
+
+`rows[].status` und `rows[].leadId` gehören in `import_status` / `werkruf_lead_id` der externen Liste. Fehler: 503 Secret nicht gesetzt (oder kürzer als 16 Zeichen) — die Inbox ist dann aus, nie offen; 401 Secret fehlt/falsch; 400 Payload ungültig; 500 „Import fehlgeschlagen" (Details nur im Function-Log). Jeder Commit steht im Audit (`system.acquisition_inbox_import`, ohne Zeileninhalte). Das Secret wird nie geloggt.
+
+Einrichtung: Supabase → Edge Functions → Secrets → `ACQUISITION_IMPORT_SECRET` = langer Zufallswert (mind. 32 Zeichen empfohlen). Nur an das aufrufende System geben.

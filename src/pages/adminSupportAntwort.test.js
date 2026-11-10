@@ -48,7 +48,8 @@ const richteEin = ({ anfragen = [anfrage()] } = {}) => {
   });
 };
 
-const zeige = async () => { await act(async () => { render(<Admin />); }); };
+/* WP16.1: Direkter Draht lebt im Bereich „Kunden" (/admin?bereich=kunden). */
+const zeige = async () => { window.history.pushState({}, '', '/admin?bereich=kunden'); await act(async () => { render(<Admin />); }); };
 const antwortAufrufe = () => aufrufe.filter((a) => a.action === 'reply_support_request');
 
 describe('Admin — Antwort auf Supportanfrage', () => {

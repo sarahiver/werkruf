@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { Users, AlertTriangle, RefreshCw, LogOut, Search, X, MessageCircle, Send } from 'lucide-react';
 import { useAuthContext } from '../context/AuthContext';
 import supabase from '../supabaseClient';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
+import { BEREICHE, bereichAusSuche, sucheFuerBereich } from '../utils/adminBereiche';
 import FoundingPartnerCockpit from '../components/admin/FoundingPartnerCockpit';
 import Akquise from '../components/admin/Akquise';
+import { BereichKopf, Kpi, KpiReihe, Flaeche, FlaecheKopf, ResponsiveTabelle, Leer } from '../components/admin/adminUi';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -20,7 +22,41 @@ const TopBar = styled.div`
   background: var(--color-primary);
   border-bottom: 3px solid var(--color-accent);
   padding: 16px 32px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  @media (max-width: 640px) { padding: 12px 16px; }
+`;
+
+/* WP16.1 — Bereichsumschalter unter der dunkelblauen Leiste. Desktop
+   horizontal; schmal horizontal scrollbar (keine Hamburger-Navigation
+   fuer fuenf Eintraege). Echte Links: Tastatur, Mittelklick, Deep Link. */
+const BereichNav = styled.nav`
+  background: var(--color-white); border-bottom: 1px solid rgba(11, 37, 69, .08);
+  position: sticky; top: 0; z-index: 5;
+  /* schmal: rechter Rand blendet aus — zeigt, dass die Leiste scrollt */
+  @media (max-width: 640px) { ul { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); } }
+  ul { display: flex; gap: 4px; margin: 0 auto; padding: 0 24px; max-width: 1200px; list-style: none;
+       overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 640px) { ul { padding: 0 8px; } }
+  a { display: block; padding: 13px 14px 11px; white-space: nowrap; text-decoration: none;
+      font-family: var(--font-body); font-size: .86rem; font-weight: 600; color: var(--color-text-muted);
+      border-bottom: 3px solid transparent; }
+  a:hover { color: var(--color-primary); }
+  a[aria-current='page'] { color: var(--color-primary); font-weight: 800; border-bottom-color: var(--color-accent); }
+  a:focus-visible { outline: 3px solid rgba(242, 140, 40, .55); outline-offset: -3px; border-radius: 4px; }
+  .zahl { display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 5px; border-radius: 9px;
+          background: #FDECEC; color: #B42318; font-size: .7rem; font-weight: 800; text-align: center; }
+`;
+
+/* Uebersicht: kurze Handlungsbloecke statt Tabellen */
+const Hinweise = styled.ul`
+  list-style: none; margin: 0; padding: 0;
+  li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+       padding: 12px 18px; border-bottom: 1px solid rgba(11, 37, 69, .06); font-family: var(--font-body); font-size: .9rem; }
+  li:last-child { border-bottom: 0; }
+  li[data-ton='warn'] strong { color: #B42318; }
+  strong { font-weight: 800; color: var(--color-primary); margin-right: 4px; }
+  a { font-weight: 700; font-size: .82rem; color: var(--color-primary); text-decoration: none; white-space: nowrap; }
+  a:hover { text-decoration: underline; }
 `;
 
 const Logo = styled.p`
@@ -44,33 +80,14 @@ const SignOutBtn = styled.button`
   &:hover { color: white; border-color: rgba(255,255,255,.4); }
 `;
 
-const Inner = styled.div`
-  max-width: 1200px; margin: 0 auto; padding: 32px 24px;
+const Inner = styled.main`
+  max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px;
+  @media (max-width: 640px) { padding: 18px 16px 40px; }
 `;
 
-const StatsGrid = styled.div`
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px; margin-bottom: 32px;
-`;
 
-const StatCard = styled.div`
-  background: var(--color-white); border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); padding: 20px;
-  border-left: 4px solid ${({ $color }) => $color || 'var(--color-accent)'};
-  animation: ${fadeUp} .4s ease ${({ $d }) => $d || '0s'} both;
-`;
 
-const StatNum = styled.p`
-  font-family: var(--font-display); font-weight: 900;
-  font-size: 2.2rem; line-height: 1;
-  color: ${({ $c }) => $c || 'var(--color-primary)'};
-`;
 
-const StatLabel = styled.p`
-  font-family: var(--font-body); font-size: .72rem;
-  text-transform: uppercase; letter-spacing: .08em;
-  color: var(--color-text-muted); margin-top: 6px;
-`;
 
 const Section = styled.div`
   background: var(--color-white); border: 1px solid var(--color-border);
@@ -259,50 +276,92 @@ export default function Admin() {
 
   /* Ein Weg zum Server, eine Stelle fuer Fehler. Jede Aktion geht
      ueber admin-ops; das Frontend kennt keine Tabelle und keine RPC. */
-  const rufeAdminOps = async (action, params = {}) => {
+  /* Stabil (useCallback): Bereichs-Bauteile laden in useEffect mit dieser
+     Funktion als Abhaengigkeit — eine neue Funktion je Render loeste
+     sonst bei jedem Admin-Render einen weiteren Ladevorgang aus. */
+  const rufeAdminOps = useCallback(async (action, params = {}) => {
     const { data, error } = await supabase.functions.invoke('admin-ops', {
       body: { action, params },
     });
     if (error) throw new Error(error.message || 'Aufruf fehlgeschlagen');
     if (data?.error) throw new Error(data.error);
     return data;
+  }, []);
+
+  /* ── WP16.1: Bereich aus der URL, Daten je Bereich ──
+     Nur was der sichtbare Bereich braucht, wird geladen. Akquise und
+     Founding Partner laden in ihren eigenen Bauteilen beim Oeffnen. */
+  const [bereich, setBereichState] = useState(() => bereichAusSuche(typeof window !== 'undefined' ? window.location.search : ''));
+  const [akquiseKpi, setAkquiseKpi] = useState(null);
+
+  useEffect(() => {
+    const zurueck = () => setBereichState(bereichAusSuche(window.location.search));
+    window.addEventListener('popstate', zurueck);
+    return () => window.removeEventListener('popstate', zurueck);
+  }, []);
+
+  const wechsleBereich = (neu) => {
+    if (neu === bereich) return;
+    try { window.history.pushState({ bereich: neu }, '', `${window.location.pathname}${sucheFuerBereich(neu, window.location.search)}`); } catch { /* Zustand reicht */ }
+    setBereichState(neu);
+    try { window.scrollTo(0, 0); } catch { /* jsdom */ }
   };
 
-  const ladeListe = async (begriff = suche) => {
+  const ladeKunden = useCallback(async (begriff) => {
+    const ops = await rufeAdminOps('list_customers', { suche: begriff, limit: 50 });
+    setCustomers(ops?.customers || []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const ladeLeads = useCallback(async () => {
+    const r = await supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50);
+    if (r.error) throw r.error;
+    setLeads(r.data || []);
+  }, []);
+
+  /* Eigener catch: Ein Fehler hier darf nichts anderes mitreissen. */
+  const ladeSupport = useCallback(async () => {
+    const support = await rufeAdminOps('list_support_requests', { status: 'open', limit: 50 })
+      .catch((e) => ({ requests: [], fehler: e.message }));
+    setSupportAnfragen(support?.requests || []);
+    setSupportFehler(support?.fehler || '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Akquise-KPI fuer die Uebersicht: limit 1 — die Zahlen rechnet
+     acquisition_overview ueber alle Leads, die Liste braucht es hier nicht. */
+  const ladeAkquiseKpi = useCallback(async () => {
+    const r = await rufeAdminOps('acquisition_list', { status: 'alle', limit: 1 }).catch(() => null);
+    setAkquiseKpi(r?.kpi ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Laedt, was der Bereich braucht. „Aktualisieren" ruft dasselbe. */
+  const ladeBereich = async (welcher = bereich, begriff = suche) => {
     setRefreshing(true);
     setLoadError('');
     try {
-      const [ops, leadsResult, support] = await Promise.all([
-        rufeAdminOps('list_customers', { suche: begriff, limit: 50 }),
-        supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(50),
-        /* Eigener catch: Ein Fehler hier darf die Kundenliste nicht
-           mitreissen. Die Anfragen sind wichtig, aber nicht wichtiger
-           als alles andere auf der Seite. */
-        rufeAdminOps('list_support_requests', { status: 'open', limit: 50 })
-          .catch((e) => ({ requests: [], fehler: e.message })),
-      ]);
-      if (leadsResult.error) throw leadsResult.error;
-      setCustomers(ops?.customers || []);
-      setLeads(leadsResult.data || []);
-      setSupportAnfragen(support?.requests || []);
-      setSupportFehler(support?.fehler || '');
+      if (welcher === 'uebersicht') await Promise.all([ladeKunden(''), ladeLeads(), ladeSupport(), ladeAkquiseKpi()]);
+      else if (welcher === 'kunden') await Promise.all([ladeKunden(begriff), ladeSupport()]);
+      else if (welcher === 'setup') await ladeLeads();
     } catch (err) {
       /* §24: brauchbar, aber ohne interne Details. Der Code steht im
          Function-Log. */
       setLoadError(`Die Admin-Daten konnten nicht geladen werden: ${err.message}`);
-      setCustomers([]);
-      setLeads([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  /* Bestehender Name fuer die Kundensuche (Suchen, Zuruecksetzen, nach Aktionen). */
+  const ladeListe = (begriff = suche) => ladeBereich('kunden', begriff);
+
   useEffect(() => {
     if (!isAdmin) return;
-    ladeListe('');
+    ladeBereich(bereich, bereich === 'kunden' ? suche : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  }, [isAdmin, bereich]);
 
   /* Nur laden. Getrennt von oeffneKunde, weil nach einer Aktion neu
      geladen wird — und dabei darf die Rueckmeldung zur Aktion nicht
@@ -401,7 +460,18 @@ export default function Admin() {
   const foundingUsers = customers.filter((p) => p.plan === 'founding_partner').length;
   const mitGoogle = customers.filter((p) => p.googleStatus === 'active').length;
   const ohneConsent = customers.filter((p) => !p.consentVorhanden).length;
-  const setupLeads = leads.filter((l) => l.needs_manual_setup && l.status === 'new').length;
+  const offeneSetups = leads.filter((l) => l.needs_manual_setup && l.status === 'new');
+  const setupLeads = offeneSetups.length;
+
+  const zuBereich = (key) => (e) => { e.preventDefault(); wechsleBereich(key); };
+  const bereichLink = (key) => `${window.location.pathname}${sucheFuerBereich(key, window.location.search)}`;
+
+  const aktualisieren = (
+    <RefreshBtn onClick={() => ladeBereich()} disabled={refreshing} aria-label="Bereich neu laden">
+      {refreshing ? <SpinIcon size={13} /> : <RefreshCw size={13} />}
+      Aktualisieren
+    </RefreshBtn>
+  );
 
   return (
     <Page>
@@ -415,39 +485,80 @@ export default function Admin() {
         </SignOutBtn>
       </TopBar>
 
-      <Inner>
+      {/* ── WP16.1: Bereiche statt einer langen Seite ── */}
+      <BereichNav aria-label="Admin-Bereiche" data-testid="admin-bereiche">
+        <ul>
+          {BEREICHE.map((b) => (
+            <li key={b.key}>
+              <a href={bereichLink(b.key)} onClick={zuBereich(b.key)} aria-current={bereich === b.key ? 'page' : undefined} data-bereich={b.key}>
+                {b.label}
+                {b.key === 'setup' && setupLeads > 0 && <span className="zahl" aria-label={`${setupLeads} offen`}>{setupLeads}</span>}
+                {b.key === 'kunden' && supportAnfragen.length > 0 && <span className="zahl" aria-label={`${supportAnfragen.length} offene Anfragen`}>{supportAnfragen.length}</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </BereichNav>
+
+      <Inner data-bereich={bereich} data-testid="admin-inhalt">
         {loadError && <Empty>{loadError}</Empty>}
 
-        <StatsGrid>
-          <StatCard $color="var(--color-accent)" $d="0s">
-            <StatNum>{gesamt}</StatNum>
-            <StatLabel>{suche ? 'Treffer' : 'Kunden (neueste 50)'}</StatLabel>
-          </StatCard>
-          <StatCard $color="#1E7E34" $d=".05s">
-            <StatNum $c="#1E7E34">{proUsers}</StatNum>
-            <StatLabel>Pro</StatLabel>
-          </StatCard>
-          <StatCard $color="var(--color-accent)" $d=".1s">
-            <StatNum>{foundingUsers}</StatNum>
-            <StatLabel>Founding Partner</StatLabel>
-          </StatCard>
-          <StatCard $color="var(--color-primary)" $d=".15s">
-            <StatNum>{mitGoogle}</StatNum>
-            <StatLabel>Google aktiv</StatLabel>
-          </StatCard>
-          {ohneConsent > 0 && (
-            <StatCard $color="#D48A00" $d=".2s">
-              <StatNum $c="#D48A00">{ohneConsent}</StatNum>
-              <StatLabel>Ohne Zustimmung</StatLabel>
-            </StatCard>
-          )}
-          {setupLeads > 0 && (
-            <StatCard $color="#D93025" $d=".25s">
-              <StatNum $c="#D93025">{setupLeads}</StatNum>
-              <StatLabel>Offene Setup-Aufträge</StatLabel>
-            </StatCard>
-          )}
-        </StatsGrid>
+        {/* ═══ ÜBERSICHT — Orientierung, keine Arbeitsflaeche ═══ */}
+        {bereich === 'uebersicht' && (
+          <div data-testid="bereich-uebersicht">
+            <BereichKopf titel="Übersicht" untertitel="Was steht an?">{aktualisieren}</BereichKopf>
+            <KpiReihe data-testid="uebersicht-kpi">
+              <Kpi wert={gesamt} label="Kunden (neueste 50)" titel="Aus der Kundenliste, neueste 50" />
+              <Kpi wert={proUsers} label="Pro" ton="gut" />
+              <Kpi wert={foundingUsers} label="Founding Partner" ton="akzent" />
+              <Kpi wert={mitGoogle} label="Google aktiv" />
+              {ohneConsent > 0 && <Kpi wert={ohneConsent} label="Ohne Zustimmung" ton="warn" />}
+              {setupLeads > 0 && <Kpi wert={setupLeads} label="Offene Setup-Aufträge" ton="warn" />}
+              <Kpi wert={akquiseKpi?.leads ?? '—'} label="Akquise-Leads" titel="Leads in der Akquise (alle)" />
+            </KpiReihe>
+
+            <Flaeche>
+              <FlaecheKopf><h2>Handlungsbedarf</h2></FlaecheKopf>
+              <Hinweise data-testid="uebersicht-hinweise">
+                {supportAnfragen.length > 0 && (
+                  <li data-ton="warn"><span><strong>{supportAnfragen.length}</strong>offene Supportanfrage{supportAnfragen.length === 1 ? '' : 'n'} (Direkter Draht)</span>
+                    <a href={bereichLink('kunden')} onClick={zuBereich('kunden')}>Antworten →</a></li>
+                )}
+                {setupLeads > 0 && (
+                  <li data-ton="warn"><span><strong>{setupLeads}</strong>offene{setupLeads === 1 ? 'r' : ''} Setup-Auftr{setupLeads === 1 ? 'ag' : 'äge'}</span>
+                    <a href={bereichLink('setup')} onClick={zuBereich('setup')}>Öffnen →</a></li>
+                )}
+                {akquiseKpi?.neu > 0 && (
+                  <li><span><strong>{akquiseKpi.neu}</strong>Akquise-Lead{akquiseKpi.neu === 1 ? '' : 's'} noch nicht angeschrieben</span>
+                    <a href={bereichLink('akquise')} onClick={zuBereich('akquise')}>Akquise öffnen →</a></li>
+                )}
+                {akquiseKpi?.interesse > 0 && (
+                  <li><span><strong>{akquiseKpi.interesse}</strong>Lead{akquiseKpi.interesse === 1 ? '' : 's'} mit bestätigtem Interesse</span>
+                    <a href={bereichLink('akquise')} onClick={zuBereich('akquise')}>Akquise öffnen →</a></li>
+                )}
+                {foundingUsers > 0 && (
+                  <li><span><strong>{foundingUsers}</strong>Founding Partner</span>
+                    <a href={bereichLink('founding-partner')} onClick={zuBereich('founding-partner')}>Cockpit öffnen →</a></li>
+                )}
+                {supportAnfragen.length === 0 && setupLeads === 0 && !(akquiseKpi?.neu > 0) && !(akquiseKpi?.interesse > 0) && foundingUsers === 0 && (
+                  <li><span>Nichts offen.</span></li>
+                )}
+              </Hinweise>
+            </Flaeche>
+          </div>
+        )}
+
+        {/* ═══ AKQUISE ═══ (WP16 + WP16.1 Import; laedt selbst) */}
+        {bereich === 'akquise' && (
+          <div data-testid="bereich-akquise">
+            <Akquise rufeAdminOps={rufeAdminOps} />
+          </div>
+        )}
+
+        {/* ═══ KUNDEN — Direkter Draht, Suche, Support-Ansicht ═══ */}
+        {bereich === 'kunden' && (
+          <div data-testid="bereich-kunden">
+            <BereichKopf titel="Kunden" untertitel="Suchen, Support-Ansicht, Antworten auf Anfragen." />
 
         {/* ── DIREKTER DRAHT (21.10.2026, Antwortfeld 22.10.) ──
             Offene Supportanfragen der Founding Partner. Die Antwort
@@ -510,34 +621,20 @@ export default function Admin() {
           </Section>
         )}
 
-        {/* ── FOUNDING-PARTNER-COCKPIT (WP6, 09.11.2026) ──
-            Nutzen die ersten zehn FPs WERKRUF? Zustellung, Oeffnung,
-            Action-Links, erledigte Aufgaben, veroeffentlichte Antworten,
-            „49 €?". Alles ueber admin-ops; die Zahlen entstehen in
-            fp_cockpit_overview() — siehe docs/operations/founding-partner-cockpit.md. */}
-        <FoundingPartnerCockpit rufeAdminOps={rufeAdminOps} />
-
-        {/* ── AKQUISE (WP16, 10.11.2026) ──
-            Manuelle Founding-Partner-Akquise: Lead anlegen, personalisieren,
-            Vorschau, EINE Mail bewusst senden, Brevo-Ereignisse sehen,
-            Vertriebsstatus von Hand. Alles ueber admin-ops —
-            siehe docs/operations/acquisition-outreach.md. */}
-        <Akquise rufeAdminOps={rufeAdminOps} />
-
         {/* ── SUCHE (§5) ── */}
-        <Section>
-          <SectionHead>
-            <SectionTitle>
+        <Flaeche data-testid="admin-kunden-suche">
+          <FlaecheKopf>
+            <h2>
               <Users size={15} style={{ display: 'inline', marginRight: 8, verticalAlign: 'middle' }} />
               Kunde finden
-            </SectionTitle>
+            </h2>
             <RefreshBtn onClick={() => ladeListe()} disabled={refreshing}>
               {refreshing ? <SpinIcon size={13} /> : <RefreshCw size={13} />}
               Aktualisieren
             </RefreshBtn>
-          </SectionHead>
+          </FlaecheKopf>
 
-          <div style={{ padding: '0 16px 16px' }}>
+          <div style={{ padding: '14px 16px 0' }}>
             <SearchRow
               onSubmit={(e) => { e.preventDefault(); ladeListe(suche); }}
             >
@@ -563,61 +660,63 @@ export default function Admin() {
           ) : customers.length === 0 ? (
             <Empty>{suche ? `Kein Kunde zu „${suche}" gefunden.` : 'Keine Kunden gefunden.'}</Empty>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <Table>
+            <div>
+              <ResponsiveTabelle>
                 <thead>
                   <tr>
-                    <Th>Betrieb</Th>
-                    <Th>Plan</Th>
-                    <Th>Google</Th>
-                    <Th>Zustimmung</Th>
-                    <Th>Registriert</Th>
-                    <Th> </Th>
+                    <th>Betrieb</th>
+                    <th>Plan</th>
+                    <th>Google</th>
+                    <th>Zustimmung</th>
+                    <th>Registriert</th>
+                    <th> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {customers.map((p) => (
-                    <Tr key={p.id}>
-                      <Td>
+                    <tr key={p.id}>
+                      <td data-label="">
                         <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
                           {p.unternehmen || '—'}
                         </div>
                         <div style={{ fontSize: '.75rem', color: 'var(--color-text-muted)' }}>
                           {p.email || 'Keine E-Mail'}
                         </div>
-                      </Td>
-                      <Td>
-                        <PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge>
-                        <div style={{ marginTop: 5, fontSize: '.75rem' }}>{getSubscriptionLabel(p)}</div>
-                      </Td>
-                      <Td>
+                      </td>
+                      <td data-label="Plan">
+                        <div>
+                          <PlanBadge $plan={p.plan}>{p.plan || 'free'}</PlanBadge>
+                          <div style={{ marginTop: 5, fontSize: '.75rem' }}>{getSubscriptionLabel(p)}</div>
+                        </div>
+                      </td>
+                      <td data-label="Google">
                         <Status $ok={p.googleStatus === 'active'}>
                           {p.googleStatus === 'active' ? 'Aktiv' : String(p.googleStatus).replaceAll('_', ' ')}
                         </Status>
-                      </Td>
-                      <Td>
+                      </td>
+                      <td data-label="Zustimmung">
                         <Status $ok={p.consentVorhanden}>
                           {p.consentVorhanden ? 'liegt vor' : 'fehlt'}
                         </Status>
-                      </Td>
-                      <Td>{fmt(p.registriertAm)}</Td>
-                      <Td>
+                      </td>
+                      <td data-label="Registriert">{fmt(p.registriertAm)}</td>
+                      <td data-label="">
                         <Btn type="button" onClick={() => oeffneKunde(p)}>
                           Support-Ansicht
                         </Btn>
-                      </Td>
-                    </Tr>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
-              </Table>
+              </ResponsiveTabelle>
             </div>
           )}
-        </Section>
+        </Flaeche>
 
         {/* ── SUPPORT-ANSICHT (§4, §6, §30) ── */}
         {offenerKunde && (
-          <Section>
-            <SectionHead>
+          <Section data-testid="admin-support-ansicht">
+            <SectionHead style={{ flexWrap: 'wrap', gap: 10 }}>
               <SectionTitle>
                 {offenerKunde.unternehmen || offenerKunde.email || offenerKunde.id}
                 {snapshot && (
@@ -799,6 +898,7 @@ export default function Admin() {
                     ) : snapshot.locations.length === 0 ? (
                       <Reason>Keine Standorte — Google ist nicht aktiv verbunden.</Reason>
                     ) : (
+                      <div style={{ overflowX: 'auto' }}>
                       <Table>
                         <thead>
                           <tr>
@@ -823,6 +923,7 @@ export default function Admin() {
                           ))}
                         </tbody>
                       </Table>
+                      </div>
                     )}
                   </Block>
 
@@ -930,39 +1031,50 @@ export default function Admin() {
             </div>
           </Section>
         )}
+          </div>
+        )}
 
-        {/* ── SETUP-LEADS ── */}
-        {setupLeads > 0 && (
-          <Section>
-            <SectionHead>
-              <SectionTitle>
-                <AlertTriangle size={15} style={{ display: 'inline', marginRight: 8, color: '#D93025', verticalAlign: 'middle' }} />
-                Offene Setup-Aufträge ({setupLeads})
-              </SectionTitle>
-            </SectionHead>
-            <div style={{ overflowX: 'auto' }}>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Betrieb</Th>
-                    <Th>E-Mail</Th>
-                    <Th>Branche</Th>
-                    <Th>Eingetragen am</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.filter((l) => l.needs_manual_setup && l.status === 'new').map((l) => (
-                    <Tr key={l.id}>
-                      <Td style={{ fontWeight: 700, color: '#D93025' }}>{l.company_name}</Td>
-                      <Td>{l.email || '—'}</Td>
-                      <Td>{l.industry_key || 'handwerk'}</Td>
-                      <Td>{fmt(l.created_at)}</Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          </Section>
+        {/* ═══ FOUNDING PARTNER (WP6-Cockpit, unveraendert; laedt selbst) ═══ */}
+        {bereich === 'founding-partner' && (
+          <div data-testid="bereich-founding-partner">
+            <BereichKopf titel="Founding Partner" untertitel="Nutzen die ersten Betriebe WERKRUF? Zustellung, Öffnung, Aufgaben, Antworten, 49-€-Signal." />
+            {/* Zahlen aus fp_cockpit_overview() — siehe docs/operations/founding-partner-cockpit.md. */}
+            <FoundingPartnerCockpit rufeAdminOps={rufeAdminOps} />
+          </div>
+        )}
+
+        {/* ═══ SETUP ═══ */}
+        {bereich === 'setup' && (
+          <div data-testid="bereich-setup">
+            <BereichKopf titel="Setup" untertitel="Offene Setup-Aufträge aus dem SmartCheck.">{aktualisieren}</BereichKopf>
+            <Flaeche data-testid="setup-liste">
+              <FlaecheKopf>
+                <h2>
+                  <AlertTriangle size={15} style={{ display: 'inline', marginRight: 8, color: setupLeads > 0 ? '#D93025' : 'var(--color-text-muted)', verticalAlign: 'middle' }} />
+                  Offene Setup-Aufträge ({setupLeads})
+                </h2>
+              </FlaecheKopf>
+              {setupLeads === 0 ? (
+                <Leer>Keine offenen Setup-Aufträge.</Leer>
+              ) : (
+                <ResponsiveTabelle>
+                  <thead>
+                    <tr><th>Betrieb</th><th>E-Mail</th><th>Branche</th><th>Eingetragen am</th></tr>
+                  </thead>
+                  <tbody>
+                    {offeneSetups.map((l) => (
+                      <tr key={l.id}>
+                        <td data-label="" style={{ fontWeight: 700, color: '#D93025' }}>{l.company_name}</td>
+                        <td data-label="E-Mail">{l.email || '—'}</td>
+                        <td data-label="Branche">{l.industry_key || 'handwerk'}</td>
+                        <td data-label="Eingetragen am">{fmt(l.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </ResponsiveTabelle>
+              )}
+            </Flaeche>
+          </div>
         )}
       </Inner>
     </Page>
