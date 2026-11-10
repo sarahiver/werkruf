@@ -4604,7 +4604,7 @@ const RULES: Rule[] = [
     meta: {
       title: 'Saisonaler Google-Beitrag',
       purpose: 'Schlaegt in einem saisonalen Fenster einen vorbereiteten Google-Beitrag vor, den der Betrieb prueft und veroeffentlicht.',
-      rationale: 'Ein aktueller Beitrag haelt das Profil sichtbar und gepflegt. Saisons sind deterministisch (Katalog), die Pruefung „schon veroeffentlicht?" eine Tatsache. WERKRUF postet nie selbst.',
+      rationale: 'Ein aktueller Beitrag haelt das Profil fuer Kunden aktuell. Saisons sind deterministisch (Katalog), die Pruefung „schon veroeffentlicht?" eine Tatsache. WERKRUF postet nie selbst.',
       createdAt: '2026-11-10',
       author: 'Architektur',
       version: '1.0',

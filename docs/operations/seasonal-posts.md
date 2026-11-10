@@ -23,7 +23,7 @@ Free-Nutzer: Karte wird nicht gerendert (ProGate), Server antwortet 402, SQL ant
 | `sommer` | 15.06.–15.07. | 7 | alle |
 | `heizsaison` | 15.09.–31.10. | 10 | nur Google-Kategorie aus `HEIZUNGS_KATEGORIEN` (gcid), nie aus dem Firmennamen |
 
-Alles deterministisch, `heute` wird injiziert. Kein `?date=`-Override, kein Produktionsdatum verbiegen. Vorlagen enthalten den Google-Titel des Betriebs und nichts, was `VERBOTENE_BEITRAGSMUSTER` trifft (Rabatt/%, €/Preis, Notdienst/24h, freie Termine/Termin sichern, Garantie). Vom Nutzer editierter Text wird nur auf Länge (20–1500 Zeichen) geprüft.
+Alles deterministisch, `heute` wird injiziert. Kein `?date=`-Override, kein Produktionsdatum verbiegen. Vorlagen enthalten den Google-Titel des Betriebs und nichts, was `VERBOTENE_BEITRAGSMUSTER` trifft (Rabatt/%, €/Preis, Notdienst/24h, freie Termine/Termin sichern, Garantie). Vom Nutzer editierter Text wird nur auf Länge (20–1500 Zeichen) geprüft — das Maximum ist ein **WERKRUF-Produktlimit** für kompakte Darstellung, keine Google-Angabe; Google-Validierungsfehler werden zusätzlich durchgereicht. WERKRUF-Texte (Aufgabe, Begründung, Vorlage) versprechen keine Sichtbarkeits-, Ranking- oder Nachfragewirkung und behaupten keine Erreichbarkeit/Öffnung (Betriebsferien).
 
 ## Datenfluss
 

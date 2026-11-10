@@ -17,9 +17,10 @@
 
 import { ausIso, alsIso, datumPlus, tageBis, ostersonntag, deterministischeUuid } from './feiertage.js';
 
-/* Google LocalPost summary: die API-Referenz nennt kein Limit, die
-   Google-Hilfe 1.500 Zeichen. Serverseitig hart; Google-Fehler werden
-   zusaetzlich durchgereicht. */
+/* WERKRUF begrenzt Saison-Beitraege fuer eine kompakte Darstellung auf
+   1.500 Zeichen. Das ist ein WERKRUF-Produktlimit, keine Google-Angabe —
+   die Google-API kann zusaetzlich eigene Validierungsfehler zurueckgeben,
+   die durchgereicht werden. */
 export const BEITRAG_MAX_ZEICHEN = 1500;
 export const BEITRAG_MIN_ZEICHEN = 20;
 
@@ -40,27 +41,27 @@ export const SAISONEN = Object.freeze([
   {
     key: 'weihnachten', titel: 'Weihnachtsgruß', aufgabe: 'Weihnachtsbeitrag vorbereiten',
     start: '12-01', ende: '12-23', dringendAbTagen: 7, fuer: 'alle',
-    warum: 'Weihnachten steht vor der Tür. Ein aktueller Beitrag hält dein Google-Profil sichtbar und zeigt Kunden, dass es gepflegt ist.',
+    warum: 'Weihnachten steht vor der Tür. Mit einem aktuellen Beitrag kannst du deinen Kunden direkt im Google-Profil einen kurzen Weihnachtsgruß zeigen.',
   },
   {
     key: 'jahreswechsel', titel: 'Neujahrsgruß', aufgabe: 'Neujahrsbeitrag vorbereiten',
     start: '12-27', ende: '01-06', dringendAbTagen: 4, fuer: 'alle',
-    warum: 'Zum Jahreswechsel schauen viele Kunden, wer im neuen Jahr erreichbar ist. Ein kurzer Gruß hält dein Profil aktuell.',
+    warum: 'Zum Jahreswechsel kannst du deinen Kunden mit einem kurzen Beitrag direkt im Google-Profil einen Neujahrsgruß zeigen.',
   },
   {
     key: 'ostern', titel: 'Ostergruß', aufgabe: 'Osterbeitrag vorbereiten',
     beweglich: 'ostern', vorTage: 14, nachTage: 0, dringendAbTagen: 5, fuer: 'alle',
-    warum: 'Ostern ist in zwei Wochen. Ein kurzer Gruß zeigt, dass dein Google-Profil lebt.',
+    warum: 'Ostern steht vor der Tür. Ein kurzer Beitrag hält dein Google-Profil für Kunden aktuell.',
   },
   {
     key: 'sommer', titel: 'Sommergruß', aufgabe: 'Sommerbeitrag vorbereiten',
     start: '06-15', ende: '07-15', dringendAbTagen: 7, fuer: 'alle',
-    warum: 'Im Sommer planen viele ihre Projekte. Ein aktueller Beitrag hält dein Profil in dieser Zeit sichtbar.',
+    warum: 'Ein saisonaler Sommerbeitrag hält dein Google-Profil für Kunden aktuell.',
   },
   {
     key: 'heizsaison', titel: 'Start der Heizsaison', aufgabe: 'Heizsaison-Beitrag vorbereiten',
     start: '09-15', ende: '10-31', dringendAbTagen: 10, fuer: 'heizung',
-    warum: 'Die Heizsaison beginnt. Kunden suchen jetzt nach Wartung und Reparatur — ein Beitrag erinnert daran, dass du da bist.',
+    warum: 'Die Heizsaison beginnt. Jetzt passt ein aktueller Beitrag zu diesem saisonalen Thema.',
   },
 ]);
 
@@ -142,7 +143,7 @@ const VORLAGEN = Object.freeze({
   ostern: ({ betrieb }) =>
     `Wir wünschen euch frohe Ostern und ein paar erholsame Tage.\n\nEuer Team von ${betrieb}`,
   sommer: ({ betrieb }) =>
-    `Einen schönen Sommer wünscht euch das Team von ${betrieb}.\n\nWir sind weiterhin für euch da — wie gewohnt über die Kontaktdaten in unserem Profil.`,
+    `Einen schönen Sommer wünscht euch das Team von ${betrieb}.\n\nWir wünschen euch eine gute Sommerzeit.`,
   heizsaison: ({ betrieb }) =>
     `Die Heizsaison startet.\n\nJetzt ist ein guter Zeitpunkt, Heizung und Anlage überprüfen zu lassen, bevor es richtig kalt wird.\n\n${betrieb}`,
 });
@@ -154,14 +155,27 @@ export function baueBeitragsVorschlag({ key, betrieb }) {
   return v({ betrieb: b });
 }
 
-/* Was eine VORLAGE nie enthalten darf (Test + Gegenprobe C7). */
+/* Was eine VORLAGE nie enthalten darf (Test + Gegenprobe C7). Gilt fuer
+   unsere Texte, nicht fuer vom Nutzer editierte. */
 export const VERBOTENE_BEITRAGSMUSTER = Object.freeze([
   /\d+\s*%|Prozent|Rabatt|Sonderpreis|Angebot|Aktion|günstig|kostenlos|gratis|Gutschein/i,   // Angebote/Preise
   /€|EUR\b|Euro\b|Preis/i,
   /Notdienst|24\s*h|rund um die Uhr/i,                                                   // Verfuegbarkeit
   /freie Termine|Termin sichern|jetzt buchen|sofort verfügbar|kurzfristig/i,
   /Garantie|garantiert/i,
+  /wir sind .{0,30}\b(da|erreichbar)\b|wie gewohnt|geöffnet|Öffnungszeiten|erreichbar|Termin vereinbaren/i,   // Verfuegbarkeits-/Erreichbarkeitsbehauptungen — koennen bei Betriebsferien falsch sein
 ]);
+
+/* Was WERKRUF-Texte (Aufgaben, Begruendungen, Vorlagen) nie behaupten:
+   Sichtbarkeits-, Ranking- oder Nachfragewirkung. Nicht belegt, nicht versprochen. */
+export const VERBOTENE_WIRKUNGSMUSTER = Object.freeze([
+  /sichtbar(er|keit)?\b/i, /Ranking|Platzierung|besser gefunden|gefunden werden/i, /mehr (Anfragen|Kunden|Aufträge|Reichweite)/i,
+  /Kunden suchen (jetzt|gerade)/i, /Google (bevorzugt|belohnt)/i,
+]);
+
+export function textOhneWirkungsversprechen(text) {
+  return typeof text === 'string' && !VERBOTENE_WIRKUNGSMUSTER.some((re) => re.test(text));
+}
 
 export function textErlaubtFuerBeitrag(text) {
   return typeof text === 'string' && !VERBOTENE_BEITRAGSMUSTER.some((re) => re.test(text));
@@ -180,7 +194,7 @@ export function pruefeBeitragstext(text) {
 export const BEITRAG_GRUND_TEXT = Object.freeze({
   leer: 'Der Beitrag ist leer.',
   zu_kurz: `Bitte mindestens ${BEITRAG_MIN_ZEICHEN} Zeichen.`,
-  zu_lang: `Höchstens ${BEITRAG_MAX_ZEICHEN} Zeichen — Google nimmt längere Beiträge nicht an.`,
+  zu_lang: 'Höchstens 1.500 Zeichen pro WERKRUF-Saisonbeitrag.',
   bereits_veroeffentlicht: 'Für diese Saison ist bereits ein Beitrag veröffentlicht.',
   laeuft_bereits: 'Die Veröffentlichung läuft gerade — einen Moment.',
   keine_saison: 'Für diesen Betrieb ist gerade kein saisonaler Beitrag vorgesehen.',
