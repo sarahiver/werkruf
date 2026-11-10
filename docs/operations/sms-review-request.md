@@ -29,8 +29,8 @@ Provider, kein neues Konto.
 | Secret | Pflicht | Zweck |
 |---|---|---|
 | `BREVO_API_KEY` | ja (vorhanden) | Versand |
-| `BREVO_WEBHOOK_SECRET` | ja (vorhanden) | Delivery-Webhook-Prüfung; Fallback-Pepper für den Nummern-Hash |
-| `SMS_PHONE_PEPPER` | optional | eigener HMAC-Pepper für `phone_hash` (sonst `BREVO_WEBHOOK_SECRET`) |
+| `SMS_WEBHOOK_SECRET` | ja (WP14.2) | Delivery-Webhook-Prüfung und `webUrl` je SMS. Fehlt es, geht die SMS trotzdem raus, aber ohne Delivery-Callback (Status bleibt `sent`). |
+| `SMS_PHONE_PEPPER` | empfohlen | eigener HMAC-Pepper für `phone_hash`; übergangsweise Fallback auf `SMS_WEBHOOK_SECRET`. **Nie** `BREVO_WEBHOOK_SECRET` (WP14.2: SMS ist vom Mail-Webhook-Secret entkoppelt). |
 | `SMS_DELIVERY_MODE` | optional | `production` (Default) oder `test` |
 | `SMS_TEST_RECIPIENT` | bei `test` | E.164-Nummer, an die im Testmodus **jede** SMS geht |
 
@@ -65,22 +65,60 @@ frühe Rückmeldung; die Wahrheit ist der Server.
 ## Bewertungslink — ein Generator
 
 `src/utils/bewertungslink.js`: `https://search.google.com/local/writereview?placeid=<place_id>`
-aus `google_locations.place_id`. Client (Link, QR) und Edge Function
-(SMS) nutzen dieselbe Funktion. Kein Shortener, kein Tracking-Link.
-Ohne `place_id`: kein Versand, UI „Für diesen Betrieb ist noch kein
-Bewertungslink verfügbar.“
+aus `google_locations.place_id`. Client (Link, QR) und der Redirect der
+Edge Function nutzen dieselbe Funktion. Ohne `place_id`: kein Versand, UI
+„Für diesen Betrieb ist noch kein Bewertungslink verfügbar.“
 
-## Vorlage (fest, nicht editierbar)
+## Kurzer Link `werkruf.com/b/<code>` (WP14.2)
 
-> Hallo {Vorname}, vielen Dank für deinen Auftrag bei {Betrieb}. Wenn du
-> zufrieden warst, freuen wir uns über eine kurze Google-Bewertung: {Link}
+**Zweck: SMS-Länge, nicht Tracking.** Der Google-Link (~80 Zeichen) drückte
+typische Anfragen ins zweite GSM-7-Segment; der kurze Link (7 Zeichen,
+`[A-Za-z0-9]`, opak, nicht sequenziell, nicht aus IDs ableitbar) hält sie
+in einem. Beispiel Maximilian / Elektrotechnik Müller GmbH: alt 2 Segmente
+→ neu 1. Sehr lange Betriebsnamen können weiterhin 2 ergeben — das UI
+zeigt die echte Zahl, keine „immer 1 SMS“-Behauptung.
+
+- Tabelle `review_short_links(location_id, code unique, active, created_at,
+  revoked_at)`: **ein aktiver, stabiler Code je Standort**, nicht je SMS.
+  Speichert **nur** `location_id` — keine URL, keine `place_id`; die
+  Selbstprüfung bricht sonst ab. `ON DELETE CASCADE` zum Standort.
+- Erzeugung nur serverseitig beim Versand/Preview: `requireUser →
+  requirePaidAccess → loadOwnLocation → ensure_review_short_link(user,
+  location)` (prüft Besitz erneut). Preview und Versand nutzen exakt
+  denselben Code — eine Wahrheit.
+- Redirect: `GET /b/<code>` → `review_short_link_place_id(code)` (nur bei
+  aktivem Code, nicht gelöschtem Standort, vorhandener `place_id`) →
+  `bewertungsLink(place_id)` → **302**. Sonst **404 ohne Inhalt**: keine
+  IDs, kein Name, keine `place_id` in einer Antwort. Kein DB-Write pro
+  Klick, kein Klick-Tracking. Header `no-store`, `no-referrer`, `noindex`.
+- Hosting: `vercel.json` schreibt `werkruf.com/b/:code` per Rewrite auf die
+  Edge Function `google-business/b/:code` um (Proxy; der 302 wird
+  durchgereicht, die App lädt nicht). SPA-Fallback `/(.*) → /index.html`
+  bleibt explizit erhalten.
+- Fachlich getrennt von WP10 (`/empfehlen/<code>`, `referral_codes`).
+- **QR-Code unverändert**: nutzt weiterhin den direkten Google-Link.
+  Umstellung wäre möglich (gleicher Redirect), ist aber kein Teil von
+  WP14.2 — ein gedruckter QR ist langlebig; ein Shortlink-QR hinge an
+  der Verfügbarkeit von werkruf.com.
+
+## Vorlage (fest, nicht editierbar) — neutral seit WP14.2
+
+> Hallo {Vorname}, danke für deinen Auftrag bei {Betrieb}. Teile gern
+> deine Erfahrung bei Google: https://werkruf.com/b/{code}
+
+Vorher stand „Wenn du zufrieden warst, …“ — das selektiert implizit
+zufriedene Kunden und widerspricht „kein Gating, gleicher Weg für alle“.
+Die Vorlage ist jetzt neutral; gewählt wurde die kürzere der beiden
+Varianten, weil sie typische Anfragen sicher in einem Segment hält.
 
 Vorname (1–40 Zeichen, nur Buchstaben) vom Betrieb, Betriebsname aus
-`google_locations.title`, Link aus `place_id` — alles vom Server.
-**Kein Incentive, keine Sternevorgabe, kein Review-Gating**: jeder
-Kunde bekommt denselben Link. `textErlaubt()` prüft die gebaute
-Nachricht gegen verbotene Muster („5 Sterne“, „unzufrieden“, Gutschein/
-Rabatt/Bonus, „antworte erst uns“); der Server verweigert sonst.
+`google_locations.title`, Code aus `review_short_links` — alles vom
+Server. **Kein Incentive, keine Sternevorgabe, kein Gating in beide
+Richtungen.** `textErlaubt()` prüft gegen: „5 Sterne“/„bei 5 Sternen“;
+„unzufrieden“/„nicht zufrieden“; **positive Selektion** („wenn du/Sie
+zufrieden“, „wenn alles gepasst/gut war“, „wenn du/Sie uns empfehlen“,
+„positive/gute Bewertung“); Gutschein/Rabatt/Bonus/Prämie; „antworte
+erst uns“. Der Server verweigert sonst.
 
 Segmente: GSM-7 (inkl. Umlaute/ß) 160 bzw. 153 je Teil, UCS-2 70/67.
 Das UI zeigt „1 SMS“ / „2 SMS-Segmente“ aus der Server-Vorschau.
@@ -119,8 +157,10 @@ SMS ist etwas anderes. Die Route ruft `is_account_paused` nicht auf
 - `failed`: Brevo-Fehler (`brevo_<status>`, `brevo_netz`,
   `brevo_ohne_message_id`) oder `nicht_konfiguriert`. Kein automatischer
   Retry — der Betrieb kann es erneut versuchen (Dedupe lässt das zu).
-- Webhook `POST /google-business/review-request/sms-webhook?secret=…`
-  (als `webUrl` je Nachricht mitgegeben): `delivered` → `delivered`;
+- Webhook `POST /google-business/review-request/sms-webhook?secret=<SMS_WEBHOOK_SECRET>`
+  (als `webUrl` je Nachricht mitgegeben; eigenes Secret seit WP14.2 — ein
+  geloggter `webUrl` gefährdet nicht mehr das Mail-Webhook-Secret):
+  `delivered` → `delivered`;
   `hard_bounce/soft_bounce/blocked/rejected/unsubscribed/error` →
   `failed`; alles andere ignoriert. Nur bekannte `messageId`; idempotent;
   rückwärts nie. Kein „gelesen“ — SMS hat keine Open-Metrik.
@@ -158,11 +198,18 @@ dort als „nicht live, vor Markenstart abgleichen“ dokumentiert (Stand
    Registrierung; falls Brevo eine Absender-Verifizierung verlangt,
    dort bestätigen.
 2. Secrets (Supabase → Edge Functions → Secrets): `BREVO_API_KEY` ist
-   da; optional `SMS_PHONE_PEPPER`; für den ersten Test
+   da; **neu `SMS_WEBHOOK_SECRET`** (zufällig, z. B. 32+ Zeichen) und
+   **`SMS_PHONE_PEPPER`** (eigenes zufälliges Secret); für den ersten Test
    `SMS_DELIVERY_MODE=test` + `SMS_TEST_RECIPIENT=+49…` (eigene Nummer),
    danach `SMS_DELIVERY_MODE` entfernen oder auf `production`.
+   Erwartete Secrets nach WP14.2: `BREVO_API_KEY`, `SMS_WEBHOOK_SECRET`,
+   `SMS_PHONE_PEPPER`, `SMS_DELIVERY_MODE`, `SMS_TEST_RECIPIENT`.
+   `BREVO_WEBHOOK_SECRET` bleibt nur für den Mail-Webhook.
 3. Kein Webhook im Brevo-Dashboard nötig — `webUrl` wird je Nachricht
    mitgeschickt.
+3b. Vercel übernimmt `vercel.json` beim nächsten Deploy; danach
+   `https://werkruf.com/b/<code>` im Browser prüfen → 302 auf
+   `search.google.com/local/writereview?placeid=…`.
 4. Migration läuft über Actions → Apply Supabase migrations
    (`NOTICE [wp14] in Ordnung`); Functions `google-business`, `admin-ops`
    deployen automatisch; Vercel ggf. „Promote to Production“.
@@ -172,11 +219,11 @@ dort als „nicht live, vor Markenstart abgleichen“ dokumentiert (Stand
 1. Migration angewendet, Secrets gesetzt (Testmodus), Functions deployed.
 2. Pro-Testuser → Mehr Bewertungen → Sektion sichtbar, Einwilligungshinweis.
 3. Standort auswählen (bei mehreren).
-4. Vorname + eigene Mobilnummer eingeben → Vorschau zeigt Name, Betrieb, Link, „1 SMS“/„2 SMS-Segmente“.
+4. Vorname + eigene Mobilnummer eingeben → Vorschau zeigt Name, Betrieb, **`werkruf.com/b/<code>`**, neutrale Copy (kein „zufrieden“), „1 SMS“/„2 SMS-Segmente“.
 5. „SMS senden“ → „SMS wurde gesendet.“; Formular leer.
 6. SMS kommt an (Testmodus: an `SMS_TEST_RECIPIENT`), Absender WERKRUF.
-7. Link öffnet den Google-Bewertungsdialog des richtigen Betriebs.
-8. `review_sms_requests`: Zeile `sent` mit `provider_message_id`; nach Zustellung `delivered` (Webhook).
+7. Kurzer Link öffnet den Google-Bewertungsdialog des richtigen Betriebs; `werkruf.com/b/zzzzzzz` → 404; zweiter Standort → anderer Code.
+8. `review_sms_requests`: Zeile `sent` mit `provider_message_id`; nach Zustellung `delivered` (Webhook mit `SMS_WEBHOOK_SECRET`; mit dem alten `BREVO_WEBHOOK_SECRET` allein → 401).
 9. Gleiche Nummer erneut → „heute schon eine Bewertungsanfrage“.
 10. Andere Nummer → erlaubt.
 11. Sechste SMS in 10 Minuten → Kurzzeitlimit.
