@@ -41,6 +41,9 @@ import {
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import { pruefePause, heuteBerlin } from '../../../src/utils/betriebsferien.js';
+import { bewertungsLink } from '../../../src/utils/bewertungslink.js';
+import { normalisiereMobilnummer } from '../../../src/utils/mobilnummer.js';
+import { baueBewertungsSms, bereinigeVorname, smsSegmente, textErlaubt, SMS_SENDER, SMS_TAG } from '../../../src/utils/smsBewertung.js';
 import {
   LEISTUNGS_METRIKEN, parseLeistungsantwort, deutetAufDeaktivierteApi,
 } from '../../../src/utils/googlePerformance.js';
@@ -2214,6 +2217,7 @@ interface LocationRow {
   account_resource_name: string;
   location_resource_name: string;
   title: string | null;
+  place_id?: string | null;          // WP14: Quelle des Bewertungslinks
   review_count: number;
   average_rating: number | null;
   last_synced_at: string | null;
@@ -8754,6 +8758,176 @@ const REFERRAL_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
 };
 
 /* ─────────────────────────────────────────────────────────────
+   WP14 — SMS-Bewertungsanfrage (manuell, einzeln, Pro/FP).
+
+   Flow: JWT → User → Access → eigener Standort → Bewertungslink aus
+   place_id → Mobilnummer normalisieren → Rate-Limit/Dedupe (SQL) →
+   Nachricht (feste Vorlage) → Brevo → Status/Audit.
+
+   Der Client schickt NUR locationId, vorname, telefon. Betriebsname,
+   Link und Nutzer kommen vom Server. Die Telefonnummer wird nie
+   gespeichert und nie geloggt — nur ihr HMAC-Hash. Bewusst KEIN
+   is_account_paused: die Pause (WP13) betrifft WERKRUFs automatische
+   Kommunikation, nicht eine vom Betrieb bewusst ausgeloeste SMS.
+   ───────────────────────────────────────────────────────────── */
+const BREVO_SMS_ENDPOINT = 'https://api.brevo.com/v3/transactionalSMS/send';
+
+async function telefonHash(e164: string): Promise<string> {
+  /* HMAC statt blankem Hash: der Nummernraum ist klein. Pepper =
+     SMS_PHONE_PEPPER, sonst das vorhandene BREVO_WEBHOOK_SECRET. */
+  const pepper = Deno.env.get('SMS_PHONE_PEPPER') ?? Deno.env.get('BREVO_WEBHOOK_SECRET') ?? '';
+  if (!pepper) throw new GbpError('config_error', 'SMS_PHONE_PEPPER fehlt');
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pepper), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(e164));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function smsEmpfaenger(e164: string): string {
+  /* Spiegel von EMAIL_DELIVERY_MODE: im Testmodus geht jede SMS an die
+     Testnummer — nie an echte Kunden. */
+  const mode = (Deno.env.get('SMS_DELIVERY_MODE') ?? 'production').toLowerCase();
+  if (mode === 'production') return e164;
+  if (mode === 'test') {
+    const t = Deno.env.get('SMS_TEST_RECIPIENT');
+    if (!t) throw new GbpError('config_error', 'SMS_TEST_RECIPIENT fehlt');
+    return t;
+  }
+  throw new GbpError('config_error', 'SMS_DELIVERY_MODE muss production oder test sein');
+}
+
+async function sendeBrevoSms(e164: string, content: string, requestId: string): Promise<{ ok: true; messageId: string } | { ok: false; code: string; retryable: boolean }> {
+  const apiKey = Deno.env.get('BREVO_API_KEY');
+  if (!apiKey) return { ok: false, code: 'nicht_konfiguriert', retryable: false };
+  const webhookSecret = Deno.env.get('BREVO_WEBHOOK_SECRET');
+  const base = Deno.env.get('SUPABASE_URL');
+  const webUrl = webhookSecret && base ? `${base}/functions/v1/google-business/review-request/sms-webhook?secret=${encodeURIComponent(webhookSecret)}` : undefined;
+  try {
+    const res = await fetch(BREVO_SMS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        sender: SMS_SENDER,
+        recipient: smsEmpfaenger(e164).replace(/^\+/, ''),
+        content,
+        type: 'transactional',
+        tag: SMS_TAG,
+        ...(webUrl ? { webUrl } : {}),
+      }),
+    });
+    if (!res.ok) {
+      /* Fehlertext nicht ungefiltert loggen — er kann die Nummer enthalten. */
+      return { ok: false, code: `brevo_${res.status}`, retryable: res.status === 429 || res.status >= 500 };
+    }
+    const data = await res.json().catch(() => ({})) as { messageId?: number | string };
+    if (data.messageId === undefined || data.messageId === null) return { ok: false, code: 'brevo_ohne_message_id', retryable: true };
+    return { ok: true, messageId: String(data.messageId) };
+  } catch {
+    console.error(JSON.stringify({ scope: 'review-request/sms', requestId, code: 'brevo_netz' }));
+    return { ok: false, code: 'brevo_netz', retryable: true };
+  }
+}
+
+async function handleReviewRequestSms(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; vorname?: string; telefon?: string }>(request);
+  if (!body.locationId) throw new GbpError('bad_request', 'locationId fehlt');
+
+  /* Eigener Standort — service role, deshalb Besitz hier geprueft */
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const link = bewertungsLink(location.place_id ?? null);
+  if (!link) throw new GbpError('bad_request', 'kein_link', { anzeigbar: true });
+
+  const vorname = bereinigeVorname(body.vorname ?? '');
+  if (!vorname) throw new GbpError('bad_request', 'name_fehlt', { anzeigbar: true });
+
+  const nummer = normalisiereMobilnummer(body.telefon ?? '') as { ok: boolean; e164?: string; grund?: string };
+  if (!nummer.ok || !nummer.e164) throw new GbpError('bad_request', `nummer_${nummer.grund}`, { anzeigbar: true });
+
+  const betrieb = (location.title ?? '').trim();
+  const text = baueBewertungsSms({ vorname, betrieb, placeId: location.place_id });
+  if (!text || !textErlaubt(text)) throw new GbpError('internal_error', 'Vorlage ungueltig');
+  const seg = smsSegmente(text) as { segmente: number; encoding: string };
+
+  const hash = await telefonHash(nummer.e164);
+  const admin = adminClient();
+  const { data: pruefung, error: pErr } = await admin.rpc('review_sms_pruefen', { p_user_id: user.id, p_phone_hash: hash });
+  if (pErr) throw new GbpError('internal_error', 'Pruefung fehlgeschlagen', { cause: pErr });
+  const p = (pruefung ?? {}) as { ok?: boolean; reason?: string };
+  if (!p.ok) {
+    if (p.reason === 'kein_zugang') throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
+    throw new GbpError('bad_request', p.reason ?? 'abgelehnt', { anzeigbar: true, status: p.reason?.startsWith('limit') ? 429 : 409 });
+  }
+
+  const { data: requestId, error: aErr } = await admin.rpc('review_sms_anlegen', {
+    p_user_id: user.id, p_location_id: location.id, p_phone_hash: hash, p_segment_count: seg.segmente,
+  });
+  if (aErr || !requestId) throw new GbpError('internal_error', 'Anfrage nicht anlegbar', { cause: aErr });
+
+  const ergebnis = await sendeBrevoSms(nummer.e164, text, String(requestId));
+  if (!ergebnis.ok) {
+    await admin.rpc('review_sms_status_setzen', { p_id: requestId, p_status: 'failed', p_provider_message_id: null, p_error_code: ergebnis.code });
+    await writeAuditLog({ userId: user.id, action: 'review_request.sms_failed', entityType: 'review_sms_request', entityId: String(requestId),
+      metadata: { locationId: location.id, status: 'failed', errorCode: ergebnis.code } });
+    if (ergebnis.code === 'nicht_konfiguriert') throw new GbpError('config_error', 'nicht_konfiguriert', { anzeigbar: true, status: 503 });
+    throw new GbpError('internal_error', 'provider', { anzeigbar: true, status: 502, retryable: ergebnis.retryable });
+  }
+  await admin.rpc('review_sms_status_setzen', { p_id: requestId, p_status: 'sent', p_provider_message_id: ergebnis.messageId, p_error_code: null });
+  await writeAuditLog({ userId: user.id, action: 'review_request.sms_sent', entityType: 'review_sms_request', entityId: String(requestId),
+    metadata: { locationId: location.id, providerMessageId: ergebnis.messageId, status: 'sent', segments: seg.segmente } });
+  return jsonResponse(request, { ok: true, requestId, status: 'sent', segments: seg.segmente, encoding: seg.encoding });
+}
+
+/* Vorschau fuer das UI — derselbe Server-Text, ohne Versand. */
+async function handleReviewRequestPreview(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; vorname?: string }>(request);
+  if (!body.locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const link = bewertungsLink(location.place_id ?? null);
+  if (!link) return jsonResponse(request, { ok: false, reason: 'kein_link' });
+  const vorname = bereinigeVorname(body.vorname ?? '') ?? 'Vorname';
+  const text = baueBewertungsSms({ vorname, betrieb: (location.title ?? '').trim(), placeId: location.place_id });
+  if (!text) return jsonResponse(request, { ok: false, reason: 'kein_link' });
+  const seg = smsSegmente(text) as { segmente: number; encoding: string };
+  return jsonResponse(request, { ok: true, text, segments: seg.segmente, encoding: seg.encoding });
+}
+
+/* Brevo-Delivery-Webhook (oeffentlich, Secret in Query wie beim
+   Mail-Webhook). Der Payload enthaelt die Nummer („to") — er wird
+   NIE geloggt oder gespeichert; wir lesen nur messageId und event. */
+async function handleReviewRequestSmsWebhook(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const expected = Deno.env.get('BREVO_WEBHOOK_SECRET') ?? '';
+  const geliefert = request.headers.get('X-Werkruf-Webhook-Secret') ?? url.searchParams.get('secret') ?? '';
+  if (!expected || geliefert !== expected) throw new GbpError('unauthenticated', 'Webhook-Secret');
+  const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
+  const roh = payload && typeof payload === 'object' ? payload : {};
+  const messageId = roh.messageId !== undefined && roh.messageId !== null ? String(roh.messageId) : (roh['message-id'] ? String(roh['message-id']) : null);
+  const event = typeof roh.event === 'string' ? roh.event.toLowerCase() : '';
+  const map: Record<string, 'delivered' | 'failed' | 'sent'> = {
+    delivered: 'delivered', sent: 'sent', accepted: 'sent',
+    hard_bounce: 'failed', hardbounce: 'failed', soft_bounce: 'failed', softbounce: 'failed',
+    blocked: 'failed', rejected: 'failed', unsubscribed: 'failed', error: 'failed',
+  };
+  const ziel = map[event];
+  if (!messageId || !ziel) return jsonResponse(request, { ok: true, ignored: true });
+  if (ziel === 'sent') return jsonResponse(request, { ok: true, ignored: true });
+  const { data } = await adminClient().rpc('review_sms_delivery', { p_provider_message_id: messageId, p_event: ziel, p_error_code: ziel === 'failed' ? event : null });
+  const r = (data ?? {}) as { known?: boolean; changed?: boolean };
+  console.log(JSON.stringify({ scope: 'review-request/sms-webhook', event, known: Boolean(r.known), changed: Boolean(r.changed) }));
+  return jsonResponse(request, { ok: true, known: Boolean(r.known), changed: Boolean(r.changed) });
+}
+
+const REVIEW_REQUEST_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
+  'sms':         { method: 'POST', handler: handleReviewRequestSms },
+  'sms-preview': { method: 'POST', handler: handleReviewRequestPreview },
+  'sms-webhook': { method: 'POST', handler: handleReviewRequestSmsWebhook },   // oeffentlich, Secret-geprueft
+};
+
+
+/* ─────────────────────────────────────────────────────────────
    WP13 — Betriebsferien-Pause (Account-weit).
 
    Pause = Kommunikationszustand, nicht Billing: Wochenmail und
@@ -8770,14 +8944,14 @@ async function handleAccountPause(request: Request): Promise<Response> {
   const bis = typeof body.bis === 'string' ? body.bis.trim() : '';
   const pruefung = pruefePause({ von, bis }, heuteBerlin()) as { ok: boolean; grund?: string; maxTage?: number };
   if (!pruefung.ok) {
-    throw new GbpError('bad_request', `Pause ungueltig: ${pruefung.grund}`);
+    throw new GbpError('bad_request', `Pause ungueltig: ${pruefung.grund}`, { anzeigbar: true });
   }
   const { data, error } = await adminClient().rpc('account_pause_set', { p_user_id: user.id, p_from: von, p_until: bis });
   if (error) throw new GbpError('internal_error', 'Pause konnte nicht gespeichert werden', { cause: error });
   const r = (data ?? {}) as { ok?: boolean; reason?: string; paused?: boolean };
   if (!r.ok) {
     if (r.reason === 'kein_pro') throw new GbpError('payment_required', 'Kein aktiver Produktzugang');
-    throw new GbpError('bad_request', `Pause ungueltig: ${r.reason}`);
+    throw new GbpError('bad_request', `Pause ungueltig: ${r.reason}`, { anzeigbar: true });
   }
   await writeAuditLog({ userId: user.id, action: 'account.pause_started', entityType: 'user_profile', entityId: user.id, metadata: { pauseFrom: von, pauseUntil: bis } });
   return jsonResponse(request, { ok: true, pauseFrom: von, pauseUntil: bis, paused: Boolean(r.paused) });
@@ -8864,6 +9038,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     routeName === 'location' && sub ? LOCATION_ROUTES[sub] :
     routeName === 'referral' && sub ? REFERRAL_ROUTES[sub] :
     routeName === 'account' && sub ? ACCOUNT_ROUTES[sub] :
+    routeName === 'review-request' && sub ? REVIEW_REQUEST_ROUTES[sub] :
     routeName === 'media' && sub ? MEDIA_ROUTES[sub] :
     routeName === 'categories' && sub ? CATEGORY_ROUTES[sub] :
     routeName === 'attributes' && sub ? ATTRIBUTE_ROUTES[sub] :

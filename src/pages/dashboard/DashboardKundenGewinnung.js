@@ -6,6 +6,8 @@ import { Copy, CheckCheck, Download, Star, ExternalLink, Smartphone } from 'luci
 import { useAuthContext } from '../../context/AuthContext';
 import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useAusgewaehlterStandort } from '../../hooks/useAusgewaehlterStandort';
+import SmsBewertungsanfrage from '../../components/dashboard/SmsBewertungsanfrage';
+import { bewertungsLink } from '../../utils/bewertungslink';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -152,7 +154,7 @@ export default function DashboardKundenGewinnung() {
   const { profile } = useAuthContext();
   const [copied, setCopied] = useState(false);
   const qrRef = useRef(null);
-  const { standort, grund, anzahl, loading: standortLaedt } = useAusgewaehlterStandort();
+  const { standort, grund, anzahl, standorte = [], loading: standortLaedt } = useAusgewaehlterStandort();
 
   /* ── Woher die Place-ID kommt, und woher nicht mehr ──
      ═══════════════════════════════════════════════════
@@ -194,9 +196,9 @@ export default function DashboardKundenGewinnung() {
      Rechnungsname. Siehe hooks/useBetriebsname.js. */
   const { name } = useBetriebsname();
   const companyName = name || 'Dein Betrieb';
-  const reviewUrl   = placeId
-    ? `https://search.google.com/local/writereview?placeid=${placeId}`
-    : null;
+  /* WP14: derselbe Generator wie in der Edge Function (SMS) —
+     src/utils/bewertungslink.js. Kein zweiter Link-Bauplan. */
+  const reviewUrl   = bewertungsLink(placeId);
 
   const handleCopy = () => {
     if (!reviewUrl) return;
@@ -350,6 +352,13 @@ export default function DashboardKundenGewinnung() {
             Für den Druck mindestens 300 DPI.
           </p>
         </Card>
+
+        {/* WP14 — manuelle SMS-Bewertungsanfrage; nur mit Standort aus
+            google_locations (Legacy-Place-ID ohne Standort reicht dem
+            Server nicht — er braucht einen eigenen Standort). */}
+        {quelle === 'oauth' && standort && (
+          <SmsBewertungsanfrage standorte={standorte} vorausgewaehlt={standort.id} />
+        )}
 
         {/* Tips */}
         <TipCard>

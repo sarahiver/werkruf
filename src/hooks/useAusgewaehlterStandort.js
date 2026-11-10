@@ -154,7 +154,10 @@ export function useAusgewaehlterStandort() {
         if (error) throw error;
 
         const aktive = data ?? [];
-        setZustand({ ...waehle(aktive), loading: false, fehler: false });
+        /* WP14: die Liste wird mitgegeben, damit eine Seite bei mehreren
+           Betrieben eine Auswahl anbieten kann — die Regel, welcher
+           ausgewaehlt ist, bleibt waehle(). */
+        setZustand({ ...waehle(aktive), standorte: Array.isArray(aktive) ? aktive : [], loading: false, fehler: false });
       } catch (err) {
         /* Fail closed: kein Standort statt eines geratenen. Ein
            falscher Bewertungslink wird gedruckt. */

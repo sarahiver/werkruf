@@ -164,14 +164,14 @@ const PLANS = [
   },
 ];
 
-/* „Wettbewerber-Monitoring" stand hier bis 09.11.2026 — es gibt kein
-   solches Feature (WP11 zurückgestellt, siehe
-   docs/operations/roadmap-deferred.md). ProGate.js hatte denselben
-   Claim am 23.10. bereits gestrichen. Kein Ersatz erfunden. */
+/* Product Truth: „Wettbewerber-Monitoring" (09.11.2026, WP11
+   zurückgestellt), „Bewertungs-Autopilot" und „Monatliches
+   PDF-Reporting" (10.11.2026, WP14 — es gibt keinen Autopilot und
+   keinen PDF-Report; die SMS-Anfrage ist bewusst manuell) wurden
+   entfernt. Kein Ersatz erfunden. ProGate.js hatte die Claims
+   am 23.10. bereits gestrichen. */
 const SUB_FEATURES = [
   'Google-Profil Optimierung',
-  'Bewertungs-Autopilot',
-  'Monatliches PDF-Reporting',
   'KI-Antwort-Assistent',
   'Monatlich kündbar',
 ];
