@@ -310,7 +310,17 @@ begin
   /* Aufgaben konto-weit, nur completed */
   assert (z ->> 'tasksCompleted7d')::int = 3,  format('T21: 3 completed in 7 Tagen: %s', z ->> 'tasksCompleted7d');
   assert (z ->> 'tasksCompleted30d')::int = 4, format('T21: 4 completed in 30 Tagen: %s', z ->> 'tasksCompleted30d');
-  assert (z ->> 'activeWeeks4')::int between 1 and 2, format('T21: activeWeeks4 1..2: %s', z ->> 'activeWeeks4');
+  /* activeWeeks4 haengt vom Wochentag ab: die Fixtures liegen bei -1, -2
+     und -20 Tagen; je nachdem, wo die ISO-Wochengrenze faellt, sind das
+     1 bis 3 verschiedene Wochen. Erwartung deshalb aus denselben
+     Zeitpunkten berechnet — nicht als feste Zahl geraten (10.11.2026:
+     dienstags waren es 3, die alte Schranke 1..2 galt nur montags). */
+  assert (z ->> 'activeWeeks4')::int = (
+           select count(distinct date_trunc('week', t))
+             from unnest(array[now() - interval '1 day', now() - interval '2 days', now() - interval '20 days']) t
+            where t >= date_trunc('week', now()) - interval '3 weeks'),
+         format('T21: activeWeeks4 muss den Fixture-Wochen entsprechen: %s', z ->> 'activeWeeks4');
+  assert (z ->> 'activeWeeks4')::int between 1 and 3, format('T21: activeWeeks4 ausserhalb 1..3: %s', z ->> 'activeWeeks4');
   assert (v -> 'kpis' ->> 'activeLast7d')::int = 1, 'T21: activeLast7d zaehlt user_b (kein FP) mit';
 
   /* Action-Links: nur bewusst konsumierte */
