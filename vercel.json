@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/b/:code",
+      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/b/:code"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

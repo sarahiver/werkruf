@@ -43,7 +43,7 @@ import { leseAccess } from '../../../src/utils/accessGate.js';
 import { pruefePause, heuteBerlin } from '../../../src/utils/betriebsferien.js';
 import { bewertungsLink } from '../../../src/utils/bewertungslink.js';
 import { normalisiereMobilnummer } from '../../../src/utils/mobilnummer.js';
-import { baueBewertungsSms, bereinigeVorname, smsSegmente, textErlaubt, SMS_SENDER, SMS_TAG } from '../../../src/utils/smsBewertung.js';
+import { baueBewertungsSms, bereinigeVorname, smsSegmente, textErlaubt, istShortCodeForm, SMS_SENDER, SMS_TAG } from '../../../src/utils/smsBewertung.js';
 import {
   LEISTUNGS_METRIKEN, parseLeistungsantwort, deutetAufDeaktivierteApi,
 } from '../../../src/utils/googlePerformance.js';
@@ -8774,8 +8774,10 @@ const BREVO_SMS_ENDPOINT = 'https://api.brevo.com/v3/transactionalSMS/send';
 
 async function telefonHash(e164: string): Promise<string> {
   /* HMAC statt blankem Hash: der Nummernraum ist klein. Pepper =
-     SMS_PHONE_PEPPER, sonst das vorhandene BREVO_WEBHOOK_SECRET. */
-  const pepper = Deno.env.get('SMS_PHONE_PEPPER') ?? Deno.env.get('BREVO_WEBHOOK_SECRET') ?? '';
+     SMS_PHONE_PEPPER (eigenes Secret), uebergangsweise SMS_WEBHOOK_SECRET.
+     Nie BREVO_WEBHOOK_SECRET (WP14.2: SMS haengt nicht mehr am
+     allgemeinen Brevo-Webhook-Secret). */
+  const pepper = Deno.env.get('SMS_PHONE_PEPPER') ?? Deno.env.get('SMS_WEBHOOK_SECRET') ?? '';
   if (!pepper) throw new GbpError('config_error', 'SMS_PHONE_PEPPER fehlt');
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pepper), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(e164));
@@ -8798,9 +8800,13 @@ function smsEmpfaenger(e164: string): string {
 async function sendeBrevoSms(e164: string, content: string, requestId: string): Promise<{ ok: true; messageId: string } | { ok: false; code: string; retryable: boolean }> {
   const apiKey = Deno.env.get('BREVO_API_KEY');
   if (!apiKey) return { ok: false, code: 'nicht_konfiguriert', retryable: false };
-  const webhookSecret = Deno.env.get('BREVO_WEBHOOK_SECRET');
+  /* WP14.2: eigenes SMS_WEBHOOK_SECRET. Fehlt es, wird kein webUrl
+     mitgegeben — die SMS geht trotzdem raus, der Status bleibt bei
+     'sent' (kein 'delivered'). Kein Rueckfall auf BREVO_WEBHOOK_SECRET. */
+  const webhookSecret = Deno.env.get('SMS_WEBHOOK_SECRET');
   const base = Deno.env.get('SUPABASE_URL');
   const webUrl = webhookSecret && base ? `${base}/functions/v1/google-business/review-request/sms-webhook?secret=${encodeURIComponent(webhookSecret)}` : undefined;
+  if (!webUrl) console.warn(JSON.stringify({ scope: 'review-request/sms', requestId, hinweis: 'SMS_WEBHOOK_SECRET fehlt — kein Delivery-Callback' }));
   try {
     const res = await fetch(BREVO_SMS_ENDPOINT, {
       method: 'POST',
@@ -8835,6 +8841,7 @@ async function handleReviewRequestSms(request: Request): Promise<Response> {
 
   /* Eigener Standort — service role, deshalb Besitz hier geprueft */
   const location = await loadOwnLocation(body.locationId, user.id);
+  /* Ohne place_id gibt es keinen Google-Link — dann auch keinen Shortlink, keinen Versand. */
   const link = bewertungsLink(location.place_id ?? null);
   if (!link) throw new GbpError('bad_request', 'kein_link', { anzeigbar: true });
 
@@ -8844,8 +8851,10 @@ async function handleReviewRequestSms(request: Request): Promise<Response> {
   const nummer = normalisiereMobilnummer(body.telefon ?? '') as { ok: boolean; e164?: string; grund?: string };
   if (!nummer.ok || !nummer.e164) throw new GbpError('bad_request', `nummer_${nummer.grund}`, { anzeigbar: true });
 
+  /* WP14.2: kurzer WERKRUF-Link je Standort (stabil, opak), serverseitig fuer den EIGENEN Standort */
+  const code = await ensureReviewShortCode(user.id, location.id);
   const betrieb = (location.title ?? '').trim();
-  const text = baueBewertungsSms({ vorname, betrieb, placeId: location.place_id });
+  const text = baueBewertungsSms({ vorname, betrieb, code });
   if (!text || !textErlaubt(text)) throw new GbpError('internal_error', 'Vorlage ungueltig');
   const seg = smsSegmente(text) as { segmente: number; encoding: string };
 
@@ -8888,7 +8897,9 @@ async function handleReviewRequestPreview(request: Request): Promise<Response> {
   const link = bewertungsLink(location.place_id ?? null);
   if (!link) return jsonResponse(request, { ok: false, reason: 'kein_link' });
   const vorname = bereinigeVorname(body.vorname ?? '') ?? 'Vorname';
-  const text = baueBewertungsSms({ vorname, betrieb: (location.title ?? '').trim(), placeId: location.place_id });
+  /* exakt derselbe Shortlink wie beim Versand — eine Wahrheit */
+  const code = await ensureReviewShortCode(user.id, location.id);
+  const text = baueBewertungsSms({ vorname, betrieb: (location.title ?? '').trim(), code });
   if (!text) return jsonResponse(request, { ok: false, reason: 'kein_link' });
   const seg = smsSegmente(text) as { segmente: number; encoding: string };
   return jsonResponse(request, { ok: true, text, segments: seg.segmente, encoding: seg.encoding });
@@ -8899,7 +8910,8 @@ async function handleReviewRequestPreview(request: Request): Promise<Response> {
    NIE geloggt oder gespeichert; wir lesen nur messageId und event. */
 async function handleReviewRequestSmsWebhook(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const expected = Deno.env.get('BREVO_WEBHOOK_SECRET') ?? '';
+  /* WP14.2: eigenes Secret — BREVO_WEBHOOK_SECRET (Mail-Webhook) reicht hier nicht. */
+  const expected = Deno.env.get('SMS_WEBHOOK_SECRET') ?? '';
   const geliefert = request.headers.get('X-Werkruf-Webhook-Secret') ?? url.searchParams.get('secret') ?? '';
   if (!expected || geliefert !== expected) throw new GbpError('unauthenticated', 'Webhook-Secret');
   const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
@@ -8918,6 +8930,29 @@ async function handleReviewRequestSmsWebhook(request: Request): Promise<Response
   const r = (data ?? {}) as { known?: boolean; changed?: boolean };
   console.log(JSON.stringify({ scope: 'review-request/sms-webhook', event, known: Boolean(r.known), changed: Boolean(r.changed) }));
   return jsonResponse(request, { ok: true, known: Boolean(r.known), changed: Boolean(r.changed) });
+}
+
+async function ensureReviewShortCode(userId: string, locationId: string): Promise<string> {
+  const { data, error } = await adminClient().rpc('ensure_review_short_link', { p_user_id: userId, p_location_id: locationId });
+  if (error || typeof data !== 'string' || !istShortCodeForm(data)) {
+    throw new GbpError('internal_error', 'Kurzlink nicht erzeugbar', { cause: error ?? new Error(String(data)) });
+  }
+  return data;
+}
+
+/* GET /b/<code> — oeffentlich, nur Redirect (WP14.2).
+   Code → aktiver, nicht geloeschter Standort mit place_id → kanonischer
+   Google-Link (bewertungsLink) → 302. Alles andere → 404, ohne Inhalt:
+   keine IDs, kein Name, keine place_id in einer Antwort. Kein DB-Write
+   pro Klick. Vercel reicht die Anfrage per Rewrite hierher durch. */
+async function handleReviewShortRedirect(_request: Request, code: string): Promise<Response> {
+  const kopf = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
+  if (!istShortCodeForm(code)) return new Response(null, { status: 404, headers: kopf });
+  const { data, error } = await adminClient().rpc('review_short_link_place_id', { p_code: code });
+  if (error) { console.error(JSON.stringify({ scope: 'review-short-link', code: 'lookup_failed' })); return new Response(null, { status: 404, headers: kopf }); }
+  const ziel = bewertungsLink(typeof data === 'string' ? data : null);
+  if (!ziel) return new Response(null, { status: 404, headers: kopf });
+  return new Response(null, { status: 302, headers: { ...kopf, Location: ziel } });
 }
 
 const REVIEW_REQUEST_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Request) => Promise<Response> }> = {
@@ -8999,6 +9034,15 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
   const url = new URL(request.url);
   const { name: routeName, sub } = resolveRoute(url);
+
+  /* WP14.2 — kurzer Bewertungslink: /b/<code>. Oeffentlich, nur GET,
+     nur Redirect. Vercel schreibt werkruf.com/b/<code> hierher um. */
+  if (routeName === 'b' && sub) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response(null, { status: 405, headers: { 'Allow': 'GET', 'Cache-Control': 'no-store' } });
+    }
+    return handleReviewShortRedirect(request, sub);
+  }
 
   /* Mail-Links zuerst: /a/<token>. Oeffentlich und ohne Bearer-Token —
      der Empfaenger ist nicht eingeloggt. */

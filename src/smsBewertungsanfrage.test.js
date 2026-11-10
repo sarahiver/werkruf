@@ -22,6 +22,7 @@ import { normalisiereMobilnummer, formatMobilnummer } from './utils/mobilnummer'
 import { bewertungsLink, istPlaceIdForm } from './utils/bewertungslink';
 import {
   baueBewertungsSms, bereinigeVorname, smsSegmente, textErlaubt, VERBOTENE_MUSTER, SMS_SENDER, EINWILLIGUNG_HINWEIS, RATE_LIMIT,
+  kurzerBewertungsLink, istShortCodeForm,
 } from './utils/smsBewertung';
 
 const lies = (p) => fs.readFileSync(path.resolve(__dirname, p), 'utf8');
@@ -32,6 +33,7 @@ const SEND = ROUTE.slice(ROUTE.indexOf('async function handleReviewRequestSms(')
 const HOOK = ROUTE.slice(ROUTE.indexOf('async function handleReviewRequestSmsWebhook'));
 const MIG = lies('../supabase/migrations/20261112120000_sms_bewertungsanfrage.sql');
 const PLACE = 'ChIJAbCdEfGhIjKlMnOpQrStUv';
+const CODE = 'A7kx92Q';
 
 describe('T7–T11 — Mobilnummer', () => {
   it('T7 — 0171… → +49171…', () => {
@@ -63,11 +65,16 @@ describe('T7–T11 — Mobilnummer', () => {
 });
 
 describe('T12–T17 — Nachricht', () => {
-  const t = baueBewertungsSms({ vorname: 'Thomas', betrieb: 'Elektro Müller', placeId: PLACE });
-  it('T12/T13/T14 — Vorname, Betrieb, kanonischer Link', () => {
+  const t = baueBewertungsSms({ vorname: 'Thomas', betrieb: 'Elektro Müller', code: CODE });
+  it('T12/T13/T14 — Vorname, Betrieb, kurzer WERKRUF-Link (WP14.2); Google-Link bleibt kanonisch fuer den Redirect', () => {
     expect(t).toMatch(/^Hallo Thomas, /);
     expect(t).toContain('bei Elektro Müller.');   // T13: Absender ist WERKRUF — der Kunde muss seinen Betrieb lesen
-    expect(t).toContain(bewertungsLink(PLACE));
+    expect(t).toContain(`https://werkruf.com/b/${CODE}`);
+    expect(t).not.toMatch(/search\.google\.com/);
+    expect(kurzerBewertungsLink(CODE)).toBe(`https://werkruf.com/b/${CODE}`);
+    expect(kurzerBewertungsLink('abc')).toBeNull();
+    expect(istShortCodeForm(PLACE)).toBe(false);          // C2: eine place_id ist kein Code
+    expect(istShortCodeForm('11111111-1111-1111-1111-111111111111')).toBe(false);   // C3: keine UUID
     expect(bewertungsLink(PLACE)).toBe(`https://search.google.com/local/writereview?placeid=${PLACE}`);
     expect(istPlaceIdForm('short')).toBe(false);
     expect(bewertungsLink(null)).toBeNull();
@@ -82,6 +89,17 @@ describe('T12–T17 — Nachricht', () => {
     expect(textErlaubt('Wenn du unzufrieden bist, antworte erst uns')).toBe(false);
     expect(textErlaubt('Als Dankeschön gibt es einen Gutschein')).toBe(false);
     expect(VERBOTENE_MUSTER.length).toBeGreaterThanOrEqual(3);
+    /* WP14.2 T1–T6 — auch POSITIVES Gating ist verboten */
+    expect(t).not.toMatch(/zufrieden|gepasst|empfehlen/i);                      // T1
+    expect(textErlaubt('Wenn du zufrieden warst, freuen wir uns')).toBe(false);  // T2
+    expect(textErlaubt('Wenn alles gepasst hat, bewerte uns')).toBe(false);      // T3
+    expect(textErlaubt('Wenn du uns empfehlen würdest, schreib uns')).toBe(false); // T4
+    expect(textErlaubt('Wenn Sie zufrieden sind')).toBe(false);
+    expect(textErlaubt('wenn alles gut war')).toBe(false);
+    expect(textErlaubt('Teile gern deine Erfahrung bei Google')).toBe(true);     // T5
+    expect(textErlaubt('Wir freuen uns über eine positive Bewertung')).toBe(false); // T6
+    expect(textErlaubt('eine gute Bewertung')).toBe(false);
+    expect(textErlaubt('bei 5 Sternen')).toBe(false);
     /* Der Server prueft die gebaute Nachricht gegen dieselbe Liste */
     expect(SEND).toMatch(/if \(!text \|\| !textErlaubt\(text\)\) throw new GbpError\('internal_error', 'Vorlage ungueltig'\);/);
   });
@@ -90,8 +108,8 @@ describe('T12–T17 — Nachricht', () => {
     expect(bereinigeVorname('Anna-Lena')).toBe('Anna-Lena');
     expect(bereinigeVorname('<script>')).toBeNull();
     expect(bereinigeVorname('x'.repeat(41))).toBeNull();
-    expect(baueBewertungsSms({ vorname: 'Thomas', betrieb: 'B', placeId: 'nope' })).toBeNull();
-    expect(baueBewertungsSms({ vorname: '', betrieb: 'B', placeId: PLACE })).toBeNull();
+    expect(baueBewertungsSms({ vorname: 'Thomas', betrieb: 'B', code: 'nope' })).toBeNull();
+    expect(baueBewertungsSms({ vorname: '', betrieb: 'B', code: CODE })).toBeNull();
   });
   it('Segmente: GSM-7 mit Umlauten, 160/153; UCS-2 bei Emoji', () => {
     expect(smsSegmente('Hallo äöü ß').encoding).toBe('GSM-7');
@@ -104,8 +122,17 @@ describe('T12–T17 — Nachricht', () => {
     expect(smsSegmente('x'.repeat(71)).encoding).toBe('GSM-7');
     const s = smsSegmente(t);
     expect(s.encoding).toBe('GSM-7');
-    expect(s.segmente).toBeGreaterThanOrEqual(1);
-    expect(s.segmente).toBeLessThanOrEqual(2);
+    expect(s.segmente).toBe(1);
+    /* T24 (WP14.2) — realistisch: Maximilian, Elektrotechnik Müller GmbH, lange Place-ID.
+       Alt (Google-Link direkt) vs. neu (Shortlink): weniger Einheiten, Ziel 1 Segment. */
+    const placeLang = 'ChIJN1t_tDeuEmsRUsoyG83frY4ABCDEFGHIJKLMNOPQRSTUV';
+    const alt = `Hallo Maximilian, vielen Dank für deinen Auftrag bei Elektrotechnik Müller GmbH. Wenn du zufrieden warst, freuen wir uns über eine kurze Google-Bewertung: ${bewertungsLink(placeLang)}`;
+    const neu = baueBewertungsSms({ vorname: 'Maximilian', betrieb: 'Elektrotechnik Müller GmbH', code: CODE });
+    expect(smsSegmente(alt).segmente).toBe(2);
+    expect(smsSegmente(neu).zeichen).toBeLessThan(smsSegmente(alt).zeichen);
+    expect(smsSegmente(neu).segmente).toBe(1);
+    /* sehr langer Betriebsname darf weiterhin 2 Segmente sein — keine harte Garantie */
+    expect(smsSegmente(baueBewertungsSms({ vorname: 'Maximilian', betrieb: 'X'.repeat(90), code: CODE })).segmente).toBe(2);
     expect(SMS_SENDER.length).toBeLessThanOrEqual(11);
     expect(SMS_SENDER).toMatch(/^[A-Za-z0-9]+$/);
   });
@@ -124,7 +151,14 @@ describe('Route — Server-Wahrheit', () => {
     expect(SEND).not.toMatch(/body\.(reviewUrl|url|link|businessName|betrieb|userId)/);
     expect(ohneKommentare(ROUTE)).not.toMatch(/reviewUrl|review_url|businessName/i);
     expect(SEND).toMatch(/\n\s*const link = bewertungsLink\(location\.place_id \?\? null\);\n/);
-    expect(SEND).toMatch(/baueBewertungsSms\(\{ vorname, betrieb, placeId: location\.place_id \}\)/);
+    /* WP14.2: Text traegt den Shortlink des EIGENEN Standorts; Vorschau nutzt denselben Code-Weg */
+    expect(SEND).toMatch(/const code = await ensureReviewShortCode\(user\.id, location\.id\);\s*const betrieb = \(location\.title \?\? ''\)\.trim\(\);\s*const text = baueBewertungsSms\(\{ vorname, betrieb, code \}\)/);
+    const preview = ROUTE.slice(ROUTE.indexOf('async function handleReviewRequestPreview'), ROUTE.indexOf('async function handleReviewRequestSmsWebhook'));
+    expect(preview).toMatch(/const code = await ensureReviewShortCode\(user\.id, location\.id\);[\s\S]*baueBewertungsSms\(\{ vorname, betrieb: \(location\.title \?\? ''\)\.trim\(\), code \}\)/);
+    expect(SEND).not.toMatch(/baueBewertungsSms\(\{[^}]*placeId/);   // C6: kein langer Google-Link mehr in der SMS
+    expect(SEND).toMatch(/\n\s*const text = baueBewertungsSms\(\{ vorname, betrieb, code \}\);\n/);   // unveraendert weitergereicht
+    expect(SEND.match(/\btext\b\s*=/g)).toHaveLength(1);
+    expect(ohneKommentare(SEND)).not.toMatch(/\.replace\(|\+ link|\$\{link\}/);
     expect(SEND).toMatch(/const betrieb = \(location\.title \?\? ''\)\.trim\(\);/);
     expect(SEND).toMatch(/if \(!link\) throw new GbpError\('bad_request', 'kein_link'/);   // T6
   });
@@ -170,6 +204,34 @@ describe('Route — Server-Wahrheit', () => {
     expect(MIG).toMatch(/if p_event = 'delivered' and v_status in \('queued', 'sent'\) then/);
     expect(MIG).toMatch(/return jsonb_build_object\('known', false, 'changed', false\)/);
   });
+  it('WP14.2 T16–T18 — Webhook mit eigenem SMS_WEBHOOK_SECRET; BREVO_WEBHOOK_SECRET reicht nicht; Pepper nie aus BREVO', () => {
+    expect(HOOK).toMatch(/const expected = Deno\.env\.get\('SMS_WEBHOOK_SECRET'\) \?\? '';/);
+    expect(ohneKommentare(ROUTE)).not.toMatch(/BREVO_WEBHOOK_SECRET/);
+    expect(ROUTE).toMatch(/const webhookSecret = Deno\.env\.get\('SMS_WEBHOOK_SECRET'\);/);
+    expect(ROUTE).toMatch(/Deno\.env\.get\('SMS_PHONE_PEPPER'\) \?\? Deno\.env\.get\('SMS_WEBHOOK_SECRET'\)/);
+  });
+  it('WP14.2 T7–T12 — /b/<code>: nur GET, Lookup ueber Standort → place_id → Generator, 404 ohne Inhalt, kein Write, keine IDs', () => {
+    const red = ROUTE.slice(ROUTE.indexOf('async function handleReviewShortRedirect'), ROUTE.indexOf('const REVIEW_REQUEST_ROUTES'));
+    expect(red).toMatch(/if \(!istShortCodeForm\(code\)\) return new Response\(null, \{ status: 404/);
+    expect(red).toMatch(/rpc\('review_short_link_place_id', \{ p_code: code \}\)/);
+    expect(red).toMatch(/const ziel = bewertungsLink\(typeof data === 'string' \? data : null\);/);
+    expect(red).toMatch(/if \(!ziel\) return new Response\(null, \{ status: 404/);
+    expect(red).toMatch(/status: 302, headers: \{ \.\.\.kopf, Location: ziel \}/);
+    expect(red).not.toMatch(/\.insert\(|\.update\(|click|last_used/);
+    expect(red).not.toMatch(/JSON\.stringify\(\{[^}]*(place|location|user)/);
+    expect(GB).toMatch(/if \(routeName === 'b' && sub\) \{[\s\S]*return handleReviewShortRedirect\(request, sub\);/);
+    expect(GB).toMatch(/if \(request\.method !== 'GET' && request\.method !== 'HEAD'\)/);
+    /* Vercel reicht werkruf.com/b/<code> an die Function durch; SPA-Fallback bleibt */
+    const v = JSON.parse(lies('../vercel.json'));
+    expect(v.rewrites[0]).toEqual({ source: '/b/:code', destination: 'https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/b/:code' });
+    expect(v.rewrites[v.rewrites.length - 1]).toEqual({ source: '/(.*)', destination: '/index.html' });
+    /* Migration: Link speichert keine URL/place_id, cascade bei Standortloeschung, ein aktiver Code je Standort */
+    const m2 = lies('../supabase/migrations/20261112150000_review_short_links.sql');
+    expect(m2).toMatch(/location_id uuid not null references public\.google_locations\(id\) on delete cascade/);
+    expect(m2).toMatch(/review_short_links_one_active_per_location\s*on public\.review_short_links \(location_id\) where active/);
+    expect(m2).toMatch(/code\s+text not null unique check \(code ~ '\^\[A-Za-z0-9\]\{7\}\$'\)/);
+    expect(m2).toMatch(/where s\.code = p_code and s\.active and l\.deleted_at is null and l\.place_id is not null/);
+  });
   it('Rate-Limit/Dedupe stehen in SQL mit den dokumentierten Zahlen', () => {
     expect(MIG).toMatch(/created_at >= p_now - interval '10 minutes'/);
     expect(MIG).toMatch(/if v_kurz >= 5 then/);
@@ -195,7 +257,7 @@ describe('UI — Bewertung per SMS anfragen', () => {
       const body = JSON.parse(init.body);
       aufrufe.push({ url, body });
       if (url.endsWith('/review-request/sms-preview')) {
-        return { ok: true, json: async () => ({ ok: true, text: baueBewertungsSms({ vorname: body.vorname, betrieb: 'Elektro Müller', placeId: PLACE }), segments: 1 }) };
+        return { ok: true, json: async () => ({ ok: true, text: baueBewertungsSms({ vorname: body.vorname, betrieb: 'Elektro Müller', code: CODE }), segments: 1 }) };
       }
       if (body.telefon === '0171 0000000') return { ok: false, json: async () => ({ error: { message: 'doppelt' } }) };
       return { ok: true, json: async () => ({ ok: true, status: 'sent', segments: 1 }) };
@@ -210,7 +272,7 @@ describe('UI — Bewertung per SMS anfragen', () => {
     fireEvent.change(screen.getByTestId('sms-vorname'), { target: { value: 'Thomas' } });
     fireEvent.change(screen.getByTestId('sms-telefon'), { target: { value: '0171 1234567' } });
     await waitFor(() => expect(screen.getByTestId('sms-vorschau')).toHaveTextContent('Hallo Thomas'));
-    expect(screen.getByTestId('sms-vorschau')).toHaveTextContent(bewertungsLink(PLACE));
+    expect(screen.getByTestId('sms-vorschau')).toHaveTextContent(`https://werkruf.com/b/${CODE}`);
     expect(screen.getByTestId('sms-segmente')).toHaveTextContent('1 SMS');
     await waitFor(() => expect(screen.getByTestId('sms-senden')).not.toBeDisabled());
     await act(async () => { fireEvent.click(screen.getByTestId('sms-senden')); });
