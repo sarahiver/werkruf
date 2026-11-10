@@ -62,11 +62,13 @@ describe('T1–T7 — /a/:token', () => {
   });
   it('T4 — JSON-Auskunft der Function: nur Minimum, keine IDs/Nutzer/Google-Ressourcen', () => {
     const get = GB.slice(GB.indexOf('async function handleActionLinkGet'), GB.indexOf('async function handleActionLinkPost'));
-    expect(get).toMatch(/return actionJson\(\{\s*valid: true,\s*title: aufgabe \?\? 'Weiter zu deinem Dashboard',\s*businessName: betrieb,\s*effort: aufwand,\s*done: erledigt,\s*requiresConfirmation: !erledigt,\s*\}\);/);
+    expect(get).toMatch(/return actionJson\(\{\s*valid: true,\s*title: aufgabe \?\? 'Weiter zu deinem Dashboard',\s*businessName: betrieb,\s*effort: aufwand,\s*done: erledigt,\s*requiresConfirmation: !erledigt,\s*\}, 200, request\);/);
     const antwort = get.slice(get.indexOf('return actionJson({'), get.indexOf('});', get.indexOf('return actionJson({')));
     expect(antwort).not.toMatch(/userId|locationId|eventId|tokenId|resource|token/);
-    expect(get).toMatch(/return actionAbweisung\(\);/);
-    expect(GB).toMatch(/function actionAbweisung\(\): Response \{\s*return actionJson\(\{ valid: false \}\);/);
+    expect(get).toMatch(/return actionAbweisung\(request\);/);
+    expect(GB).toMatch(/function actionAbweisung\(request\?: Request\): Response \{\s*return actionJson\(\{ valid: false \}, 200, request\);/);
+    /* CORS: das Frontend holt die Auskunft cross-origin — nur erlaubte Origins (GBP_ALLOWED_ORIGINS) */
+    expect(GB).toMatch(/const headers = request \? \{ \.\.\.ACTION_HEADERS, \.\.\.corsHeaders\(request\) \} : ACTION_HEADERS;/);
     /* GET loest nichts aus (wie vor Fix1) */
     expect(get).not.toMatch(/generateLink|consume_action_token|record_recommendation_action|activate_google_location|\.update\(|\.insert\(/);
   });
@@ -184,7 +186,8 @@ describe('T21–T24 — Architektur', () => {
   });
   it('T23 — JSON-Antworten tragen application/json; T24 — Redirects bleiben 302 (Praesentation, Fortsetzung, Frontend)', () => {
     expect(GB).toMatch(/'Content-Type': 'application\/json; charset=utf-8'/);
-    expect(GB).toMatch(/function actionJson\(body: unknown, status = 200\): Response \{\s*return new Response\(JSON\.stringify\(body\), \{ status, headers: ACTION_HEADERS \}\);/);
+    expect(GB).toMatch(/function actionJson\(body: unknown, status = 200, request\?: Request\): Response \{/);
+    expect(GB).toMatch(/return new Response\(JSON\.stringify\(body\), \{ status, headers \}\);/);
     expect(GB).toMatch(/status: 302, headers: \{ \.\.\.AKQUISE_KOPF, Location: AKQUISE_PDF_URL \}/);
     expect((GB.match(/status: 302/g) || []).length).toBeGreaterThanOrEqual(3);
   });

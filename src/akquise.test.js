@@ -232,12 +232,12 @@ describe('google-business — oeffentliche Token-Routen (Quelltext)', () => {
     const post = block.slice(block.indexOf('async function handleAkquiseCtaPost'));
     expect(info).toMatch(/akquiseLinkEreignis\(token, 'cta_viewed'\)/);
     expect(info).not.toMatch(/cta_clicked/);
-    expect(info).toMatch(/return actionJson\(\{ valid: true \}\);/);
+    expect(info).toMatch(/return actionJson\(\{ valid: true \}, 200, request\);/);
     expect(post).toMatch(/akquiseLinkEreignis\(token, 'cta_clicked'\)/);
     expect(post).toMatch(/leiteZumFrontend\(`\/founding-partner\/\$\{encodeURIComponent\(token\)\}\?danke=1`\)/);
     expect(block).not.toMatch(/<!doctype html>|text\/html|<form/);
     expect(dispatch).toMatch(/if \(request\.method === 'POST' && interesse\) return handleAkquiseCtaPost\(sub\);/);
-    expect(dispatch).toMatch(/if \(request\.method === 'GET' && info\) return handleAkquiseCtaInfo\(sub\);/);
+    expect(dispatch).toMatch(/if \(request\.method === 'GET' && info\) return handleAkquiseCtaInfo\(request, sub\);/);
     expect(dispatch).toMatch(/leiteZumFrontend\(`\/founding-partner\/\$\{encodeURIComponent\(sub\)\}`\)/);
     expect(dispatch).toMatch(/405/);
   });
@@ -245,7 +245,7 @@ describe('google-business — oeffentliche Token-Routen (Quelltext)', () => {
     expect(block).toMatch(/if \(!istAkquiseToken\(token\)\) return \{ ok: false \};/);
     expect(block).toMatch(/p_token_hash: await hashe\(token\), p_kind: art/);
     expect(block).toMatch(/if \(!r\.ok\) return new Response\(null, \{ status: 404, headers: AKQUISE_KOPF \}\);/);
-    expect(block).toMatch(/if \(!r\.ok\) return actionJson\(\{ valid: false \}, 404\);/);
+    expect(block).toMatch(/if \(!r\.ok\) return actionJson\(\{ valid: false \}, 404, request\);/);
     expect(block).not.toMatch(/lead_id|email|leadId/);
     expect(block).toMatch(/'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex'/);
   });

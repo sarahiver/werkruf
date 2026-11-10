@@ -7879,14 +7879,18 @@ function appBasis(): string {
   return (Deno.env.get('APP_URL') ?? 'https://www.werkruf.com').replace(/\/+$/, '');
 }
 
-/** JSON-Antwort fuer Token-Seiten — mit den Schutz-Kopfzeilen, nie HTML. */
-function actionJson(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: ACTION_HEADERS });
+/** JSON-Antwort fuer Token-Seiten — mit den Schutz-Kopfzeilen, nie HTML.
+    Das Frontend (werkruf.com) holt sie per fetch von *.supabase.co: ohne
+    CORS-Kopfzeilen blockt der Browser die Antwort — erlaubt sind nur die
+    Origins aus GBP_ALLOWED_ORIGINS (corsHeaders). */
+function actionJson(body: unknown, status = 200, request?: Request): Response {
+  const headers = request ? { ...ACTION_HEADERS, ...corsHeaders(request) } : ACTION_HEADERS;
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 /** Dieselbe Antwort fuer jeden Fehlerfall: nichts ueber den Grund. */
-function actionAbweisung(): Response {
-  return actionJson({ valid: false });
+function actionAbweisung(request?: Request): Response {
+  return actionJson({ valid: false }, 200, request);
 }
 
 /** 302 ins Frontend. Kein 301: nichts mit Token im Pfad darf dauerhaft im Cache landen. */
@@ -7982,7 +7986,7 @@ async function handleActionLinkGet(request: Request, token: string): Promise<Res
   if (!pruefung.ok) {
     /* Der Grund steht im Protokoll, nicht in der Antwort. */
     log.warn('action_link_invalid', { reason: pruefung.grund });
-    return actionAbweisung();
+    return actionAbweisung(request);
   }
 
   const ctx = pruefung.ctx;
@@ -8034,7 +8038,7 @@ async function handleActionLinkGet(request: Request, token: string): Promise<Res
     effort: aufwand,
     done: erledigt,
     requiresConfirmation: !erledigt,
-  });
+  }, 200, request);
 }
 
 /**
@@ -9171,10 +9175,10 @@ async function handleAkquisePraesentation(token: string): Promise<Response> {
 
 /* GET /fp/<token>/info — JSON fuer die Frontend-Seite werkruf.com/founding-partner/<token>.
    Registriert cta_viewed (technische Historie), NIE einen Vertriebsstatus. */
-async function handleAkquiseCtaInfo(token: string): Promise<Response> {
+async function handleAkquiseCtaInfo(request: Request, token: string): Promise<Response> {
   const r = await akquiseLinkEreignis(token, 'cta_viewed');
-  if (!r.ok) return actionJson({ valid: false }, 404);
-  return actionJson({ valid: true });
+  if (!r.ok) return actionJson({ valid: false }, 404, request);
+  return actionJson({ valid: true }, 200, request);
 }
 
 /* POST /fp/<token>/interesse — die einzige Stelle, an der der Lead selbst
@@ -9286,7 +9290,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const interesse = pfad.endsWith('/interesse');
     const info = pfad.endsWith('/info');
     if (request.method === 'POST' && interesse) return handleAkquiseCtaPost(sub);
-    if (request.method === 'GET' && info) return handleAkquiseCtaInfo(sub);
+    if (request.method === 'GET' && info) return handleAkquiseCtaInfo(request, sub);
     /* Alte Adresse (direkt auf Supabase): ins Frontend, das die Seite rendert. */
     if (request.method === 'GET' && !interesse && istAkquiseToken(sub)) return leiteZumFrontend(`/founding-partner/${encodeURIComponent(sub)}`);
     /* GET auf /interesse: ein Scanner darf nie Interesse setzen. */
