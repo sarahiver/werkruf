@@ -8917,11 +8917,17 @@ async function handleReviewRequestSmsWebhook(request: Request): Promise<Response
   const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
   const roh = payload && typeof payload === 'object' ? payload : {};
   const messageId = roh.messageId !== undefined && roh.messageId !== null ? String(roh.messageId) : (roh['message-id'] ? String(roh['message-id']) : null);
-  const event = typeof roh.event === 'string' ? roh.event.toLowerCase() : '';
+  /* Brevo SMS-Webhook: das Statusfeld heisst `msg_status` (nicht `event`
+     wie beim Mail-Webhook). Werte laut Doku/Beispielen: sent, accepted,
+     delivered, soft_bounce, hard_bounce, replied, unsubscribed, skip,
+     bl (Blacklisted), rej (Rejected). `event` bleibt als Zweitquelle. */
+  const statusRoh = typeof roh.msg_status === 'string' ? roh.msg_status : (typeof roh.event === 'string' ? roh.event : '');
+  const event = statusRoh.toLowerCase().trim();
   const map: Record<string, 'delivered' | 'failed' | 'sent'> = {
     delivered: 'delivered', sent: 'sent', accepted: 'sent',
     hard_bounce: 'failed', hardbounce: 'failed', soft_bounce: 'failed', softbounce: 'failed',
-    blocked: 'failed', rejected: 'failed', unsubscribed: 'failed', error: 'failed',
+    blocked: 'failed', bl: 'failed', rejected: 'failed', rej: 'failed', skip: 'failed',
+    unsubscribed: 'failed', error: 'failed',
   };
   const ziel = map[event];
   if (!messageId || !ziel) return jsonResponse(request, { ok: true, ignored: true });
