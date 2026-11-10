@@ -10,14 +10,6 @@
       "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/p/fp/:token"
     },
     {
-      "source": "/founding-partner/:token",
-      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/fp/:token"
-    },
-    {
-      "source": "/founding-partner/:token/interesse",
-      "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/fp/:token/interesse"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

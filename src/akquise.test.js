@@ -221,40 +221,45 @@ describe('google-business — oeffentliche Token-Routen (Quelltext)', () => {
   const block = ohneKommentare(GB.slice(GB.indexOf('const AKQUISE_PDF_URL'), GB.indexOf('WP13 — Betriebsferien-Pause')));
   const dispatch = ohneKommentare(GB.slice(GB.indexOf("if (routeName === 'p' && sub === 'fp')"), GB.indexOf("if (routeName === 'a' && sub)")));
   it('T46/T49/C6 — Praesentation: GET → presentation_clicked → 302 auf PDF; nie cta_clicked', () => {
-    const praes = block.slice(block.indexOf('async function handleAkquisePraesentation'), block.indexOf('function akquiseSeite'));
+    const praes = block.slice(block.indexOf('async function handleAkquisePraesentation'), block.indexOf('async function handleAkquiseCtaInfo'));
     expect(praes).toMatch(/akquiseLinkEreignis\(token, 'presentation_clicked'\)/);
     expect(praes).toMatch(/status: 302, headers: \{ \.\.\.AKQUISE_KOPF, Location: AKQUISE_PDF_URL \}/);
     expect(praes).not.toMatch(/cta_clicked|interesse/);
     expect(dispatch).toMatch(/if \(request\.method !== 'GET' && request\.method !== 'HEAD'\)/);
   });
-  it('T30/T50/T52 — CTA-GET zeigt Seite (cta_viewed), nur POST …/interesse setzt cta_clicked; GET auf /interesse 405', () => {
-    const get = block.slice(block.indexOf('async function handleAkquiseCtaGet'), block.indexOf('async function handleAkquiseCtaPost'));
+  it('T30/T50/T52 (Fix1) — GET …/info = JSON (cta_viewed), nur POST …/interesse setzt cta_clicked und leitet ins Frontend; GET /interesse 405; kein HTML', () => {
+    const info = block.slice(block.indexOf('async function handleAkquiseCtaInfo'), block.indexOf('async function handleAkquiseCtaPost'));
     const post = block.slice(block.indexOf('async function handleAkquiseCtaPost'));
-    expect(get).toMatch(/akquiseLinkEreignis\(token, 'cta_viewed'\)/);
-    expect(get).not.toMatch(/cta_clicked/);
-    expect(get).toMatch(/formAktion: aktion, knopf: 'Ja, Interesse'/);
-    expect(get).toMatch(/const aktion = `\$\{token\}\/interesse`;/);
-    expect(block).toMatch(/<form method="POST" action="\$\{hEsc\(opts\.formAktion\)\}">/);
+    expect(info).toMatch(/akquiseLinkEreignis\(token, 'cta_viewed'\)/);
+    expect(info).not.toMatch(/cta_clicked/);
+    expect(info).toMatch(/return actionJson\(\{ valid: true \}\);/);
     expect(post).toMatch(/akquiseLinkEreignis\(token, 'cta_clicked'\)/);
+    expect(post).toMatch(/leiteZumFrontend\(`\/founding-partner\/\$\{encodeURIComponent\(token\)\}\?danke=1`\)/);
+    expect(block).not.toMatch(/<!doctype html>|text\/html|<form/);
     expect(dispatch).toMatch(/if \(request\.method === 'POST' && interesse\) return handleAkquiseCtaPost\(sub\);/);
-    expect(dispatch).toMatch(/if \(request\.method === 'GET' && !interesse\) return handleAkquiseCtaGet\(request, sub\);/);
-    expect(dispatch).toMatch(/status: 405/);
+    expect(dispatch).toMatch(/if \(request\.method === 'GET' && info\) return handleAkquiseCtaInfo\(sub\);/);
+    expect(dispatch).toMatch(/leiteZumFrontend\(`\/founding-partner\/\$\{encodeURIComponent\(sub\)\}`\)/);
+    expect(dispatch).toMatch(/405/);
   });
   it('T47/T48 — unbekannter/ungueltiger Token → 404 ohne Hinweis; Lookup nur ueber SHA-256', () => {
     expect(block).toMatch(/if \(!istAkquiseToken\(token\)\) return \{ ok: false \};/);
     expect(block).toMatch(/p_token_hash: await hashe\(token\), p_kind: art/);
     expect(block).toMatch(/if \(!r\.ok\) return new Response\(null, \{ status: 404, headers: AKQUISE_KOPF \}\);/);
+    expect(block).toMatch(/if \(!r\.ok\) return actionJson\(\{ valid: false \}, 404\);/);
     expect(block).not.toMatch(/lead_id|email|leadId/);
     expect(block).toMatch(/'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex'/);
   });
-  it('vercel.json leitet /p/fp/:token, /founding-partner/:token und …/interesse auf die Function; SPA-Fallback bleibt letzte Regel', () => {
+  it('vercel.json (Fix1): /p/fp/:token → Function (302), /founding-partner/* NICHT mehr → SPA rendert; Catch-all zuletzt', () => {
     const v = JSON.parse(lies('../vercel.json'));
     const q = Object.fromEntries(v.rewrites.map((r) => [r.source, r.destination]));
     expect(q['/p/fp/:token']).toMatch(/\/functions\/v1\/google-business\/p\/fp\/:token$/);
-    expect(q['/founding-partner/:token']).toMatch(/\/functions\/v1\/google-business\/fp\/:token$/);
-    expect(q['/founding-partner/:token/interesse']).toMatch(/\/functions\/v1\/google-business\/fp\/:token\/interesse$/);
+    expect(Object.keys(q).some((k) => k.startsWith('/founding-partner'))).toBe(false);
+    expect(Object.keys(q).some((k) => k.startsWith('/a/'))).toBe(false);
     expect(q['/b/:code']).toBeTruthy();
     expect(v.rewrites[v.rewrites.length - 1]).toEqual({ source: '/(.*)', destination: '/index.html' });
+    const app = lies('./App.js');
+    expect(app).toMatch(/<Route path="\/a\/:token" element=\{<ActionLink \/>\} \/>/);
+    expect(app).toMatch(/<Route path="\/founding-partner\/:token" element=\{<FoundingPartnerInteresse \/>\} \/>/);
   });
 });
 

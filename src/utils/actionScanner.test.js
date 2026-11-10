@@ -8,6 +8,7 @@
  * klickte ins Leere.
  */
 const fs = require('fs');
+const path = require('path');
 
 const GB = fs.readFileSync('supabase/functions/google-business/index.ts', 'utf8');
 
@@ -196,39 +197,48 @@ describe('Kopfzeilen', () => {
   });
 });
 
-describe('Die Zwischenansicht', () => {
-  /* actionSeite gibt ein Template-Literal zurueck — die geschweiften
-     Klammern darin verwirren rumpfVon. Deshalb von der Signatur bis
-     zur naechsten Funktion schneiden. */
-  const SEITE = (() => {
-    const a = GB.indexOf('function actionSeite');
-    return a === -1 ? '' : GB.slice(a, GB.indexOf('function actionAbweisung', a));
-  })();
+describe('Die Zwischenansicht (seit WP16-Fix1 im Frontend: src/pages/ActionLink.js)', () => {
+  /* Das Supabase-Gateway liefert HTML von Edge Functions als text/plain
+     aus. Die Seite rendert deshalb das Frontend; die Function antwortet
+     nur mit JSON (…/info) und Redirects. Die Schutzregeln der Seite
+     gelten unveraendert — nur an anderer Stelle. */
+  const SEITE = ohneKommentare(fs.readFileSync(path.resolve(__dirname, '../pages/ActionLink.js'), 'utf8'));
+  const HELFER = ohneKommentare(fs.readFileSync(path.resolve(__dirname, './tokenSeite.js'), 'utf8'));
+  const GBC = ohneKommentare(GB);
 
-  it('lädt keine externen Ressourcen', () => {
-    expect(SEITE).not.toMatch(/https?:\/\/fonts\.|googleapis|cdn\.|analytics/);
+  it('die Function liefert fuer /a/ kein HTML mehr', () => {
+    expect(GBC).not.toMatch(/function actionSeite|text\/html|<!doctype html>/);
+    expect(GBC).toMatch(/'Content-Type': 'application\/json; charset=utf-8'/);
   });
 
-  it('bindet Formate ein statt zu verlinken', () => {
-    expect(SEITE).toMatch(/<style>/);
-    expect(SEITE).not.toMatch(/<link[^>]+stylesheet/);
+  it('lädt keine externen Ressourcen und kein Analytics', () => {
+    expect(SEITE + HELFER).not.toMatch(/https?:\/\/fonts\.|googleapis|cdn\.|analytics|gtag|plausible|sentry/i);
   });
 
-  it('enthält kein Skript', () => {
-    expect(SEITE).not.toMatch(/<script/);
+  it('nutzt ein Formular (POST an die Function), keinen Link — Scanner schicken keine Formulare ab', () => {
+    expect(SEITE).toMatch(/<form method="POST" action=\{weiterAktion\}/);
+    expect(SEITE).toMatch(/const weiterAktion = `\$\{FUNCTIONS_BASE\}\/a\/\$\{encodeURIComponent\(token \?\? ''\)\}\/continue`;/);
+    expect(SEITE).not.toMatch(/fetch\([^)]*continue/);
   });
 
-  it('nutzt ein Formular, keinen Link', () => {
-    /* Scanner folgen Links; ein Formular schicken sie nicht ab. */
-    expect(SEITE).toMatch(/<form method="POST"/);
+  it('GET der Seite ruft nur …/info ab — keine Mutation, kein continue', () => {
+    expect(SEITE).toMatch(/ladeTokenAuskunft\(`\$\{FUNCTIONS_BASE\}\/a\/\$\{encodeURIComponent\(token\)\}\/info`\)/);
+    expect(HELFER).toMatch(/method: 'GET'/);
+    expect(HELFER).not.toMatch(/method: 'POST'/);
   });
 
-  it('maskiert eingesetzte Werte', () => {
-    expect(SEITE).toMatch(/hEsc\(/);
+  it('verbietet Indexierung und Referrer; speichert den Token nirgends', () => {
+    expect(HELFER).toMatch(/setze\('robots', 'noindex,nofollow'\)/);
+    expect(HELFER).toMatch(/setze\('referrer', 'no-referrer'\)/);
+    expect(HELFER).toMatch(/referrerPolicy: 'no-referrer'/);
+    expect(SEITE + HELFER).not.toMatch(/localStorage|sessionStorage|console\.log|console\.warn/);
   });
 
-  it('verbietet Indexierung', () => {
-    expect(SEITE).toMatch(/noindex,nofollow/);
+  it('Fehler sind neutral: ein Text fuer alle ungueltigen Faelle, Netzfehler getrennt', () => {
+    expect(HELFER).toMatch(/ungueltig: 'Dieser Link ist nicht mehr gültig\.'/);
+    expect(HELFER).toMatch(/if \(antwort\.status === 404\) return \{ zustand: 'ungueltig' \};/);
+    expect(HELFER).toMatch(/if \(!antwort\.ok\) return \{ zustand: 'netz' \};/);
+    expect(SEITE).not.toMatch(/abgelaufen|widerrufen|fremd|unbekannt/i);
   });
 });
 
@@ -249,7 +259,7 @@ describe('Ratenbegrenzung', () => {
 
 describe('Routing', () => {
   const ROUTING = GB.slice(GB.indexOf("if (routeName === 'a' && sub)"),
-                           GB.indexOf("if (routeName === 'a' && sub)") + 900);
+                           GB.indexOf("if (routeName === 'a' && sub)") + 1600);
 
   it('trennt GET und POST', () => {
     expect(ROUTING).toMatch(/request\.method === 'POST' && weiter/);
@@ -259,6 +269,11 @@ describe('Routing', () => {
   it('weist GET auf continue ab', () => {
     /* Das wäre der Weg, den Schutz zu umgehen. */
     expect(ROUTING).toMatch(/status: 405/);
+  });
+
+  it('WP16-Fix1: alter GET /a/<token> ist ein 302 ins Frontend, /info liefert JSON', () => {
+    expect(ROUTING).toMatch(/if \(request\.method === 'GET' && info\) \{\s*return handleActionLinkGet\(request, sub\);/);
+    expect(ROUTING).toMatch(/if \(request\.method === 'GET' && !weiter\) \{\s*return leiteZumFrontend\(`\/a\/\$\{encodeURIComponent\(sub\)\}`\);/);
   });
 });
 

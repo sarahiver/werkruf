@@ -7853,8 +7853,13 @@ function resolveRoute(url: URL): { name: string; sub: string | null } {
  *                    eigenen Knopf darueber.
  *   form-action      Das Formular darf nur hierher senden.
  */
+/* WP16-Fix1: Diese Function liefert fuer Token-Seiten KEIN HTML mehr.
+   Das Supabase-Gateway schreibt text/html von *.supabase.co auf
+   text/plain + Sandbox-CSP um. Die Seite rendert das Frontend
+   (werkruf.com/a/:token), die Function antwortet mit JSON (Auskunft) und
+   Redirects (Fortsetzung). Die Schutz-Kopfzeilen bleiben. */
 const ACTION_HEADERS: Record<string, string> = {
-  'Content-Type': 'text/html; charset=utf-8',
+  'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store, no-cache, must-revalidate, private',
   'Pragma': 'no-cache',
   'Referrer-Policy': 'no-referrer',
@@ -7869,80 +7874,32 @@ const ACTION_HEADERS: Record<string, string> = {
   ].join('; '),
 };
 
-/** Escaping fuer die Zwischenansicht. */
-function hEsc(wert: unknown): string {
-  return String(wert ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+/** Basis des Frontends (Vercel). APP_URL kann sie ueberschreiben. */
+function appBasis(): string {
+  return (Deno.env.get('APP_URL') ?? 'https://www.werkruf.com').replace(/\/+$/, '');
 }
 
-/**
- * Die Zwischenansicht.
- *
- * Bewusst karg: nur Text, nur eingebettete Formate, ein Formular.
- * Jede externe Ressource — Schriftart, Bild, Zaehlpixel — bekaeme den
- * Referer und damit den Token in der Adresse.
- */
-function actionSeite(opts: {
-  titel: string;
-  betrieb?: string | null;
-  aufgabe?: string | null;
-  aufwand?: string | null;
-  hinweis?: string | null;
-  formAktion?: string | null;
-  knopf?: string | null;
-  dashboardUrl: string;
-}): string {
-  const knopfBlock = opts.formAktion
-    ? `<form method="POST" action="${hEsc(opts.formAktion)}">
-         <button type="submit" class="b">${hEsc(opts.knopf ?? 'Weiter')}</button>
-       </form>`
-    : `<p><a class="b" href="${hEsc(opts.dashboardUrl)}">Zum Dashboard</a></p>`;
-
-  return `<!doctype html>
-<html lang="de"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<meta name="robots" content="noindex,nofollow">
-<title>WERKRUF</title>
-<style>
-  body{margin:0;padding:40px 20px;background:#F4F5F7;
-       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-       color:#1A2433}
-  .k{max-width:440px;margin:0 auto;background:#fff;border:1px solid #E3E7EB;
-     border-radius:12px;padding:32px 28px}
-  .m{font-size:.72rem;font-weight:700;letter-spacing:.08em;
-     text-transform:uppercase;color:#5F6875;margin:0 0 18px}
-  .o{font-size:.84rem;color:#5F6875;margin:0 0 6px}
-  h1{font-size:1.18rem;margin:0 0 8px;line-height:1.35}
-  .a{font-size:.86rem;color:#5F6875;margin:0 0 22px}
-  .b{display:inline-block;background:#002C51;color:#fff;border:0;
-     border-radius:7px;padding:13px 24px;font-size:.95rem;font-weight:600;
-     cursor:pointer;text-decoration:none;font-family:inherit}
-  .b:hover{opacity:.9}
-  .f{font-size:.76rem;color:#8A929C;margin:22px 0 0;line-height:1.5}
-</style>
-</head><body>
-<div class="k">
-  <p class="m">WERKRUF</p>
-  ${opts.betrieb ? `<p class="o">${hEsc(opts.betrieb)}</p>` : ''}
-  <h1>${hEsc(opts.titel)}</h1>
-  ${opts.aufwand ? `<p class="a">${hEsc(opts.aufwand)}</p>` : ''}
-  ${opts.hinweis ? `<p class="a">${hEsc(opts.hinweis)}</p>` : ''}
-  ${knopfBlock}
-  <p class="f">Dieser Link wurde dir per E-Mail zugeschickt und gilt eine Woche.</p>
-</div>
-</body></html>`;
+/** JSON-Antwort fuer Token-Seiten — mit den Schutz-Kopfzeilen, nie HTML. */
+function actionJson(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: ACTION_HEADERS });
 }
 
-/** Dieselbe Antwort fuer jeden Fehlerfall. */
-function actionAbweisung(dashboardUrl: string): Response {
-  return new Response(actionSeite({
-    titel: 'Dieser Link ist nicht mehr gültig.',
-    hinweis: 'Melde dich im Dashboard an — deine Aufgaben liegen dort bereit.',
-    dashboardUrl,
-  }), { status: 200, headers: ACTION_HEADERS });
+/** Dieselbe Antwort fuer jeden Fehlerfall: nichts ueber den Grund. */
+function actionAbweisung(): Response {
+  return actionJson({ valid: false });
+}
+
+/** 302 ins Frontend. Kein 301: nichts mit Token im Pfad darf dauerhaft im Cache landen. */
+function leiteZumFrontend(pfad: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': `${appBasis()}${pfad}`,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Referrer-Policy': 'no-referrer',
+      'X-Robots-Tag': 'noindex',
+    },
+  });
 }
 
 /**
@@ -8019,22 +7976,21 @@ async function pruefeActionToken(
  */
 async function handleActionLinkGet(request: Request, token: string): Promise<Response> {
   const log = createLogger('action-link');
-  const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
-  const dashboard = `${basis}/dashboard`;
 
   const pruefung = await pruefeActionToken(token, request, log);
 
   if (!pruefung.ok) {
     /* Der Grund steht im Protokoll, nicht in der Antwort. */
     log.warn('action_link_invalid', { reason: pruefung.grund });
-    return actionAbweisung(dashboard);
+    return actionAbweisung();
   }
 
   const ctx = pruefung.ctx;
 
   /* Der Name des Betriebs — damit der Besucher sieht, worum es geht.
      Mehr nicht: Wer einen fremden Link in die Hand bekommt, soll
-     daraus nichts ueber das Konto lernen. */
+     daraus nichts ueber das Konto lernen. Keine IDs, kein Nutzer,
+     keine Google-Ressourcen in der Antwort. */
   let betrieb: string | null = null;
   let aufgabe: string | null = null;
   let aufwand: string | null = null;
@@ -8071,28 +8027,14 @@ async function handleActionLinkGet(request: Request, token: string): Promise<Res
     erledigt,
   });
 
-  if (erledigt) {
-    return new Response(actionSeite({
-      titel: 'Diese Aufgabe ist inzwischen erledigt.',
-      betrieb,
-      hinweis: 'Im Dashboard siehst du, was als Nächstes ansteht.',
-      dashboardUrl: dashboard,
-    }), { status: 200, headers: ACTION_HEADERS });
-  }
-
-  /* Das Formular sendet per POST auf dieselbe Adresse mit /continue.
-     Ein Scanner folgt Links; ein Formular abzuschicken tut er nicht. */
-  const ziel = new URL(request.url);
-  ziel.pathname = `${ziel.pathname.replace(/\/+$/, '')}/continue`;
-
-  return new Response(actionSeite({
-    titel: aufgabe ?? 'Weiter zu deinem Dashboard',
-    betrieb,
-    aufwand,
-    formAktion: ziel.pathname + ziel.search,
-    knopf: 'Weiter zu WERKRUF',
-    dashboardUrl: dashboard,
-  }), { status: 200, headers: ACTION_HEADERS });
+  return actionJson({
+    valid: true,
+    title: aufgabe ?? 'Weiter zu deinem Dashboard',
+    businessName: betrieb,
+    effort: aufwand,
+    done: erledigt,
+    requiresConfirmation: !erledigt,
+  });
 }
 
 /**
@@ -8106,7 +8048,6 @@ async function handleActionLinkGet(request: Request, token: string): Promise<Res
 async function handleActionLinkPost(request: Request, token: string): Promise<Response> {
   const log = createLogger('action-link');
   const basis = Deno.env.get('APP_URL') ?? 'https://www.werkruf.com';
-  const dashboard = `${basis}/dashboard`;
 
   /* Kommt die Anfrage von unserer eigenen Seite?
      Ein fremder Origin heisst: Jemand hat ein Formular auf seiner
@@ -8115,10 +8056,10 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
      Formularen nicht. */
   const origin = request.headers.get('origin');
   if (origin) {
-    const erlaubt = [basis, Deno.env.get('SUPABASE_URL') ?? ''].filter(Boolean);
+    const erlaubt = [basis, appBasis(), Deno.env.get('SUPABASE_URL') ?? '', ...getAllowedOrigins()].filter(Boolean);
     if (!erlaubt.some((e) => origin === e)) {
       log.warn('action_link_fremder_origin', {});
-      return actionAbweisung(dashboard);
+      return leiteZumFrontend(`/a/${encodeURIComponent(token)}?status=ungueltig`);
     }
   }
 
@@ -8127,7 +8068,7 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
 
   if (!pruefung.ok) {
     log.warn('action_link_post_invalid', { reason: pruefung.grund });
-    return actionAbweisung(dashboard);
+    return leiteZumFrontend(`/a/${encodeURIComponent(token)}?status=ungueltig`);
   }
 
   const ctx = pruefung.ctx;
@@ -8141,11 +8082,7 @@ async function handleActionLinkPost(request: Request, token: string): Promise<Re
 
     if (['completed', 'dismissed', 'resolved', 'expired'].includes(zustand)) {
       log.debug('action_link_event_erledigt', { tokenId: String(ctx.tokenId ?? '') });
-      return new Response(actionSeite({
-        titel: 'Diese Aufgabe ist inzwischen erledigt.',
-        hinweis: 'Im Dashboard siehst du, was als Nächstes ansteht.',
-        dashboardUrl: dashboard,
-      }), { status: 200, headers: ACTION_HEADERS });
+      return leiteZumFrontend(`/a/${encodeURIComponent(token)}?status=erledigt`);
     }
 
     /* Jetzt ist "geoeffnet" wahr: Ein Mensch hat auf Weiter gedrueckt.
@@ -9232,57 +9169,21 @@ async function handleAkquisePraesentation(token: string): Promise<Response> {
   return new Response(null, { status: 302, headers: { ...AKQUISE_KOPF, Location: AKQUISE_PDF_URL } });
 }
 
-function akquiseSeite(opts: { titel: string; text: string; formAktion?: string | null; knopf?: string | null; fuss?: string | null }): string {
-  const knopf = opts.formAktion
-    ? `<form method="POST" action="${hEsc(opts.formAktion)}"><button type="submit" class="b">${hEsc(opts.knopf ?? 'Ja, Interesse')}</button></form>`
-    : '';
-  return `<!doctype html>
-<html lang="de"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow">
-<title>WERKRUF Founding Partner</title>
-<style>
-  body{margin:0;padding:40px 20px;background:#F4F5F7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1A2433}
-  .k{max-width:460px;margin:0 auto;background:#fff;border:1px solid #E3E7EB;border-radius:12px;padding:32px 28px}
-  .m{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5F6875;margin:0 0 18px}
-  h1{font-size:1.2rem;margin:0 0 10px;line-height:1.35}
-  p{font-size:.95rem;line-height:1.55;margin:0 0 20px}
-  .b{display:inline-block;background:#002C51;color:#fff;border:0;border-radius:7px;padding:13px 24px;font-size:.95rem;font-weight:600;cursor:pointer;font-family:inherit}
-  .f{font-size:.76rem;color:#8A929C;margin:22px 0 0;line-height:1.5}
-</style></head><body>
-<div class="k">
-  <p class="m">WERKRUF Founding Partner</p>
-  <h1>${hEsc(opts.titel)}</h1>
-  <p>${hEsc(opts.text)}</p>
-  ${knopf}
-  ${opts.fuss ? `<p class="f">${hEsc(opts.fuss)}</p>` : ''}
-</div></body></html>`;
-}
-
-async function handleAkquiseCtaGet(request: Request, token: string): Promise<Response> {
+/* GET /fp/<token>/info — JSON fuer die Frontend-Seite werkruf.com/founding-partner/<token>.
+   Registriert cta_viewed (technische Historie), NIE einen Vertriebsstatus. */
+async function handleAkquiseCtaInfo(token: string): Promise<Response> {
   const r = await akquiseLinkEreignis(token, 'cta_viewed');
-  if (!r.ok) return new Response(null, { status: 404, headers: AKQUISE_KOPF });
-  /* Relativ, nicht absolut: der Browser steht auf werkruf.com/founding-partner/<token>
-     (Vercel-Rewrite), die Function sieht /functions/v1/google-business/fp/<token>.
-     „<token>/interesse" loest auf beiden Wegen richtig auf. */
-  void request;
-  const aktion = `${token}/interesse`;
-  return new Response(akquiseSeite({
-    titel: 'Interesse?',
-    text: 'Als Founding Partner nutzt du WERKRUF dauerhaft kostenlos und gibst mir kurz Rückmeldung, was hilft und was nervt. Ein Klick genügt — ich melde mich dann persönlich.',
-    formAktion: aktion, knopf: 'Ja, Interesse',
-    fuss: 'Mit dem Klick bestätigst du nur dein Interesse. Es wird nichts eingerichtet und nichts abgeschlossen.',
-  }), { status: 200, headers: ACTION_HEADERS });
+  if (!r.ok) return actionJson({ valid: false }, 404);
+  return actionJson({ valid: true });
 }
 
+/* POST /fp/<token>/interesse — die einzige Stelle, an der der Lead selbst
+   den Status setzt (acquisition_link_event: idempotent, nur aufwaerts).
+   Antwort ist ein Redirect ins Frontend, kein HTML. */
 async function handleAkquiseCtaPost(token: string): Promise<Response> {
   const r = await akquiseLinkEreignis(token, 'cta_clicked');
-  if (!r.ok) return new Response(null, { status: 404, headers: AKQUISE_KOPF });
-  return new Response(akquiseSeite({
-    titel: 'Danke — Interesse ist notiert.',
-    text: 'Ich melde mich persönlich bei dir. Du musst jetzt nichts weiter tun.',
-    fuss: 'Iver Bohnes · WERKRUF',
-  }), { status: 200, headers: ACTION_HEADERS });
+  if (!r.ok) return leiteZumFrontend(`/founding-partner/${encodeURIComponent(token)}?status=ungueltig`);
+  return leiteZumFrontend(`/founding-partner/${encodeURIComponent(token)}?danke=1`);
 }
 
 
@@ -9381,11 +9282,15 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return handleAkquisePraesentation(token);
   }
   if (routeName === 'fp' && sub) {
-    const interesse = url.pathname.replace(/\/+$/, '').endsWith('/interesse');
+    const pfad = url.pathname.replace(/\/+$/, '');
+    const interesse = pfad.endsWith('/interesse');
+    const info = pfad.endsWith('/info');
     if (request.method === 'POST' && interesse) return handleAkquiseCtaPost(sub);
-    if (request.method === 'GET' && !interesse) return handleAkquiseCtaGet(request, sub);
+    if (request.method === 'GET' && info) return handleAkquiseCtaInfo(sub);
+    /* Alte Adresse (direkt auf Supabase): ins Frontend, das die Seite rendert. */
+    if (request.method === 'GET' && !interesse && istAkquiseToken(sub)) return leiteZumFrontend(`/founding-partner/${encodeURIComponent(sub)}`);
     /* GET auf /interesse: ein Scanner darf nie Interesse setzen. */
-    return new Response(null, { status: 405, headers: { 'Allow': interesse ? 'POST' : 'GET', 'Cache-Control': 'no-store' } });
+    return new Response(null, { status: interesse || info ? 405 : 404, headers: { 'Allow': interesse ? 'POST' : 'GET', 'Cache-Control': 'no-store' } });
   }
 
   /* Mail-Links zuerst: /a/<token>. Oeffentlich und ohne Bearer-Token —
@@ -9395,13 +9300,22 @@ Deno.serve(async (request: Request): Promise<Response> => {
        Ein Scanner folgt Links; ein Formular schickt er nicht ab. */
     /* .../a/<token>/continue — der dritte Abschnitt nach der
        Funktion. resolveRoute liefert nur Name und erstes Unterglied. */
-    const weiter = url.pathname.replace(/\/+$/, '').endsWith('/continue');
+    const pfad = url.pathname.replace(/\/+$/, '');
+    const weiter = pfad.endsWith('/continue');
+    const info = pfad.endsWith('/info');
 
     if (request.method === 'POST' && weiter) {
       return handleActionLinkPost(request, sub);
     }
-    if (request.method === 'GET' && !weiter) {
+    /* /a/<token>/info — JSON fuer die Frontend-Seite. Zeigt nur an. */
+    if (request.method === 'GET' && info) {
       return handleActionLinkGet(request, sub);
+    }
+    /* /a/<token> — alte Mail-Links zeigen direkt hierher. Kein HTML mehr:
+       302 ins Frontend, das die Seite rendert und /info abfragt. Der
+       Token bleibt im Pfad, nichts wird geprueft oder verbraucht. */
+    if (request.method === 'GET' && !weiter) {
+      return leiteZumFrontend(`/a/${encodeURIComponent(sub)}`);
     }
 
     /* GET auf /continue waere der Weg, den Schutz zu umgehen. */
