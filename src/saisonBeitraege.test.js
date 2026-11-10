@@ -15,7 +15,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   SAISONEN, SAISON_KEYS, HEIZUNGS_KATEGORIEN, BEITRAG_MAX_ZEICHEN, BEITRAG_MIN_ZEICHEN,
   saison, saisonGiltFuer, saisonFenster, offeneSaisons, saisonSubjektId, baueBeitragsVorschlag,
-  textErlaubtFuerBeitrag, pruefeBeitragstext, statusText, BEITRAG_GRUND_TEXT,
+  textErlaubtFuerBeitrag, textOhneWirkungsversprechen, pruefeBeitragstext, statusText, BEITRAG_GRUND_TEXT,
 } from './utils/saisonBeitraege';
 
 const lies = (p) => fs.readFileSync(path.resolve(__dirname, p), 'utf8');
@@ -113,6 +113,40 @@ describe('T10–T17 — Inhalt', () => {
       for (const v of VERBOTEN) expect(t.toLowerCase()).not.toContain(v.toLowerCase());
       expect(pruefeBeitragstext(t).ok).toBe(true);
     }
+  });
+  it('T10b — Product Truth: 1.500 ist ein WERKRUF-Limit, keine Google-Angabe (Kommentar, Fehlertext, Dialog)', () => {
+    const src = lies('./utils/saisonBeitraege.js');
+    expect(src).toMatch(/WERKRUF begrenzt Saison-Beitraege fuer eine kompakte Darstellung auf\s+1\.500 Zeichen/);
+    expect(src).not.toMatch(/Google-Hilfe 1\.500|Google erlaubt maximal|Google nimmt längere|Google nimmt laengere/i);
+    expect(BEITRAG_GRUND_TEXT.zu_lang).toBe('Höchstens 1.500 Zeichen pro WERKRUF-Saisonbeitrag.');
+    expect(BEITRAG_GRUND_TEXT.zu_lang).not.toMatch(/Google/);
+    expect(lies('./components/dashboard/SaisonBeitragDialog.js')).not.toMatch(/Google (erlaubt|nimmt|akzeptiert)/i);
+  });
+  it('T10c — Product Truth: keine Sichtbarkeits-/Ranking-/Nachfrageversprechen in Aufgabe, Begruendung, Vorlage, Regel', () => {
+    for (const s of SAISONEN) {
+      for (const t of [s.titel, s.aufgabe, s.warum, baueBeitragsVorschlag({ key: s.key, betrieb: 'B' })]) {
+        expect(textOhneWirkungsversprechen(t)).toBe(true);
+        expect(t).not.toMatch(/sichtbar|Ranking|besser gefunden|mehr Anfragen|Kunden suchen jetzt/i);
+      }
+    }
+    expect(saison('weihnachten').warum).toBe('Weihnachten steht vor der Tür. Mit einem aktuellen Beitrag kannst du deinen Kunden direkt im Google-Profil einen kurzen Weihnachtsgruß zeigen.');
+    expect(saison('heizsaison').warum).toBe('Die Heizsaison beginnt. Jetzt passt ein aktueller Beitrag zu diesem saisonalen Thema.');
+    expect(textOhneWirkungsversprechen('hält dein Profil sichtbar')).toBe(false);
+    expect(textOhneWirkungsversprechen('wirst besser gefunden')).toBe(false);
+    const rule = gb.slice(gb.indexOf("id: 'content.seasonal_post'"), gb.indexOf("id: 'profile.photos_missing'"));
+    expect(rule).not.toMatch(/sichtbar|Ranking|besser gefunden|mehr Anfragen/i);
+  });
+  it('T10d — Product Truth: Vorlagen behaupten keine Erreichbarkeit/Oeffnung (Betriebsferien)', () => {
+    for (const key of SAISON_KEYS) {
+      const t = baueBeitragsVorschlag({ key, betrieb: 'B' });
+      expect(t).not.toMatch(/wir sind .{0,30}\b(da|erreichbar)\b|wie gewohnt|geöffnet|Öffnungszeiten|erreichbar|freie Termine|Termin vereinbaren/i);
+    }
+    expect(baueBeitragsVorschlag({ key: 'sommer', betrieb: 'B' })).toBe('Einen schönen Sommer wünscht euch das Team von B.\n\nWir wünschen euch eine gute Sommerzeit.');
+    expect(textErlaubtFuerBeitrag('Wir sind weiterhin für euch da — wie gewohnt über die Kontaktdaten in unserem Profil.')).toBe(false);
+    expect(textErlaubtFuerBeitrag('Wir sind wie gewohnt geöffnet.')).toBe(false);
+    expect(textErlaubtFuerBeitrag('Wir wünschen euch eine gute Sommerzeit.')).toBe(true);
+    /* Nutzertexte bleiben frei: nur Laenge */
+    expect(pruefeBeitragstext('Wir sind im August wie gewohnt für euch da.').ok).toBe(true);
   });
   it('T11 — Mustererkennung schlaegt bei Angebots-/Notdienst-/Preis-/Garantie-Text an', () => {
     for (const v of VERBOTEN) expect(textErlaubtFuerBeitrag(`Hallo. ${v} bei uns.`)).toBe(false);
