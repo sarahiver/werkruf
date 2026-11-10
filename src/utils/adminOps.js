@@ -500,6 +500,7 @@ export function leiteImportZustandAb(importJobs = [], anzahlStandorte = 0) {
  * @param {Zeile[]} [eingabe.profilDiffs]
  * @param {Zeile[]} [eingabe.referrals]
  * @param {Zeile[]} [eingabe.referralRewards]
+ * @param {Zeile[]} [eingabe.smsRequests] WP14 — Versandhistorie (nur technische Felder, keine Nummer)
  * @param {Date} [eingabe.jetzt]
  * @returns {Zeile|null}
  */
@@ -514,6 +515,7 @@ export function baueSupportSnapshot({
   profilDiffs = [],
   referrals = [],
   referralRewards = [],
+  smsRequests = [],
   jetzt = new Date(),
 } = {}) {
   if (!profil?.id) return null;

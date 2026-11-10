@@ -387,7 +387,7 @@ async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
  * ausschliesslich die Mailadresse.
  */
 async function supportZustand(admin: SupabaseClient, userId: string) {
-  const [profil, konto, standorte, jobs, mails, events, authUser, diffs, referrals, rewards] = await Promise.all([
+  const [profil, konto, standorte, jobs, mails, events, authUser, diffs, referrals, rewards, smsRequests] = await Promise.all([
     admin.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
     admin.from('google_accounts')
       .select('id,status,connected_at,last_error_code,last_error_at,deleted_at')
@@ -417,9 +417,13 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
     admin.from('referral_rewards')
       .select('id,referral_id,beneficiary,amount_cents,status,applied_at,created_at')
       .eq('user_id', userId).order('created_at', { ascending: false }).limit(20),
+    /* WP14 — SMS-Bewertungsanfragen: nur technische Zaehler, keine Nummer (die Tabelle hat keine). */
+    admin.from('review_sms_requests')
+      .select('id,location_id,status,segment_count,error_code,created_at,sent_at,delivered_at,failed_at')
+      .eq('user_id', userId).order('created_at', { ascending: false }).limit(50),
   ]);
 
-  for (const r of [profil, konto, standorte, jobs, mails, events, diffs, referrals, rewards]) {
+  for (const r of [profil, konto, standorte, jobs, mails, events, diffs, referrals, rewards, smsRequests]) {
     if ((r as { error?: unknown }).error) throw (r as { error: unknown }).error;
   }
 
@@ -437,6 +441,7 @@ async function supportZustand(admin: SupabaseClient, userId: string) {
       profilDiffs: diffs.data ?? [],
       referrals: referrals.data ?? [],
       referralRewards: rewards.data ?? [],
+      smsRequests: smsRequests.data ?? [],
     }),
     generatedAt: new Date().toISOString(),
   };
