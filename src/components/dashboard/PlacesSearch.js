@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Search, AlertCircle } from 'lucide-react';
+import { ladeGoogleMaps } from '../../utils/googleMapsLader';
 
 const spin = keyframes`to { transform: rotate(360deg); }`;
 
@@ -119,6 +120,8 @@ const GlobalPacStyle = () => {
    (script loads async — may not be ready on mount)
 ───────────────────────────────────────────── */
 function waitForGoogle(timeout = 8000) {
+  /* Skript erst jetzt anstossen (vorher global in index.html). */
+  ladeGoogleMaps();
   return new Promise((resolve, reject) => {
     if (window.google?.maps?.places) {
       resolve();

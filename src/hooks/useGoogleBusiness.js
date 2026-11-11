@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import supabase from '../supabaseClient';
+import { funnelEvent } from '../utils/analytics';
 
 /* ─────────────────────────────────────────────
    useGoogleBusiness
@@ -145,6 +146,8 @@ export function useGoogleBusiness() {
         confirmationRequests.set(token, confirmationRequest);
       }
       confirmationRequest.then(async () => {
+          /* Server hat die Verbindung bestaetigt (connect/confirm). */
+          funnelEvent('google_connect_success');
           if (!mountedRef.current) return;
           // OAuth authorises a Google account, not one particular business.
           // Import the locations managed by that account; the dashboard then
@@ -199,6 +202,9 @@ export function useGoogleBusiness() {
       });
 
       if (!data?.authUrl) throw new Error('Keine Autorisierungs-URL erhalten');
+      /* Fachlich: der Server hat den Google-Dialog vorbereitet; jetzt
+         geht es zu Google. Die authUrl selbst geht nirgendwohin. */
+      funnelEvent('google_connect_start', { reconnect: Boolean(connectionId) });
 
       // Volle Navigation, kein Popup: Google blockiert seinen
       // Einwilligungsdialog in eingebetteten Kontexten.

@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Link } from 'react-router-dom';
+import { ANBIETER, vollerName, telefonHref } from '../config/anbieter';
 
 const Wrap = styled.div`
   max-width: 720px; margin: 0 auto;
@@ -55,6 +56,7 @@ const A = styled.a`
 `;
 
 export default function Impressum() {
+  const a = ANBIETER;
   return (
     <Wrap>
       <Back to="/">← Zurück zur Startseite</Back>
@@ -62,50 +64,50 @@ export default function Impressum() {
       <Title>Impressum</Title>
 
       <Section>
-        <H2>Angaben gemäß § 5 TMG</H2>
+        <H2>Angaben gemäß § 5 DDG</H2>
         <P>
-          Iver Bohnes (geb. Gentz)<br />
-          Große Freiheit 82<br />
-          22767 Hamburg<br />
-          Deutschland
+          {vollerName(a)}<br />
+          {a.angebot}<br />
+          {a.strasse}<br />
+          {a.plz} {a.ort}<br />
+          {a.land}
         </P>
       </Section>
 
       <Section>
         <H2>Kontakt</H2>
         <P>
-          Telefon: <A href="tel:+4917666631237">+49 176 66631237</A><br />
-          E-Mail: <A href="mailto:info@werkruf.com">info@werkruf.com</A>
+          Telefon: <A href={telefonHref(a.telefon)}>{a.telefon}</A><br />
+          E-Mail: <A href={`mailto:${a.email}`}>{a.email}</A>
         </P>
       </Section>
 
       <Section>
         <H2>Umsatzsteuer</H2>
+        {a.ustIdNr ? (
+          <P>Umsatzsteuer-Identifikationsnummer gemäß § 27a Umsatzsteuergesetz: {a.ustIdNr}</P>
+        ) : a.kleinunternehmer ? (
+          <P>
+            Gemäß § 19 Umsatzsteuergesetz wird keine Umsatzsteuer berechnet und daher auch nicht in
+            Rechnungen ausgewiesen.
+          </P>
+        ) : null}
+        {a.wirtschaftsIdNr && <P>Wirtschafts-Identifikationsnummer: {a.wirtschaftsIdNr}</P>}
+      </Section>
+
+      <Section>
+        <H2>Inhaltlich verantwortlich gemäß § 18 Abs. 2 MStV</H2>
         <P>
-          Gemäß § 19 Abs. 1 Umsatzsteuergesetz wird keine Umsatzsteuer berechnet und
-          daher auch nicht in Rechnungen ausgewiesen.
+          {a.inhaltlichVerantwortlich}<br />
+          {a.strasse}<br />
+          {a.plz} {a.ort}
         </P>
       </Section>
 
       <Section>
-        <H2>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</H2>
+        <H2>Verbraucherstreitbeilegung</H2>
         <P>
-          Iver Bohnes (geb. Gentz)<br />
-          Große Freiheit 82<br />
-          22767 Hamburg
-        </P>
-      </Section>
-
-      <Section>
-        <H2>Streitschlichtung</H2>
-        <P>
-          Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:{' '}
-          <A href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener noreferrer">
-            https://ec.europa.eu/consumers/odr/
-          </A>
-        </P>
-        <P>
-          Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor einer
+          Wir sind nicht bereit und nicht verpflichtet, an Streitbeilegungsverfahren vor einer
           Verbraucherschlichtungsstelle teilzunehmen.
         </P>
       </Section>
@@ -113,18 +115,14 @@ export default function Impressum() {
       <Section>
         <H2>Haftung für Inhalte</H2>
         <P>
-          Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten
-          nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als
-          Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde
-          Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige
-          Tätigkeit hinweisen.
-        </P>
-        <P>
-          Verpflichtungen zur Entfernung oder Sperrung der Nutzung von Informationen nach den
-          allgemeinen Gesetzen bleiben hiervon unberührt. Eine diesbezügliche Haftung ist jedoch
-          erst ab dem Zeitpunkt der Kenntnis einer konkreten Rechtsverletzung möglich. Bei
-          Bekanntwerden von entsprechenden Rechtsverletzungen werden wir diese Inhalte umgehend
-          entfernen.
+          Als Diensteanbieter sind wir für eigene Inhalte auf diesen Seiten nach den allgemeinen
+          Gesetzen verantwortlich. Für übermittelte oder gespeicherte fremde Informationen sind wir
+          nach Maßgabe der §§ 7 bis 10 DDG verantwortlich und nicht verpflichtet, diese zu
+          überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige Tätigkeit
+          hinweisen. Verpflichtungen zur Entfernung oder Sperrung der Nutzung von Informationen
+          nach den allgemeinen Gesetzen bleiben unberührt; eine Haftung besteht insoweit erst ab
+          Kenntnis einer konkreten Rechtsverletzung. Bei Bekanntwerden entsprechender
+          Rechtsverletzungen entfernen wir diese Inhalte umgehend.
         </P>
       </Section>
 
@@ -132,21 +130,25 @@ export default function Impressum() {
         <H2>Haftung für Links</H2>
         <P>
           Unser Angebot enthält Links zu externen Websites Dritter, auf deren Inhalte wir keinen
-          Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen.
-          Für die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber der
-          Seiten verantwortlich.
+          Einfluss haben. Für diese fremden Inhalte übernehmen wir keine Gewähr; verantwortlich ist
+          stets der jeweilige Anbieter oder Betreiber der Seiten. Bei Bekanntwerden von
+          Rechtsverletzungen entfernen wir derartige Links umgehend.
         </P>
       </Section>
 
       <Section>
         <H2>Urheberrecht</H2>
         <P>
-          Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen
+          Die durch den Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen
           dem deutschen Urheberrecht. Die Vervielfältigung, Bearbeitung, Verbreitung und jede Art
-          der Verwertung außerhalb der Grenzen des Urheberrechtes bedürfen der schriftlichen
-          Zustimmung des jeweiligen Autors bzw. Erstellers.
+          der Verwertung außerhalb der Grenzen des Urheberrechts bedürfen der schriftlichen
+          Zustimmung des Rechteinhabers.
         </P>
       </Section>
+
+      <P style={{ color: 'var(--color-text-muted)', fontSize: '.8rem', marginTop: 40 }}>
+        Stand: November 2026
+      </P>
     </Wrap>
   );
 }

@@ -6,6 +6,7 @@ import { useAuthContext } from '../context/AuthContext';
 import { useIndustry } from '../context/IndustryContext';
 import { clearPublicFunnel } from '../utils/publicFunnel';
 import supabase from '../supabaseClient';
+import { funnelEvent } from '../utils/analytics';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -226,6 +227,10 @@ export default function Onboarding() {
           setFehler('Die Zustimmung konnte nicht gespeichert werden. Bitte noch einmal versuchen.');
           return;
         }
+        /* signup_complete = Konto angelegt UND Bedingungen erstmals
+           akzeptiert (serverseitig bestaetigt, einmal je Konto). Gilt fuer
+           E-Mail- und Google-Registrierung gleich. */
+        funnelEvent('signup_complete');
         /* Damit das Profil im Kontext den Eintrag kennt — sonst
            erschiene der Haken beim Zurueckkehren erneut. */
         await refreshProfile?.();

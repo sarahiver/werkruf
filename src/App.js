@@ -49,6 +49,7 @@ import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
 import Admin                from './pages/Admin';
 import Datenschutz          from './pages/Datenschutz';
+import CookieHinweis from './components/CookieHinweis';
 
 /* ─────────────────────────────────────────────
    Shell wrapper — Header + Footer only on
@@ -92,6 +93,9 @@ function App() {
               Google auf einer oeffentlichen Seite endete. Greift nur
               bei begonnener Einrichtung — siehe OnboardingWeiche. */}
           <OnboardingWeiche />
+          {/* GA4 nur nach Einwilligung, nur auf erlaubten Pfaden —
+              siehe utils/analytics.js */}
+          <CookieHinweis />
 
           <Routes>
             {/* ── PUBLIC ── */}

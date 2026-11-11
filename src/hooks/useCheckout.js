@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import supabase from '../supabaseClient';
+import { funnelEvent } from '../utils/analytics';
 
 /**
  * useCheckout — calls create-checkout-session Edge Function
@@ -38,6 +39,8 @@ export function useCheckout() {
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.error);
       if (!data?.url) throw new Error('Keine Checkout-URL erhalten');
+      /* Fachlich: Stripe-Session existiert, Weiterleitung folgt. */
+      funnelEvent('checkout_start', { plan });
 
       // Redirect to Stripe Checkout
       window.location.href = data.url;

@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { useIndustry } from '../context/IndustryContext';
+import { messId, oeffneConsentEinstellungen } from '../utils/analytics';
 
 const FooterWrap = styled.footer`
   background: var(--color-bg-dark);
@@ -27,7 +28,7 @@ const Logo = styled.span`
   color: var(--color-white);
 `;
 
-const Links = styled.div`display: flex; gap: 28px;`;
+const Links = styled.div`display: flex; gap: 12px 28px; flex-wrap: wrap;`;
 
 const FooterLink = styled.a`
   font-family: var(--font-body);
@@ -35,6 +36,15 @@ const FooterLink = styled.a`
   color: rgba(255,255,255,0.4);
   transition: color 0.2s;
   &:hover { color: var(--color-accent); }
+`;
+
+/* Wie ein Link aussehend, aber ein Knopf: oeffnet die Einwilligung. */
+const FooterKnopf = styled.button`
+  font-family: var(--font-body); font-size: 0.83rem;
+  color: rgba(255,255,255,0.4); background: none; border: 0; padding: 0; cursor: pointer;
+  transition: color 0.2s;
+  &:hover { color: var(--color-accent); }
+  &:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 `;
 
 const Copy = styled.p`
@@ -55,6 +65,11 @@ const Footer = () => {
           {footer.links.map((link, i) => (
             <FooterLink key={i} href={link.href}>{link.label}</FooterLink>
           ))}
+          {messId() && (
+            <FooterKnopf type="button" onClick={oeffneConsentEinstellungen} data-testid="footer-cookie-einstellungen">
+              Cookie-Einstellungen
+            </FooterKnopf>
+          )}
         </Links>
         <Copy>© {new Date().getFullYear()} {brand.name} — {footer.tagline}</Copy>
       </Inner>

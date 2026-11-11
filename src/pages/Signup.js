@@ -9,6 +9,7 @@ import { loadPublicFunnel, savePublicFunnel } from '../utils/publicFunnel';
 import { getPostAuthDestination } from '../utils/postAuthDestination';
 import { setzeOnboardingAbsicht } from '../utils/onboardingAbsicht';
 import { leseEmpfehlung, vergissEmpfehlung } from '../utils/empfehlung';
+import { funnelEvent } from '../utils/analytics';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
@@ -236,6 +237,8 @@ export default function Signup() {
     const fe = validate();
     if (Object.keys(fe).length) { setFieldErr(fe); return; }
     setFieldErr({}); setError(''); setLoading(true);
+    /* Fachlich: das Formular ist gueltig und wird jetzt abgeschickt. */
+    funnelEvent('signup_start', { method: 'email' });
 
     /* Meta passed to Supabase — handle_new_user trigger picks this up */
     const meta = {
@@ -286,6 +289,7 @@ export default function Signup() {
        Umweg ueber Google und traegt den Nutzer durch den Rest des
        Weges — auch wenn der Ruecksprung woanders landet als gewollt. */
     setzeOnboardingAbsicht();
+    funnelEvent('signup_start', { method: 'google' });
     const { error: oauthError } = await signInGoogle('/onboarding');
     if (oauthError) {
       setError(oauthError.message || 'Google-Anmeldung konnte nicht gestartet werden.');
