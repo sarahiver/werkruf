@@ -2,13 +2,11 @@ import { createGlobalStyle } from 'styled-components';
 
 /*
   CSS custom properties are injected by <ThemeInjector> in App.js.
-  This file only handles base resets and font imports.
+  This file only handles base resets. Fonts are self-hosted (src/schriften.js).
   All color values reference var(--color-*) so switching industry
   config automatically re-themes the entire UI.
 */
 const GlobalStyle = createGlobalStyle`
-  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&family=Cormorant+Garamond:wght@500;600;700&family=Nunito+Sans:wght@400;600;700&display=swap');
-
   *, *::before, *::after {
     box-sizing: border-box;
     margin: 0;

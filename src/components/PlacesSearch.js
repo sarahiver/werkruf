@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Search, AlertCircle } from 'lucide-react';
+import { ladeGoogleMaps } from '../utils/googleMapsLader';
 
 const spin = keyframes`to { transform: rotate(360deg); }`;
 
@@ -62,6 +63,8 @@ function injectPacCss() {
    is available (script loads async)
 ───────────────────────────────────────────── */
 function waitForGoogle(timeout = 10000) {
+  /* Skript erst jetzt anstossen (vorher global in index.html). */
+  ladeGoogleMaps();
   return new Promise((resolve, reject) => {
     if (window.google?.maps?.places?.Autocomplete) {
       resolve(); return;

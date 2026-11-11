@@ -11,6 +11,7 @@ import { useAuthContext } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
 import BetriebsKontext, { BetriebsKopf } from '../../components/dashboard/BetriebsKontext';
 import { PauseHinweis } from '../../components/dashboard/Betriebsferien';
+import { funnelEvent } from '../../utils/analytics';
 
 /* ─────────────────────────────────────────────
    SHELL
@@ -254,6 +255,20 @@ export function sichtbareNavItems(profile, items = NAV_ITEMS) {
   return items.filter((item) => !item.nurFoundingPartner || fp);
 }
 
+/* checkout_success hoechstens einmal je Stripe-Session (Reload,
+   StrictMode, erneutes Rendern). Die Session-ID bleibt im Browser. */
+const gemeldeteCheckouts = new Set();
+function meldeCheckoutErfolg(sessionId) {
+  const schluessel = sessionId || 'ohne-id';
+  if (gemeldeteCheckouts.has(schluessel)) return;
+  try {
+    if (window.sessionStorage.getItem(`werkruf_checkout_gemeldet:${schluessel}`)) return;
+    window.sessionStorage.setItem(`werkruf_checkout_gemeldet:${schluessel}`, '1');
+  } catch { /* privat-Modus: dann nur das Set */ }
+  gemeldeteCheckouts.add(schluessel);
+  funnelEvent('checkout_success');
+}
+
 /* ─────────────────────────────────────────────
    COMPONENT
 ───────────────────────────────────────────── */
@@ -287,6 +302,10 @@ export default function DashboardLayout() {
   useEffect(() => {
     if (checkoutResult === 'success' && hasPaidAccess(profile)) {
       setCheckoutState('active');
+      /* checkout_success erst, wenn das Profil den bezahlten Zugang
+         zeigt (Webhook verarbeitet) — nicht schon beim Ruecksprung.
+         Einmal je Stripe-Session, auch bei erneutem Rendern. */
+      meldeCheckoutErfolg(searchParams.get('session_id'));
       /* WP7 §19: zurueck in den Kontext, aus dem der Nutzer kam (z. B.
          die kritische Bewertung). Der Pfad wurde serverseitig gebaut,
          hier wird er trotzdem noch einmal geprueft — Query-Parameter
