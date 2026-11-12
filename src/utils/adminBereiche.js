@@ -2,7 +2,7 @@
  * Admin-Bereiche (WP16.1).
  *
  * /admin war eine lange Seite, auf der jedes neue Modul unten anwuchs.
- * Jetzt: fuenf Arbeitsbereiche, immer nur einer sichtbar, adressierbar
+ * Jetzt: sechs Arbeitsbereiche (Paket B: + Analyse), immer nur einer sichtbar, adressierbar
  * ueber ?bereich= (Reload und Deep Links funktionieren).
  *
  * Bewusst ohne React-Router-Hooks: Admin.js ist eine einzige Route, und
@@ -17,6 +17,7 @@ export const BEREICHE = Object.freeze([
   { key: 'kunden', label: 'Kunden' },
   { key: 'founding-partner', label: 'Founding Partner' },
   { key: 'setup', label: 'Setup' },
+  { key: 'analyse', label: 'Analyse' },
 ]);
 
 export const STANDARD_BEREICH = 'uebersicht';

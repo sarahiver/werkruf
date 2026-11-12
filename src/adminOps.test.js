@@ -115,6 +115,7 @@ describe('das Tor', () => {
       'acquisition_preview',
       'acquisition_send',
       'acquisition_set_status',
+      'analytics_overview',
       'clear_founding_partner',
       /* 09.11.2026 (WP6): Founding-Partner-Cockpit. Zwei Lesezugriffe,
          ein Schreibzugriff auf eine eigene Tabelle (49-€-Feedback) —

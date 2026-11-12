@@ -8,6 +8,7 @@ import { serverFehlertext } from '../utils/adminFehler';
 import { formatAdminDate, getSubscriptionLabel } from '../utils/adminOps';
 import { BEREICHE, bereichAusSuche, sucheFuerBereich } from '../utils/adminBereiche';
 import FoundingPartnerCockpit from '../components/admin/FoundingPartnerCockpit';
+import Analyse from '../components/admin/Analyse';
 import Akquise from '../components/admin/Akquise';
 import { BereichKopf, Kpi, KpiReihe, Flaeche, FlaecheKopf, ResponsiveTabelle, Leer } from '../components/admin/adminUi';
 
@@ -1041,6 +1042,14 @@ export default function Admin() {
             <BereichKopf titel="Founding Partner" untertitel="Nutzen die ersten Betriebe WERKRUF? Zustellung, Öffnung, Aufgaben, Antworten, 49-€-Signal." />
             {/* Zahlen aus fp_cockpit_overview() — siehe docs/operations/founding-partner-cockpit.md. */}
             <FoundingPartnerCockpit rufeAdminOps={rufeAdminOps} />
+          </div>
+        )}
+
+        {/* ═══ ANALYSE (Paket B; laedt selbst, nur in diesem Bereich) ═══ */}
+        {bereich === 'analyse' && (
+          <div data-testid="bereich-analyse">
+            <BereichKopf titel="Analyse" untertitel="Produkt-Funnel aus der Datenbank, Website (GA4, nur mit Einwilligung) und Google-Suche (Search Console)." />
+            <Analyse rufeAdminOps={rufeAdminOps} />
           </div>
         )}
 

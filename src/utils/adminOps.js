@@ -36,6 +36,7 @@ import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACC
 import { istPausiert } from './betriebsferien.js';
 import { AKQUISE_STATUS, pruefeLeadEingabe } from './akquise.js';
 import { bereiteImportVor, MAX_ZEILEN } from './akquiseImport.js';
+import { pruefeZeitraum, STANDARD_ZEITRAUM, ZEITRAEUME } from './analyseBericht.js';
 
 /* ═══════════════════════════════════════════════════════════════
    0 — DARSTELLUNG FUER DIE KUNDENLISTE
@@ -239,6 +240,13 @@ export const ADMIN_AKTIONEN = {
     parameter: ['mode', 'importId', 'rows'],
     auditAktion: 'admin.acquisition_import',
   },
+  /* Paket B — Analyse im Admin: GA4 + Search Console + Produkt-Funnel.
+     Nur lesend, nur Aggregate. Google-Zugriff serverseitig per
+     Service Account (Secrets), nie im Browser. */
+  analytics_overview: {
+    schreibt: false,
+    parameter: ['zeitraum'],
+  },
 };
 
 const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_import'];
@@ -350,7 +358,7 @@ function pruefeParameter(aktion, roh) {
      Liste der Supportanfragen. Der Statuswechsel identifiziert ueber
      requestId; die zugehoerige userId holt der Server fuer das Audit
      selbst aus der Zeile. */
-  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request', 'fp_cockpit_overview', ...AKQUISE_AKTIONEN].includes(aktion);
+  const brauchtUser = !['list_customers', 'list_support_requests', 'set_support_status', 'reply_support_request', 'fp_cockpit_overview', 'analytics_overview', ...AKQUISE_AKTIONEN].includes(aktion);
 
   if (brauchtUser) {
     if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -478,6 +486,12 @@ function pruefeParameter(aktion, roh) {
       werte.importId = importId.toLowerCase();
     }
   }
+  if (aktion === 'analytics_overview') {
+    const z = pruefeZeitraum(roh?.zeitraum ?? STANDARD_ZEITRAUM);
+    if (!z) return { fehler: `zeitraum: nur ${ZEITRAEUME.join(', ')} Tage` };
+    werte.zeitraum = z;
+  }
+
   if (aktion === 'acquisition_import') {
     if (roh?.mode !== 'preview' && roh?.mode !== 'commit') return { fehler: 'mode muss preview oder commit sein' };
     werte.mode = roh.mode;
