@@ -59,8 +59,8 @@ const aktionen = () => aufrufe.map((a) => a.action);
 
 /* ───────── Modul ───────── */
 describe('adminBereiche.js', () => {
-  it('fuenf Bereiche in fester Reihenfolge, Standard Uebersicht', () => {
-    expect(BEREICHE.map((b) => b.key)).toEqual(['uebersicht', 'akquise', 'kunden', 'founding-partner', 'setup']);
+  it('sechs Bereiche in fester Reihenfolge (Paket B: + Analyse), Standard Uebersicht', () => {
+    expect(BEREICHE.map((b) => b.key)).toEqual(['uebersicht', 'akquise', 'kunden', 'founding-partner', 'setup', 'analyse']);
     expect(STANDARD_BEREICH).toBe('uebersicht');
   });
   it('URL → Bereich; Unsinn → Uebersicht; andere Parameter bleiben', () => {
@@ -108,7 +108,7 @@ describe('Bereiche', () => {
   it('Navigation ist eine echte Link-Liste (Tastatur, Mittelklick, aria-current)', async () => {
     await oeffne('/admin?bereich=kunden');
     const links = within(screen.getByTestId('admin-bereiche')).getAllByRole('link');
-    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/admin', '/admin?bereich=akquise', '/admin?bereich=kunden', '/admin?bereich=founding-partner', '/admin?bereich=setup']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/admin', '/admin?bereich=akquise', '/admin?bereich=kunden', '/admin?bereich=founding-partner', '/admin?bereich=setup', '/admin?bereich=analyse']);
     expect(screen.getByTestId('admin-bereiche').tagName).toBe('NAV');
   });
 });
@@ -145,6 +145,7 @@ describe('Daten je Bereich', () => {
     await oeffne('/admin');
     expect(aufrufe.find((a) => a.action === 'acquisition_list').params).toMatchObject({ limit: 1 });
     expect(aktionen()).not.toContain('fp_cockpit_overview');
+    expect(aktionen()).not.toContain('analytics_overview');
     expect(screen.getByTestId('uebersicht-hinweise')).toHaveTextContent('2Akquise-Leads noch nicht angeschrieben');
   });
   it('Cockpit nur im Bereich Founding Partner; Setup nur Leads', async () => {
@@ -152,6 +153,17 @@ describe('Daten je Bereich', () => {
     await waitFor(() => expect(aktionen()).toContain('fp_cockpit_overview'));
     expect(aktionen()).not.toContain('list_customers');
     expect(aktionen()).not.toContain('acquisition_list');
+  });
+  it('Analyse laedt nur im Bereich Analyse (Google-Kontingent schonen)', async () => {
+    await oeffne('/admin?bereich=analyse');
+    await waitFor(() => expect(aktionen()).toContain('analytics_overview'));
+    expect(aktionen()).not.toContain('list_customers');
+    expect(aktionen()).not.toContain('acquisition_list');
+    for (const b of ['akquise', 'kunden', 'founding-partner', 'setup']) {
+      aufrufe = [];
+      await oeffne(`/admin?bereich=${b}`);
+      expect(aktionen()).not.toContain('analytics_overview');
+    }
   });
   it('Setup laedt nur die Leads-Tabelle', async () => {
     await oeffne('/admin?bereich=setup');

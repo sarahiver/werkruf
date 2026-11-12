@@ -65,6 +65,7 @@ import {
 } from '../../../src/utils/adminOps.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
 import { renderFpMail } from '../../../src/utils/akquise.js';
+import { analyseUebersicht } from './analyse.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -245,6 +246,10 @@ serve(async (req) => {
 
       case 'set_fp_feedback':
         return json(await setzeFpFeedback(admin, adminId, parameter));
+
+      /* Paket B: Analyse (GA4, Search Console, Produkt-Funnel) */
+      case 'analytics_overview':
+        return json(await analyseUebersicht(admin, parameter as { zeitraum: number }, log));
 
       /* WP16: Akquise */
       case 'acquisition_list':
