@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Target, Users, Clock, TrendingUp, Shield, Zap } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useIndustry } from '../context/IndustryContext';
 
 const ICONS = [Target, Users, Clock, TrendingUp, Shield, Zap];
@@ -198,6 +199,14 @@ const VertrauenText = styled.p`
   color: rgba(255,255,255,0.6); line-height: 1.65;
 `;
 
+/* Hilfe-Center (12.11.2026): Verweis unter dem Vertrauensblock, nur Handwerk. */
+const RechteLink = styled(Link)`
+  display: inline-block; margin-top: 16px;
+  font-family: var(--font-body); font-size: 0.88rem; font-weight: 600;
+  color: var(--color-accent); text-decoration: none;
+  &:hover { text-decoration: underline; }
+`;
+
 /**
  * Leistungen, gruppiert nach drei Ergebnissen.
  *
@@ -211,7 +220,7 @@ const VertrauenText = styled.p`
  * flache Liste. Gastro und Beauty tragen sie noch.
  */
 const Features = () => {
-  const { copy, design } = useIndustry();
+  const { copy, design, key } = useIndustry();
   const gruppen   = copy.featureGruppen;
   const vertrauen = copy.vertrauen;
 
@@ -315,6 +324,9 @@ const Features = () => {
               </div>
             ))}
           </Vertrauen>
+        )}
+        {Array.isArray(vertrauen) && key === 'handwerk' && (
+          <RechteLink to="/hilfe/google-rechte">Welche Google-Rechte braucht WERKRUF? →</RechteLink>
         )}
       </Inner>
     </Section>

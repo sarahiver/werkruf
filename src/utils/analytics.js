@@ -20,6 +20,8 @@
  *   • GA4 ergaenzt die serverseitigen Daten, ersetzt sie nicht.
  */
 
+import { HILFE_SLUGS } from '../config/hilfe';
+
 export const CONSENT_SCHLUESSEL = 'werkruf_consent_v1';
 export const CONSENT_VERSION = 1;
 
@@ -36,7 +38,8 @@ export function messId(roh = process.env.REACT_APP_GA4_MEASUREMENT_ID) {
 const FESTE_PFADE = new Set([
   '/', '/pricing', '/signup', '/login', '/forgot-password',
   '/impressum', '/datenschutz', '/agb', '/avv', '/hilfe',
-  '/onboarding',
+  '/onboarding', '/changelog',
+  ...HILFE_SLUGS.map((slug) => `/hilfe/${slug}`),
   '/dashboard', '/dashboard/google', '/dashboard/bewertungen', '/dashboard/fotos',
   '/dashboard/kunden-gewinnung', '/dashboard/einstellungen', '/dashboard/support',
 ]);

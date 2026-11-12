@@ -16,7 +16,9 @@
  */
 import React from 'react';
 import styled from 'styled-components';
+import { Link } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Info } from 'lucide-react';
+import { useIndustry } from '../context/IndustryContext';
 import { calculateHealthScoreInputs, HEALTH_WEIGHTS } from '../utils/healthScore';
 
 /* ─────────────────────────────────────────────
@@ -240,6 +242,13 @@ const Nutzen = styled.ul`
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 26px;
   @media (max-width: 680px) { grid-template-columns: 1fr; }
 `;
+/* Hilfe-Center (12.11.2026): dezenter Verweis, nur WERKRUF (Handwerk). */
+const DetailLink = styled(Link)`
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 22px;
+  font-family: var(--font-body); font-size: .88rem; font-weight: 600;
+  color: var(--color-accent); text-decoration: none;
+  &:hover { text-decoration: underline; }
+`;
 const NutzenPunkt = styled.li`
   display: flex; gap: 9px; align-items: flex-start;
   font-size: .86rem; color: #5f6875; line-height: 1.55;
@@ -258,6 +267,7 @@ export default function ExampleScore() {
   });
 
   const aufgaben = beispielAufgaben(ergebnis.points);
+  const { key } = useIndustry();
 
   /* Anker heisst seit dem 16.10.2026 "so-gehts" — genau wie der
      Menuepunkt im Kopf. Ein Anker, der anders heisst als der Link
@@ -323,6 +333,11 @@ export default function ExampleScore() {
               <NutzenPunkt><ArrowRight size={15} />Antwortvorschläge, die du nur freigibst</NutzenPunkt>
               <NutzenPunkt><ArrowRight size={15} />Kein tägliches Nachsehen im Dashboard nötig</NutzenPunkt>
             </Nutzen>
+            {key === 'handwerk' && (
+              <DetailLink to="/hilfe/erste-schritte">
+                So funktioniert WERKRUF im Detail <ArrowRight size={14} aria-hidden="true" />
+              </DetailLink>
+            )}
           </div>
         </Grid>
 

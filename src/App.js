@@ -45,6 +45,8 @@ import Impressum            from './pages/Impressum';
 import AGB                  from './pages/AGB';
 import AVV                  from './pages/AVV';
 import Hilfe                from './pages/Hilfe';
+import HilfeArtikel         from './pages/HilfeArtikel';
+import Changelog            from './pages/Changelog';
 import NotFound             from './pages/NotFound';
 import Onboarding           from './pages/Onboarding';
 import Admin                from './pages/Admin';
@@ -130,6 +132,12 @@ function App() {
             } />
             <Route path="/hilfe" element={
               <PublicLayout><Hilfe /></PublicLayout>
+            } />
+            {/* Hilfe-Center: Inhalte in src/config/hilfe.js; unbekannter
+                Slug → 404 (ohne Layout, wie die Catch-all-Route). */}
+            <Route path="/hilfe/:slug" element={<HilfeArtikel Layout={PublicLayout} />} />
+            <Route path="/changelog" element={
+              <PublicLayout><Changelog /></PublicLayout>
             } />
 
             {/* ── PROTECTED DASHBOARD ── */}

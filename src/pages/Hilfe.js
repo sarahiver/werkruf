@@ -1,70 +1,30 @@
 /*
- * Hilfe und Kontakt.
+ * Hilfe — Startseite des Hilfe-Centers (/hilfe).
  *
- * Diese Seite existiert aus zwei Gründen:
+ * Seit 12.11.2026: Ablauf in vier Schritten, Themen-Übersicht mit
+ * Links auf die Detailseiten (Inhalte: src/config/hilfe.js), darunter
+ * wie bisher Kontakt und häufige Fragen.
  *
- *   1. Stripe verlangt im Checkout und im Kundenportal eine
- *      Support-Adresse. Ein mailto: tut es auch, aber eine Seite
- *      nennt zusätzlich, WANN eine Antwort kommt — und genau das
- *      entscheidet, ob ein Betrieb sich traut, 49 EUR im Monat zu
- *      binden.
+ * Kontakt bleibt hier, weil Stripe im Checkout und im Kundenportal
+ * eine Support-Adresse verlangt und diese Seite zusätzlich nennt,
+ * WANN eine Antwort kommt. Bewusst kein Kontaktformular.
  *
- *   2. Es gab bis zum 15.10.2026 keinen einzigen Weg von der Seite
- *      zu einem Menschen ausser der Mailadresse in der Fusszeile.
- *
- * Bewusst KEIN Kontaktformular: Ein Formular, dessen Mails niemand
- * zuverlaessig liest, ist schlechter als eine Adresse. Hier steht die
- * Adresse, die auch sonst ueberall steht.
- *
- * Bewusst KEINE FAQ mit erfundenen Fragen. Was haeufig gefragt wird,
- * weiss man erst nach den ersten Kunden. Bis dahin stehen hier die
- * Fragen, die der Code selbst beantwortet — Testphase, Kuendigung,
- * Google-Verbindung, Datenloeschung.
+ * Korrigiert am 12.11.2026: Die Antwort „Was passiert mit meinen Daten,
+ * wenn ich kündige?" sagte „werden gelöscht". Tatsächlich wechselt das
+ * Konto nach der Kündigung in den Free-Modus und bleibt erhalten
+ * (docs/operations/free-downgrade.md); Löschen ist ein eigener Schritt.
  */
 
 import React from 'react';
 import styled from 'styled-components';
 import { Link } from 'react-router-dom';
-import { Mail, Clock } from 'lucide-react';
+import { Mail, Clock, ArrowRight } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
-
-const Wrap = styled.div`
-  max-width: 720px; margin: 0 auto;
-  padding: 80px 24px 120px;
-`;
-
-const Back = styled(Link)`
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--font-body); font-size: .82rem;
-  color: var(--color-text-muted); text-decoration: none;
-  margin-bottom: 40px;
-  &:hover { color: var(--color-accent); }
-`;
-
-const Badge = styled.div`
-  display: inline-block;
-  background: rgba(var(--color-accent-rgb), .1);
-  border: 1px solid rgba(var(--color-accent-rgb), .25);
-  color: var(--color-accent);
-  font-family: var(--font-body); font-weight: 700;
-  font-size: .7rem; letter-spacing: .12em; text-transform: uppercase;
-  padding: 4px 10px; border-radius: var(--radius-button);
-  margin-bottom: 14px;
-`;
-
-const Title = styled.h1`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
-  text-transform: var(--text-transform);
-  color: var(--color-primary); margin-bottom: 12px;
-`;
-
-const Lede = styled.p`
-  font-family: var(--font-body); font-size: 1rem;
-  color: var(--color-text-muted); line-height: 1.7;
-  margin-bottom: 40px; padding-bottom: 20px;
-  border-bottom: 2px solid var(--color-border);
-`;
+import { useSeitenMeta } from '../hooks/useSeitenMeta';
+import { HILFE_GRUPPEN, HILFE_ARTIKEL, HILFE_ABLAUF, setzeWerte } from '../config/hilfe';
+import {
+  Rahmen, Inhalt, Badge, Titel, Einleitung, H2, HilfeNavigation, HilfeCta, useHilfeWerte,
+} from '../components/hilfe/HilfeBausteine';
 
 const Karte = styled.a`
   display: flex; align-items: flex-start; gap: 14px;
@@ -100,11 +60,6 @@ const KarteText = styled.div`
 
 const Section = styled.section`margin-bottom: 32px;`;
 
-const H2 = styled.h2`
-  font-family: var(--font-display); font-weight: var(--heading-weight);
-  font-size: 1.05rem; text-transform: var(--text-transform);
-  color: var(--color-primary); margin-bottom: 16px;
-`;
 
 const Frage = styled.div`
   padding: 14px 0;
@@ -124,23 +79,115 @@ const Antwort = styled.div`
   a:hover { text-decoration: underline; }
 `;
 
+const Schritte = styled.ol`
+  list-style: none; padding: 0; margin: 0 0 44px;
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  @media (max-width: 640px) { grid-template-columns: minmax(0, 1fr); }
+`;
+
+const Schritt = styled(Link)`
+  display: flex; gap: 14px; height: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card, 8px);
+  background: var(--color-surface, #fff);
+  padding: 16px 18px; text-decoration: none;
+  transition: border-color .2s ease;
+  &:hover { border-color: var(--color-accent); }
+`;
+
+const Nummer = styled.span`
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(var(--color-accent-rgb), .12); color: var(--color-accent);
+  font-family: var(--font-display); font-weight: 700; font-size: .85rem;
+`;
+
+const Themen = styled.div`
+  display: grid; gap: 28px 32px; margin-bottom: 48px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  @media (max-width: 640px) { grid-template-columns: minmax(0, 1fr); }
+`;
+
+const ThemenLink = styled(Link)`
+  display: block; padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  text-decoration: none;
+  font-family: var(--font-body); font-size: .92rem; font-weight: 600;
+  color: var(--color-primary);
+  span { display: block; font-weight: 400; font-size: .84rem; color: var(--color-text-muted); line-height: 1.5; margin-top: 2px; }
+  &:hover { color: var(--color-accent); }
+`;
+
+const GruppenTitel = styled.h3`
+  font-family: var(--font-body); font-weight: 700;
+  font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--color-text-muted); margin-bottom: 4px;
+`;
+
 const MAIL = 'info@werkruf.com';
+
+export const HILFE_START_META = Object.freeze({
+  titel: 'Hilfe: So funktioniert WERKRUF | WERKRUF',
+  beschreibung: 'Von der Anmeldung bis zur ersten Empfehlung: Google-Verbindung, Bewertungen, Antwortvorschläge, Wochenmail, Preise und Datenschutz bei WERKRUF kurz erklärt.',
+});
 
 export default function Hilfe() {
   const { pricing } = useIndustry();
+  const werte = useHilfeWerte();
   const tage  = pricing.trialDays;
   const preis = `${pricing.monthlyPrice} ${pricing.currency}`;
+  useSeitenMeta({ ...HILFE_START_META, pfad: '/hilfe' });
 
   return (
-    <Wrap>
-      <Back to="/">← Zurück zur Startseite</Back>
+    <Rahmen>
+      <HilfeNavigation aktuell="Übersicht" />
+      <Inhalt>
       <Badge>Hilfe</Badge>
-      <Title>Hilfe &amp; Kontakt</Title>
-      <Lede>
-        Eine Frage, ein Problem, ein Wunsch — schreib uns. Hinter WERKRUF steht ein kleines
-        Team, keine Hotline mit Warteschleife.
-      </Lede>
+      <Titel>So funktioniert WERKRUF</Titel>
+      <Einleitung>
+        Von der Anmeldung bis zur ersten Empfehlung: Hier findest du die wichtigsten Schritte
+        und Funktionen kurz erklärt.
+      </Einleitung>
 
+      <H2>In vier Schritten</H2>
+      <Schritte>
+        {HILFE_ABLAUF.map((s, i) => (
+          <li key={s.slug}>
+            <Schritt to={`/hilfe/${s.slug}`}>
+              <Nummer aria-hidden="true">{i + 1}</Nummer>
+              <div>
+                <KarteTitel>{s.titel}</KarteTitel>
+                <KarteText>{s.text}</KarteText>
+              </div>
+            </Schritt>
+          </li>
+        ))}
+      </Schritte>
+
+      <H2>Alle Themen</H2>
+      <Themen>
+        {HILFE_GRUPPEN.map((g) => (
+          <section key={g.key} aria-labelledby={`gruppe-${g.key}`}>
+            <GruppenTitel id={`gruppe-${g.key}`}>{g.titel}</GruppenTitel>
+            {HILFE_ARTIKEL.filter((a) => a.gruppe === g.key).map((a) => (
+              <ThemenLink key={a.slug} to={`/hilfe/${a.slug}`}>
+                {a.titel} <ArrowRight size={13} aria-hidden="true" style={{ verticalAlign: '-2px' }} />
+                <span>{setzeWerte(a.beschreibung, werte)}</span>
+              </ThemenLink>
+            ))}
+          </section>
+        ))}
+        <section aria-labelledby="gruppe-produkt">
+          <GruppenTitel id="gruppe-produkt">Neu bei WERKRUF</GruppenTitel>
+          <ThemenLink to="/changelog">
+            Changelog <ArrowRight size={13} aria-hidden="true" style={{ verticalAlign: '-2px' }} />
+            <span>Was sich an WERKRUF zuletzt geändert hat.</span>
+          </ThemenLink>
+        </section>
+      </Themen>
+
+      <H2>Kontakt</H2>
       <Karte href={`mailto:${MAIL}`}>
         <Icon><Mail size={20} /></Icon>
         <div>
@@ -180,7 +227,8 @@ export default function Hilfe() {
           <Antwort>
             In den Einstellungen unter „Abo &amp; Zahlungen verwalten". Die Kündigung wird zum
             Ende des bezahlten Zeitraums wirksam — bis dahin kannst du WERKRUF normal
-            weiternutzen. Keine Mindestlaufzeit, keine Kündigungsfrist.
+            weiternutzen. Das Monatsabo ist jeden Monat kündbar, das Jahresabo zum Ende des
+            bezahlten Jahres.
           </Antwort>
         </Frage>
 
@@ -189,7 +237,8 @@ export default function Hilfe() {
           <Antwort>
             Ohne die Verbindung gibt es nichts auszuwerten: Bewertungen, Öffnungszeiten, Fotos
             und Kategorien liegen bei Google. Du erteilst den Zugriff über dein eigenes
-            Google-Konto und kannst ihn jederzeit wieder entziehen.
+            Google-Konto und kannst ihn jederzeit wieder entziehen. Welche Berechtigung das genau
+            ist: <Link to="/hilfe/google-rechte">Google-Rechte</Link>.
           </Antwort>
         </Frage>
 
@@ -204,9 +253,12 @@ export default function Hilfe() {
         <Frage>
           <FrageTitel>Was passiert mit meinen Daten, wenn ich kündige?</FrageTitel>
           <Antwort>
-            Dein Konto und die dazugehörigen Daten werden gelöscht. Dein
-            Google-Unternehmensprofil bleibt unberührt — es gehört dir und liegt bei Google.
-            Details in der <Link to="/datenschutz">Datenschutzerklärung</Link>.
+            Nichts geht verloren: Dein Konto wechselt in den kostenlosen Modus, Google-Verbindung,
+            Score und Profilstand bleiben erhalten. Wenn du dein Konto ganz löschen möchtest, geht
+            das in den Einstellungen. Dein Google-Unternehmensprofil bleibt in jedem Fall
+            unberührt — es gehört dir und liegt bei Google. Mehr dazu unter{' '}
+            <Link to="/hilfe/preise-und-kuendigung">Preise und Kündigung</Link> und in der{' '}
+            <Link to="/datenschutz">Datenschutzerklärung</Link>.
           </Antwort>
         </Frage>
 
@@ -228,6 +280,8 @@ export default function Hilfe() {
           <Link to="/impressum">Impressum</Link>
         </Antwort>
       </Section>
-    </Wrap>
+      <HilfeCta />
+      </Inhalt>
+    </Rahmen>
   );
 }
