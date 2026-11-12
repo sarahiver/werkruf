@@ -58,7 +58,9 @@ describe('Nutzenbloecke', () => {
   });
   it('G3 — „Besser gefunden werden" ist kein Hauptergebnis mehr, Sichtbarkeit nur als Folge', () => {
     expect(gruppen.map((g) => g.titel)).not.toContain('Besser gefunden werden');
-    expect(gruppen[1].einleitung).toMatch(/Voraussetzung dafür, dass Google dich überhaupt gut anzeigen kann/);
+    expect(gruppen[1].einleitung).toMatch(/Ein vollständiger, aktueller Auftritt schafft die Grundlage dafür, bei Google überzeugend sichtbar zu sein\./);
+    /* kein Ranking-/Sichtbarkeitsversprechen (Mini-Polish 12.11.2026) */
+    expect(gruppen[1].einleitung).not.toMatch(/Voraussetzung|überhaupt|gut anzeigen|besser gefunden|Ranking|ganz oben/i);
   });
 });
 
@@ -86,6 +88,27 @@ describe('Gegenproben-Raster', () => {
     expect(text).not.toMatch(/lukrativ|automatisch (mehr|lukrativ)|garantiert|Garantie|mehr Kunden|Ranking|Local SEO/i);
     expect(text).not.toMatch(/Überwachung|überwach/i);
     expect(text).not.toMatch(/musst dich (nicht|gar nicht|nicht mehr) (darum )?kümmern|musst nichts tun/i);
+  });
+});
+
+describe('Mini-Polish nach PR #66', () => {
+  it('P1 — Preisliste ohne „Überwachung", ruhige Formulierung, Umfang gleich', () => {
+    const roh = lies('src/config/industryConfig.js');
+    expect(roh).toMatch(/'Dein Google-Profil regelmäßig geprüft',/);
+    /* Im Handwerk-Verkaufstext (ohne Kommentare) kommt „Überwachung" nicht mehr vor */
+    const handwerk = roh.slice(roh.indexOf('handwerk: {'), roh.indexOf('gastro: {')).replace(/\/\*[\s\S]*?\*\//g, '');
+    /* Nur das Substantiv: Der Schritt „Überwachen“ in „So funktioniert's“ liegt
+       ausserhalb dieses Auftrags (im PR als offener Punkt genannt). */
+    expect(handwerk).not.toMatch(/Überwachung/);
+  });
+  it('P2 — Startkarte im Hero: „täglich" statt „laufend", keine Echtzeit', () => {
+    const hero = lies('src/components/Hero.js');
+    expect(hero).toMatch(/Danach prüft WERKRUF dein Profil täglich und sagt dir,/);
+    expect(hero).not.toMatch(/Profil laufend|rund um die Uhr|ständig|in Echtzeit|Überwachung/i);
+  });
+  it('P3 — Aussagen aus PR #66 unveraendert', () => {
+    expect(hero.subline).toBe('Viele, die dich empfohlen bekommen, schauen trotzdem noch bei Google nach. WERKRUF sorgt dafür, dass dein Auftritt dort zu deinem guten Ruf passt.');
+    expect(gruppen.map((g) => g.titel)).toEqual(['Bewertungen & Vertrauen', 'Ein aktiver Google-Auftritt', 'Weniger kümmern müssen']);
   });
 });
 

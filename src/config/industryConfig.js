@@ -162,7 +162,7 @@ export const INDUSTRIES = {
         {
           key: 'B', eyebrow: 'Ergebnis B',
           titel: 'Ein aktiver Google-Auftritt',
-          einleitung: 'Aktuelle Öffnungszeiten, vollständige Angaben und echte Fotos zeigen, dass dein Betrieb läuft. Und ein vollständiges Profil ist die Voraussetzung dafür, dass Google dich überhaupt gut anzeigen kann.',
+          einleitung: 'Aktuelle Öffnungszeiten, vollständige Angaben und echte Fotos zeigen, dass dein Betrieb läuft. Ein vollständiger, aktueller Auftritt schafft die Grundlage dafür, bei Google überzeugend sichtbar zu sein.',
           karten: [
             {
               title: 'Dein Profil bleibt vollständig',
@@ -357,7 +357,7 @@ export const INDUSTRIES = {
         'Öffnungszeiten, Leistungen und Kontaktdaten direkt ändern',
         'Fotos hochladen, die bei Google landen',
         'Bewertungslink und QR-Code für deine Kunden',
-        'Laufende Überwachung deines Profils',
+        'Dein Google-Profil regelmäßig geprüft',
         'Monatlich kündbar — kein Jahresvertrag',
       ],
 
