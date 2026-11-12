@@ -329,7 +329,7 @@ const Hero = () => {
             <CardTitle>In zwei Minuten eingerichtet</CardTitle>
             <CardSub>
               Konto anlegen, Google-Profil verbinden — eine Berechtigung, jederzeit
-              widerrufbar. Danach prüft WERKRUF dein Profil laufend und sagt dir,
+              widerrufbar. Danach prüft WERKRUF dein Profil täglich und sagt dir,
               was zu tun ist.
             </CardSub>
 
