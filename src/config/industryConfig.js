@@ -253,6 +253,7 @@ export const INDUSTRIES = {
           { label: 'Impressum',   href: '/impressum'  },
           { label: 'Datenschutz', href: '/datenschutz' },
           { label: 'Hilfe',       href: '/hilfe'      },
+          { label: 'Changelog',   href: '/changelog'  },
         ],
       },
     },
