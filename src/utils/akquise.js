@@ -123,16 +123,21 @@ export function fpAnrede(contactPerson) {
  */
 export function fpMailAbsaetze({ contactPerson, personalizedSentence }) {
   const satz = typeof personalizedSentence === 'string' ? personalizedSentence.trim() : '';
+  /* Positionierung 12.11.2026 (nach Reddit-Validierung): Empfehlung
+     zuerst, der persoenliche Befund direkt danach, das Produkt knapp
+     und nur mit dem, was es wirklich tut (Wochenmail kommt jeden
+     Montag — auch in ruhigen Wochen, dann mit „Alles geprueft").
+     Gestrichen: „automatisch lukrativere Auftraege", „Ueberwachung",
+     Zeitversprechen. */
   return [
     `Hallo ${fpAnrede(contactPerson)},`,
-    'stell dir vor: In unter 5 Minuten pro Woche das Google-Profil so pflegen, dass automatisch die lukrativeren Aufträge bei dir landen?',
-    'Genau dafür gibt es WERKRUF.',
-    'Viele Betriebe leisten top Arbeit, aber auf Google sieht man es nicht – unbeantwortete Bewertungen, veraltete Öffnungszeiten oder fehlende Bilder kosten jeden Monat echte Wunschkunden. WERKRUF übernimmt die Überwachung deines Google-Unternehmensprofils und schickt dir jeden Montag eine kurze Mail. Du liest vorformulierte Antworten oder Aufgaben kurz gegen, gibst frei – fertig. Kein Einloggen in komplexe Tools, keine Daueraufgabe.',
+    'viele Handwerksbetriebe leben vor allem von Empfehlungen. Wer einen Betrieb empfohlen bekommt, schaut aber häufig trotzdem kurz bei Google – und dort sollte der Auftritt zum guten Ruf passen.',
     ...(satz ? [satz] : []),
-    'Warum ich dir schreibe: Ich suche aktuell 10 ausgewählte Handwerksbetriebe als Founding Partner, die WERKRUF im Alltag nutzen und mir kurz Rückmeldung geben, was hilft und was nervt.',
-    'Als Founding Partner nutzt du WERKRUF dauerhaft 100 % kostenlos.',
-    { text: 'In der Kurz-Präsentation siehst du auf 1 Blick, wie einfach das funktioniert:', link: 'presentation', linkText: 'Kurz-Präsentation ansehen' },
-    { text: 'Klingt das grundsätzlich interessant? Eine kurze Antwort mit „Ja, Interesse“ reicht – die Einrichtung dauert knapp 10 Minuten.', link: 'cta', linkText: 'Ja, Interesse' },
+    'Genau dafür habe ich WERKRUF gebaut: Es behält deine Bewertungen und dein Google-Unternehmensprofil im Blick und bereitet Antworten vor, die du nur noch freigibst. Bei einer schlechten Bewertung meldet es sich sofort, sonst kommt montags eine kurze Mail mit dem, was konkret zu tun ist.',
+    'Ich suche gerade 10 Handwerksbetriebe als Founding Partner, die WERKRUF im Alltag nutzen und mir ehrlich sagen, was hilft und was nervt.',
+    'Dafür bleibt WERKRUF für euch dauerhaft kostenlos.',
+    { text: 'Wie das aussieht, zeigt die Kurz-Präsentation:', link: 'presentation', linkText: 'Kurz-Präsentation ansehen' },
+    { text: 'Wenn das grundsätzlich interessant klingt:', link: 'cta', linkText: 'Ja, Interesse' },
     'Beste Grüße\nIver Bohnes',
   ];
 }

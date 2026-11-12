@@ -92,12 +92,17 @@ export const INDUSTRIES = {
            die Mechanik danach. Vorher begann sie mit "WERKRUF
            verbindet sich mit deinem Google-Profil" — das beschreibt
            einen technischen Vorgang, keinen Grund. */
-        subline:     'WERKRUF behält deinen Google-Auftritt im Blick, damit du lokal besser gefunden wirst, professioneller wirkst und keine Bewertung und kein Profilproblem verpasst.',
-        differenzierung: 'Du musst dich nicht darum kümmern. WERKRUF sagt dir, was wichtig ist — in wenigen Minuten erledigt.',
+        /* 12.11.2026: Empfehlung als Einstieg (Reddit-Validierung) —
+           bewusst „viele", nicht „wer dich empfohlen bekommt, googelt
+           dich". Differenzierung nennt nur, was die Engine prueft und
+           was die Wochenmail tut (kommt jeden Montag, auch mit
+           „Alles geprueft"); kein „du musst dich nicht kuemmern". */
+        subline:     'Viele, die dich empfohlen bekommen, schauen trotzdem noch bei Google nach. WERKRUF sorgt dafür, dass dein Auftritt dort zu deinem guten Ruf passt.',
+        differenzierung: 'WERKRUF erkennt offene Bewertungen und Lücken im Profil, bereitet Antworten vor und sagt dir montags in einer kurzen Mail, was wirklich zu tun ist.',
         checks: [
-          'Einmal verbinden — dein Profil bleibt deins',
-          'Antwortvorschläge auf Knopfdruck freigeben',
-          'Meldung, sobald etwas nicht stimmt',
+          'Neue Bewertungen im Blick, schlechte sofort gemeldet',
+          'Antwortvorschläge prüfen und freigeben',
+          'Montags eine Mail mit dem, was wirklich zählt',
         ],
       },
       /* Hier standen bis zum 16.10.2026 die Blöcke `check` und
@@ -125,27 +130,16 @@ export const INDUSTRIES = {
          Dazu sind die Karten auf das umgestellt, was das Produkt
          wirklich tut. Bewertungslink und QR-Code standen vorher in
          keinem Verkaufstext, obwohl sie fertig sind. */
+      /* 12.11.2026: Reihenfolge nach Reddit-Validierung — Bewertungen
+         und Vertrauen zuerst, „besser gefunden werden" nur noch als
+         Folge eines aktiven Auftritts. Karten unveraendert
+         wiederverwendet; einzige Textaenderung: „laufend" → „taeglich"
+         (Engine laeuft taeglich 04:30 und nach jedem Bewertungsabgleich)
+         und Tag „Laufende Überwachung" → „Meldet sich bei Bedarf". */
       featureGruppen: [
         {
           key: 'A', eyebrow: 'Ergebnis A',
-          titel: 'Besser gefunden werden',
-          einleitung: 'Ein vollständiges, aktuelles Profil ist die Voraussetzung dafür, dass Google dich überhaupt anzeigt.',
-          karten: [
-            {
-              title: 'Dein Profil bleibt vollständig',
-              body: 'Öffnungszeiten, Leistungen, Kontaktdaten, Kategorien: WERKRUF zeigt, was fehlt oder veraltet ist, und überträgt deine Änderungen direkt zu Google — ohne Umweg über Googles Oberfläche.',
-              tag: 'Direkt bearbeiten',
-            },
-            {
-              title: 'Fotos, die auch ankommen',
-              body: 'Bild vom fertigen Bad, vom Team, vom Fahrzeug — hochladen, und es landet in deinem Google-Profil. Kein Zwischenschritt, keine fremde Galerie.',
-              tag: 'Hochladen statt hochladen lassen',
-            },
-          ],
-        },
-        {
-          key: 'B', eyebrow: 'Ergebnis B',
-          titel: 'Professioneller wirken',
+          titel: 'Bewertungen & Vertrauen',
           einleitung: 'Wer vor der Beauftragung dein Profil liest, entscheidet nach dem, was er dort sieht — vor allem nach den Bewertungen und deinen Antworten darauf.',
           karten: [
             {
@@ -166,8 +160,25 @@ export const INDUSTRIES = {
           ],
         },
         {
+          key: 'B', eyebrow: 'Ergebnis B',
+          titel: 'Ein aktiver Google-Auftritt',
+          einleitung: 'Aktuelle Öffnungszeiten, vollständige Angaben und echte Fotos zeigen, dass dein Betrieb läuft. Und ein vollständiges Profil ist die Voraussetzung dafür, dass Google dich überhaupt gut anzeigen kann.',
+          karten: [
+            {
+              title: 'Dein Profil bleibt vollständig',
+              body: 'Öffnungszeiten, Leistungen, Kontaktdaten, Kategorien: WERKRUF zeigt, was fehlt oder veraltet ist, und überträgt deine Änderungen direkt zu Google — ohne Umweg über Googles Oberfläche.',
+              tag: 'Direkt bearbeiten',
+            },
+            {
+              title: 'Fotos, die auch ankommen',
+              body: 'Bild vom fertigen Bad, vom Team, vom Fahrzeug — hochladen, und es landet in deinem Google-Profil. Kein Zwischenschritt, keine fremde Galerie.',
+              tag: 'Hochladen statt hochladen lassen',
+            },
+          ],
+        },
+        {
           key: 'C', eyebrow: 'Ergebnis C',
-          titel: 'Weniger Arbeit haben',
+          titel: 'Weniger kümmern müssen',
           einleitung: 'Das Unterscheidende: WERKRUF ist kein weiteres Dashboard, in das du täglich schauen musst.',
           karten: [
             {
@@ -177,8 +188,8 @@ export const INDUSTRIES = {
             },
             {
               title: 'Es fällt auf, bevor es dir auffällt',
-              body: 'WERKRUF prüft dein Profil laufend und meldet sich, wenn etwas nicht stimmt: veraltete Öffnungszeiten, eine abgerissene Verbindung, eine neue Bewertung. Du erfährst es nicht vom Kunden am Telefon.',
-              tag: 'Laufende Überwachung',
+              body: 'WERKRUF prüft dein Profil täglich und meldet sich, wenn etwas nicht stimmt: veraltete Öffnungszeiten, eine abgerissene Verbindung, eine neue Bewertung. Du erfährst es nicht vom Kunden am Telefon.',
+              tag: 'Meldet sich bei Bedarf',
             },
           ],
         },

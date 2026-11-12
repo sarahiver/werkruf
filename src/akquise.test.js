@@ -62,23 +62,32 @@ describe('Modul akquise.js', () => {
     expect(pruefeLeadEingabe({ note: 'nur Notiz' }, { neu: false })).toEqual({ ok: true, werte: { note: 'nur Notiz' } });
     expect(pruefeLeadEingabe({ company_name: '' }, { neu: false }).ok).toBe(false);
   });
-  it('T19/T20 — Vorlage: Betreff, Anrede, personalisierter Satz als eigener Absatz, Vorgabetext unveraendert', () => {
+  it('T19/T20 — Vorlage: Betreff, Anrede, Empfehlungs-Einstieg, Befund direkt danach, knappes Produkt, CTA', () => {
     expect(FP_MAIL_BETREFF('Krause GmbH')).toBe('Darf ich Krause GmbH als WERKRUF Founding Partner einladen?');
     const a = fpMailAbsaetze({ contactPerson: 'Jens Krause', personalizedSentence: 'Bei euch sind drei Bewertungen unbeantwortet.' });
     expect(a[0]).toBe('Hallo Jens Krause,');
-    expect(a[1]).toBe('stell dir vor: In unter 5 Minuten pro Woche das Google-Profil so pflegen, dass automatisch die lukrativeren Aufträge bei dir landen?');
-    expect(a[2]).toBe('Genau dafür gibt es WERKRUF.');
-    expect(a[3]).toMatch(/^Viele Betriebe leisten top Arbeit.*keine Daueraufgabe\.$/);
-    expect(a[4]).toBe('Bei euch sind drei Bewertungen unbeantwortet.');
-    expect(a[5]).toMatch(/^Warum ich dir schreibe: Ich suche aktuell 10 ausgewählte Handwerksbetriebe/);
-    expect(a[6]).toBe('Als Founding Partner nutzt du WERKRUF dauerhaft 100 % kostenlos.');
-    expect(a[7]).toMatchObject({ link: 'presentation' });
-    expect(a[8]).toMatchObject({ link: 'cta', text: 'Klingt das grundsätzlich interessant? Eine kurze Antwort mit „Ja, Interesse“ reicht – die Einrichtung dauert knapp 10 Minuten.' });
-    expect(a[9]).toBe('Beste Grüße\nIver Bohnes');
+    expect(a[1]).toMatch(/^viele Handwerksbetriebe leben vor allem von Empfehlungen\. .*zum guten Ruf passen\.$/);
+    /* Der persoenliche Befund steht direkt nach dem Einstieg */
+    expect(a[2]).toBe('Bei euch sind drei Bewertungen unbeantwortet.');
+    expect(a[3]).toMatch(/^Genau dafür habe ich WERKRUF gebaut: .*montags eine kurze Mail mit dem, was konkret zu tun ist\.$/);
+    expect(a[4]).toBe('Ich suche gerade 10 Handwerksbetriebe als Founding Partner, die WERKRUF im Alltag nutzen und mir ehrlich sagen, was hilft und was nervt.');
+    expect(a[5]).toBe('Dafür bleibt WERKRUF für euch dauerhaft kostenlos.');
+    expect(a[6]).toMatchObject({ link: 'presentation', linkText: 'Kurz-Präsentation ansehen' });
+    expect(a[7]).toMatchObject({ link: 'cta', text: 'Wenn das grundsätzlich interessant klingt:', linkText: 'Ja, Interesse' });
+    expect(a[8]).toBe('Beste Grüße\nIver Bohnes');
     /* ohne Satz: Absatz faellt weg, Reihenfolge bleibt */
     const b = fpMailAbsaetze({ contactPerson: '-', personalizedSentence: '' });
     expect(b[0]).toBe('Hallo zusammen,');
-    expect(b).toHaveLength(9);
+    expect(b).toHaveLength(8);
+  });
+  it('Positionierung: keine Ueberversprechen, keine Ueberwachung, kuerzer als vorher', () => {
+    const r = renderFpMail({ companyName: 'Krause', contactPerson: 'Jens', personalizedSentence: 'Befund.', presentationUrl: 'https://p', ctaUrl: 'https://c' });
+    expect(r.text).not.toMatch(/lukrativ|automatisch (mehr|die)|garantiert|Garantie|Überwachung|überwach|Ranking|in unter \d+ Minuten|musst (dich )?(nichts|nicht mehr|gar nicht)/i);
+    expect(r.text).not.toMatch(/Local SEO|optimier/i);
+    /* Wochenmail-Aussage bleibt wahr: sie kommt jeden Montag (auch ohne Aufgabe) — also kein „nur wenn" */
+    expect(r.text).not.toMatch(/nur (dann )?(Bescheid|melde)/i);
+    const woerter = r.text.replace(/https:\/\/\S+/g, '').split(/\s+/).length;
+    expect(woerter).toBeLessThan(150);
   });
   it('T15/T18 — Text und HTML tragen denselben Inhalt; Lead-Felder sind escaped; Links nur aus Parametern', () => {
     const r = renderFpMail({
