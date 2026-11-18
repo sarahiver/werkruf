@@ -235,3 +235,56 @@ Einrichtung:
 2. Supabase → Edge Functions → Secrets → `ACQUISITION_IMPORT_SECRET` = Zufallswert, mind. 32 Zeichen. Nur an das aufrufende System geben.
 
 Fehlermeldungen im Admin: Antwortet admin-ops mit einem Fehler, zeigt der Admin jetzt dessen Text samt Status und Code (z. B. „Aktion fehlgeschlagen (500, PGRST202)") statt „Edge Function returned a non-2xx status code".
+
+# Outreach „Antwort zuerst" (WP17, 18.11.2026)
+
+Ausgangslage: 158 angeschrieben, 136 zugestellt, 50 Öffnungen erkannt, 0 Interesse.
+Die alte FP-Mail (`founding_partner_outreach`) wird für **neue Erstkontakte nicht mehr
+verwendet**; bereits eingereihte Mails dieser Vorlage gehen weiter korrekt raus, ihre
+Landingpages bleiben erreichbar.
+
+## Ablauf
+
+1. **Google-Befund** von Hand recherchieren und im Lead speichern (`google_profile_finding`,
+   ein Satz, max. 600 Zeichen; auch per CSV-Spalte). WERKRUF erzeugt oder ergänzt ihn nie.
+2. **Mail 1** (`outreach_erstkontakt`): Vorschau → Bestätigung → Versand. Reiner Text,
+   Sie-Form, kein Link, kein Button, kein Founding-Partner-Pitch; einzige Handlung:
+   antworten. Ohne Befund kein Versand (Admin **und** DB: `befund_fehlt`).
+3. **Betreff A/B**: beim Versand einmal vergeben (`outreach_subject_variant`), danach
+   unveränderlich (Trigger). 50:50 als Wechsel — die seltenere Variante kommt dran.
+   A „Ihre Google-Bewertungen", B „Kurze Frage zu {Betrieb} bei Google".
+4. **Nachfassen** (`outreach_nachfass`): einmal, manuell (kein Cron), nur wenn Mail 1
+   gesendet ist und keine Antwort erfasst wurde (`acquisition_followup_moeglich`).
+   Gleicher Betreff, Erstmail als Zitat darunter. Unique-Index: höchstens ein Nachfass
+   je Erstmail.
+5. **Antwort erfassen** (von Hand — WERKRUF liest das Postfach nicht):
+   positiv → Antwort + Interesse · negativ → Antwort + kein Interesse **+ Versandsperre**
+   (Mail 1 verspricht: „Nein" → keine weitere Nachricht) · sonstige → nur Antwort.
+6. **Antwort auf ein „Ja"**: persönlich, mit der Vorlage im Admin (wird nie automatisch
+   erzeugt oder versendet).
+
+Leads, die schon die alte FP-Mail bekommen haben, bekommen keine Mail 1 und kein
+Nachfassen (`bereits_angeschrieben` / `keine_erstmail`).
+
+## Absender, Antworten, Threading
+
+| | Wert |
+|---|---|
+| From | `Iver Bohnes <info@werkruf.com>` (nur die neuen Vorlagen; Adresse unverändert) |
+| Reply-To | nicht gesetzt → Antworten gehen an **info@werkruf.com** |
+| Antworten erkannt | nein — manuell „Antwort erfassen" |
+| SPF/DKIM/DMARC | unberührt (gleiche Absenderadresse, nur Anzeigename) |
+| Threading | Brevo erlaubt keine Standard-Header (In-Reply-To/References). Nachfass = gleicher Betreff + Zitat; Brevo-Message-IDs beider Mails in `outreach_messages.provider_message_id` |
+
+## Funnel
+
+Leads · Angeschrieben · Zugestellt · Öffnung erkannt · **Antworten** · **Positive
+Antworten / Interesse** · Founding Partner, dazu Quoten bezogen auf zugestellte Mails
+und die A/B-Tabelle (`acquisition_overview.varianten`). „Öffnung erkannt" bleibt eine
+Untergrenze — keine erkannte Öffnung heißt nicht „nicht gelesen".
+
+## Tests
+
+- `src/akquiseAntwortZuerst.test.js` — Mailtexte, Allowlist, CSV, Quelltext
+- `src/akquise.test.js` — Admin-UI (Mail 1, Nachfassen, Antwort, Quoten, A/B)
+- `supabase/tests/akquise_antwort_zuerst.test.sql` — Sperren, A/B, Nachfass, Antworten, Funnel, Import (mit Wirkung)

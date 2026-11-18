@@ -34,7 +34,7 @@
 
 import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
 import { istPausiert } from './betriebsferien.js';
-import { AKQUISE_STATUS, pruefeLeadEingabe } from './akquise.js';
+import { AKQUISE_STATUS, ANTWORT_KLASSEN, pruefeLeadEingabe } from './akquise.js';
 import { bereiteImportVor, MAX_ZEILEN } from './akquiseImport.js';
 import { pruefeZeitraum, STANDARD_ZEITRAUM, ZEITRAEUME } from './analyseBericht.js';
 
@@ -208,7 +208,7 @@ export const ADMIN_AKTIONEN = {
   },
   acquisition_preview: {
     schreibt: false,
-    parameter: ['leadId'],
+    parameter: ['leadId', 'art'],
   },
   acquisition_lead_create: {
     schreibt: true,
@@ -231,6 +231,20 @@ export const ADMIN_AKTIONEN = {
     auditAktion: 'admin.acquisition_email_sent',
     bestaetigung: true,
   },
+  /* WP17 (18.11.2026): einmal Nachfassen (manuell, kein Cron) und eine
+     Antwort von Hand erfassen. Die Regeln (wann nachfassen, was eine
+     Antwort am Status aendert) stehen in der Datenbank. */
+  acquisition_followup: {
+    schreibt: true,
+    parameter: ['leadId', 'idempotencyKey'],
+    auditAktion: 'admin.acquisition_followup_sent',
+    bestaetigung: true,
+  },
+  acquisition_record_reply: {
+    schreibt: true,
+    parameter: ['leadId', 'klasse'],
+    auditAktion: 'admin.acquisition_reply_recorded',
+  },
   /* WP16.1: CSV-Import. preview schreibt nichts, commit legt NUR neue
      Leads an (acquisition_import_rows). Die Zeilen werden hier mit dem
      Lead-Kanon aufbereitet — was der Browser „vorvalidiert" schickt,
@@ -249,7 +263,7 @@ export const ADMIN_AKTIONEN = {
   },
 };
 
-const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_import'];
+const AKQUISE_AKTIONEN = ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_followup', 'acquisition_record_reply', 'acquisition_import'];
 
 /* „Wuerde 49 EUR zahlen?" — dieselben Werte wie
    founding_partner_feedback_intent_check in der Datenbank. */
@@ -465,7 +479,7 @@ function pruefeParameter(aktion, roh) {
   }
 
   /* WP16 — Akquise */
-  if (['acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send'].includes(aktion)) {
+  if (['acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_followup', 'acquisition_record_reply'].includes(aktion)) {
     const leadId = roh?.leadId;
     if (typeof leadId !== 'string' || !UUID.test(leadId)) return { fehler: 'leadId fehlt oder ist keine UUID' };
     werte.leadId = leadId.toLowerCase();
@@ -520,7 +534,16 @@ function pruefeParameter(aktion, roh) {
       werte.note = null;
     }
   }
-  if (aktion === 'acquisition_send') {
+  if (aktion === 'acquisition_preview') {
+    const art = roh?.art === undefined || roh?.art === null || roh?.art === '' ? 'erstkontakt' : roh.art;
+    if (art !== 'erstkontakt' && art !== 'nachfass') return { fehler: 'art muss erstkontakt oder nachfass sein' };
+    werte.art = art;
+  }
+  if (aktion === 'acquisition_record_reply') {
+    if (!ANTWORT_KLASSEN.includes(roh?.klasse)) return { fehler: `Antwort nicht erlaubt: ${String(roh?.klasse)}` };
+    werte.klasse = roh.klasse;
+  }
+  if (aktion === 'acquisition_send' || aktion === 'acquisition_followup') {
     const key = roh?.idempotencyKey;
     if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{8,120}$/.test(key)) return { fehler: 'idempotencyKey fehlt' };
     werte.idempotencyKey = key;

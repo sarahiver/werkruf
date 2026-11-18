@@ -64,7 +64,7 @@ import {
   baueAuditEintrag,
 } from '../../../src/utils/adminOps.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
-import { renderFpMail } from '../../../src/utils/akquise.js';
+import { renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME } from '../../../src/utils/akquise.js';
 import { analyseUebersicht } from './analyse.ts';
 
 const corsHeaders = {
@@ -257,7 +257,7 @@ serve(async (req) => {
       case 'acquisition_lead_detail':
         return json(await akquiseDetail(admin, parameter.leadId as string));
       case 'acquisition_preview':
-        return json(await akquiseVorschau(admin, parameter.leadId as string));
+        return json(await akquiseVorschau(admin, parameter.leadId as string, parameter.art as string));
       case 'acquisition_lead_create':
         return json(await akquiseLeadAnlegen(admin, adminId, parameter));
       case 'acquisition_lead_update':
@@ -266,6 +266,10 @@ serve(async (req) => {
         return json(await akquiseStatusSetzen(admin, adminId, parameter));
       case 'acquisition_send':
         return json(await akquiseSenden(admin, adminId, parameter));
+      case 'acquisition_followup':
+        return json(await akquiseNachfassen(admin, adminId, parameter));
+      case 'acquisition_record_reply':
+        return json(await akquiseAntwortErfassen(admin, adminId, parameter));
       case 'acquisition_import':
         return json(await akquiseImport(admin, adminId, parameter));
 
@@ -895,33 +899,19 @@ async function beantworteSupportAnfrage(
    WP16 — AKQUISE
    Lead → Vorschau → EINE Mail → email_queue → Brevo → Historie.
    Der Browser liefert leadId und fachliche Aenderungen; Adresse,
-   Betrieb, Satz kommen aus der Datenbank. Links sind Token-Links
-   (opaque, SHA-256-Hash in der DB, Klartext nur in der Mail).
+   Betrieb, Befund kommen aus der Datenbank.
+   Seit WP17 (18.11.2026): neue Erstkontakte nur noch mit Mail 1
+   („Antwort zuerst", ohne Links), dazu einmal Nachfassen und
+   „Antwort erfassen". Die alte FP-Mail mit Token-Links wird hier nicht
+   mehr erzeugt; ihre Landingpages (google-business) bleiben fuer
+   bereits verschickte Mails erreichbar.
    ═════════════════════════════════════════════ */
 
-const AKQUISE_BASIS_URL = (Deno.env.get('APP_PUBLIC_URL') ?? 'https://werkruf.com').replace(/\/+$/, '');
 const AKQUISE_STATUS_WERTE = ['neu', 'vorbereitet', 'angeschrieben', 'interesse', 'kein_interesse', 'founding_partner', 'zurueckgestellt'];
 
 function versandModus(): { mode: 'production' | 'test'; testRecipient: string | null } {
   const mode = (Deno.env.get('EMAIL_DELIVERY_MODE') ?? 'production').toLowerCase() === 'test' ? 'test' : 'production';
   return { mode, testRecipient: mode === 'test' ? (Deno.env.get('EMAIL_TEST_RECIPIENT') ?? null) : null };
-}
-
-function akquiseLinks(token: string) {
-  return {
-    presentationUrl: `${AKQUISE_BASIS_URL}/p/fp/${token}`,
-    ctaUrl: `${AKQUISE_BASIS_URL}/founding-partner/${token}`,
-  };
-}
-
-function base64url(bytes: Uint8Array): string {
-  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function sha256Hex(text: string): Promise<string> {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /* Audit je Akquise-Aktion — entity_type leads, keine Nutzer-ID, nie ein Token. */
@@ -947,28 +937,68 @@ async function akquiseDetail(admin: SupabaseClient, leadId: string) {
   return { ...(data as Record<string, unknown>), deliveryMode: mode };
 }
 
-/* Vorschau = dieselbe Renderfunktion wie der Worker, mit Platzhalter-
-   Token. Beim Versand ersetzt nur der Token den Platzhalter. */
-async function akquiseVorschau(admin: SupabaseClient, leadId: string) {
+/* ── WP17: Mail 1 (Erstkontakt) und Nachfass ──
+   Vorschau = dieselbe Renderfunktion wie der Worker. Die Betreff-Variante
+   wird erst beim Versand fest vergeben; vorher zeigt die Vorschau die
+   Variante, die als naechste drankaeme (ohne sie zu speichern). */
+const AKQUISE_ABSENDER = { name: ABSENDER_NAME, email: 'info@werkruf.com' };
+
+async function naechsteVariante(admin: SupabaseClient): Promise<'A' | 'B'> {
+  const zaehle = async (v: string) => {
+    const { count, error } = await admin.from('leads').select('id', { count: 'exact', head: true }).eq('outreach_subject_variant', v);
+    if (error) throw error;
+    return count ?? 0;
+  };
+  const [a, b] = await Promise.all([zaehle('A'), zaehle('B')]);
+  return a <= b ? 'A' : 'B';
+}
+
+type AkquiseDetail = { lead?: Record<string, unknown>; messages?: Array<Record<string, unknown>> } | null;
+
+async function leseDetail(admin: SupabaseClient, leadId: string): Promise<AkquiseDetail> {
   const { data, error } = await admin.rpc('acquisition_lead_detail', { p_lead_id: leadId });
   if (error) throw error;
-  const lead = (data as { lead?: Record<string, unknown> } | null)?.lead;
+  return data as AkquiseDetail;
+}
+
+/* Erstmail fuer das Zitat in der Nachfass-Mail: aus den Snapshots der
+   gesendeten Nachricht (Betreff, Befund, Variante), nicht aus heutigen Feldern. */
+function erstmailFuerZitat(detail: AkquiseDetail) {
+  const lead = detail?.lead ?? {};
+  const erst = (detail?.messages ?? []).find((m) => m.template === 'outreach_erstkontakt' && m.status === 'sent');
+  if (!erst) return null;
+  const r = renderErstkontakt({
+    companyName: lead.companyName, contactPerson: lead.contactPerson, finding: erst.finding, variante: erst.subjectVariant,
+  }) as { text: string };
+  return { subject: String(erst.subject ?? ''), text: r.text, sentAt: (erst.sentAt as string | null) ?? null };
+}
+
+async function akquiseVorschau(admin: SupabaseClient, leadId: string, art = 'erstkontakt') {
+  const detail = await leseDetail(admin, leadId);
+  const lead = detail?.lead;
   if (!lead) return { ok: false, error: 'Lead nicht gefunden' };
-  const links = akquiseLinks('VORSCHAU-TOKEN');
-  const r = renderFpMail({
-    companyName: lead.companyName, contactPerson: lead.contactPerson, personalizedSentence: lead.personalizedSentence, ...links,
-  }) as { subject: string; text: string; html: string };
   const modus = versandModus();
-  return {
-    ok: true,
-    to: lead.email, toName: lead.contactPerson ?? null,
-    subject: r.subject, text: r.text, html: r.html,
-    personalizedSentence: lead.personalizedSentence ?? null,
-    presentationUrl: links.presentationUrl, ctaUrl: links.ctaUrl,
-    sender: { name: 'WERKRUF', email: 'info@werkruf.com' },
+  const basis = {
+    ok: true, art, to: lead.email, toName: lead.contactPerson ?? null,
+    sender: AKQUISE_ABSENDER, replyTo: AKQUISE_ABSENDER.email,
     deliveryMode: modus.mode, testRecipient: modus.testRecipient,
     blockReason: lead.blockReason ?? null,
   };
+  if (art === 'nachfass') {
+    const grund = (lead.followupGrund as string | null) ?? null;
+    const erst = erstmailFuerZitat(detail);
+    if (grund || !erst) return { ...basis, sendbar: false, grund: grund ?? 'keine_erstmail', subject: null, text: null, html: null };
+    const r = renderNachfass({ contactPerson: lead.contactPerson, subject: erst.subject, originalText: erst.text, originalSentAt: erst.sentAt ?? undefined }) as { subject: string; text: string; html: string };
+    return { ...basis, sendbar: true, grund: null, subject: r.subject, text: r.text, html: r.html };
+  }
+  const befund = (lead.googleProfileFinding as string | null) ?? null;
+  if (!befundGueltig(befund)) {
+    return { ...basis, sendbar: false, grund: 'befund_fehlt', subject: null, text: null, html: null, finding: befund };
+  }
+  const fest = (lead.subjectVariant as string | null) ?? null;
+  const variante = fest ?? await naechsteVariante(admin);
+  const r = renderErstkontakt({ companyName: lead.companyName, contactPerson: lead.contactPerson, finding: befund, variante }) as { subject: string; text: string; html: string };
+  return { ...basis, sendbar: true, grund: null, subject: r.subject, text: r.text, html: r.html, finding: befund, subjectVariant: variante, varianteVorlaeufig: !fest };
 }
 
 async function akquiseLeadAnlegen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
@@ -1010,51 +1040,93 @@ async function akquiseStatusSetzen(admin: SupabaseClient, adminId: string, p: Re
   return r.ok ? { ok: true, vorher: r.vorher ?? null, nachher: r.nachher } : { ok: false, code: r.reason ?? 'abgelehnt' };
 }
 
-/* EINE Mail an EINEN Lead. Reihenfolge: Lead laden (Wahrheit aus der DB)
-   → Token erzeugen → Links → Payload → acquisition_outreach_begin (Sperre,
-   Idempotenz, Rate, enqueue_email) → Audit ohne Token. */
-async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
-  const leadId = p.leadId as string;
-  const { data: detail, error: leseFehler } = await admin.rpc('acquisition_lead_detail', { p_lead_id: leadId });
-  if (leseFehler) throw leseFehler;
-  const lead = (detail as { lead?: Record<string, unknown> } | null)?.lead;
-  if (!lead) {
-    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: 'kein_lead' } }));
-    return { ok: false, code: 'kein_lead' };
-  }
-
-  const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
-  const tokenHash = await sha256Hex(token);
-  const links = akquiseLinks(token);
-  const modus = versandModus();
-  const r = renderFpMail({
-    companyName: lead.companyName, contactPerson: lead.contactPerson, personalizedSentence: lead.personalizedSentence, ...links,
-  }) as { subject: string };
-
-  const { data, error } = await admin.rpc('acquisition_outreach_begin', {
-    p_admin_id: adminId, p_lead_id: leadId, p_idempotency_key: p.idempotencyKey,
-    p_subject: r.subject, p_sentence_snapshot: lead.personalizedSentence ?? null,
-    p_token_hash: tokenHash, p_delivery_mode: modus.mode,
-    p_payload: {
-      companyName: lead.companyName, contactPerson: lead.contactPerson ?? null,
-      personalizedSentence: lead.personalizedSentence ?? null,
-      presentationUrl: links.presentationUrl, ctaUrl: links.ctaUrl,
-    },
-  });
-  if (error) {
-    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
-    throw error;
-  }
-  const b = (data ?? {}) as { ok?: boolean; reason?: string; grund?: string; messageId?: string; emailQueueId?: string; reused?: boolean; status?: string };
+/* Ergebnis von acquisition_outreach_send → Antwort + Audit (ohne Inhalt, ohne Token). */
+async function versandErgebnis(admin: SupabaseClient, aktion: string, adminId: string, leadId: string, data: unknown, modus: { mode: string; testRecipient: string | null }) {
+  const b = (data ?? {}) as { ok?: boolean; reason?: string; grund?: string; messageId?: string; emailQueueId?: string; reused?: boolean; status?: string; subjectVariant?: string };
   if (!b.ok) {
-    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: false, extra: { grund: b.reason ?? 'abgelehnt', ...(b.grund ? { sperre: b.grund } : {}) } }));
+    await auditiere(admin, leadAudit({ aktion, adminId, leadId, erfolg: false, extra: { grund: b.reason ?? 'abgelehnt', ...(b.grund ? { sperre: b.grund } : {}) } }));
     return { ok: false, code: b.reason ?? 'abgelehnt', grund: b.grund ?? null };
   }
   if (!b.reused) {
-    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId: adminId, leadId: leadId, erfolg: true, extra: { messageId: b.messageId, emailQueueId: b.emailQueueId, deliveryMode: modus.mode } }));
-    log('akquise_mail_eingereiht', { adminId, leadId, messageId: b.messageId, deliveryMode: modus.mode });
+    await auditiere(admin, leadAudit({ aktion, adminId, leadId, erfolg: true, extra: { messageId: b.messageId, emailQueueId: b.emailQueueId, deliveryMode: modus.mode, ...(b.subjectVariant ? { variante: b.subjectVariant } : {}) } }));
+    log('akquise_mail_eingereiht', { adminId, leadId, aktion, messageId: b.messageId, deliveryMode: modus.mode });
   }
-  return { ok: true, messageId: b.messageId, emailQueueId: b.emailQueueId ?? null, reused: Boolean(b.reused), status: b.status ?? 'queued', deliveryMode: modus.mode, testRecipient: modus.testRecipient };
+  return { ok: true, messageId: b.messageId, emailQueueId: b.emailQueueId ?? null, reused: Boolean(b.reused), status: b.status ?? 'queued', deliveryMode: modus.mode, testRecipient: modus.testRecipient, subjectVariant: b.subjectVariant ?? null };
+}
+
+/* Mail 1 an EINEN Lead. Reihenfolge: Lead aus der DB → Befund pruefen
+   (sonst kein Versand) → Variante fest vergeben → rendern →
+   acquisition_outreach_send (Sperren, Idempotenz, Rate, enqueue_email). */
+async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  const detail = await leseDetail(admin, leadId);
+  const lead = detail?.lead;
+  if (!lead) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { fehler: 'kein_lead' } }));
+    return { ok: false, code: 'kein_lead' };
+  }
+  if (!befundGueltig(lead.googleProfileFinding)) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { grund: 'befund_fehlt' } }));
+    return { ok: false, code: 'befund_fehlt' };
+  }
+  if (lead.blockReason) return versandErgebnis(admin, 'acquisition_send', adminId, leadId, { ok: false, reason: 'gesperrt', grund: lead.blockReason }, versandModus());
+
+  const { data: variante, error: vFehler } = await admin.rpc('acquisition_assign_subject_variant', { p_lead_id: leadId });
+  if (vFehler) throw vFehler;
+  if (variante !== 'A' && variante !== 'B') return { ok: false, code: 'variante_fehlt' };
+
+  const r = renderErstkontakt({ companyName: lead.companyName, contactPerson: lead.contactPerson, finding: lead.googleProfileFinding, variante }) as { subject: string };
+  const modus = versandModus();
+  const { data, error } = await admin.rpc('acquisition_outreach_send', {
+    p_admin_id: adminId, p_lead_id: leadId, p_idempotency_key: p.idempotencyKey, p_template: 'outreach_erstkontakt',
+    p_subject: r.subject, p_delivery_mode: modus.mode,
+    p_payload: { companyName: lead.companyName, contactPerson: lead.contactPerson ?? null, finding: lead.googleProfileFinding, variante },
+  });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  return versandErgebnis(admin, 'acquisition_send', adminId, leadId, data, modus);
+}
+
+/* Nachfassen: einmal, manuell, nur nach versendeter Mail 1 und ohne
+   erfasste Antwort. Ob es geht, entscheidet die DB
+   (acquisition_followup_moeglich); Betreff kommt aus der Erstmail. */
+async function akquiseNachfassen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  const detail = await leseDetail(admin, leadId);
+  const lead = detail?.lead;
+  if (!lead) return { ok: false, code: 'kein_lead' };
+  const grund = (lead.followupGrund as string | null) ?? null;
+  const erst = erstmailFuerZitat(detail);
+  if (grund || !erst) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_followup', adminId, leadId, erfolg: false, extra: { grund: grund ?? 'keine_erstmail' } }));
+    return { ok: false, code: 'nachfass_nicht_moeglich', grund: grund ?? 'keine_erstmail' };
+  }
+  const modus = versandModus();
+  const { data, error } = await admin.rpc('acquisition_outreach_send', {
+    p_admin_id: adminId, p_lead_id: leadId, p_idempotency_key: p.idempotencyKey, p_template: 'outreach_nachfass',
+    p_subject: erst.subject, p_delivery_mode: modus.mode,
+    p_payload: { contactPerson: lead.contactPerson ?? null, originalText: erst.text, originalSentAt: erst.sentAt },
+  });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_followup', adminId, leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  return versandErgebnis(admin, 'acquisition_followup', adminId, leadId, data, modus);
+}
+
+/* Antwort erfassen — WERKRUF liest das Postfach nicht; Iver markiert von Hand. */
+async function akquiseAntwortErfassen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
+  const leadId = p.leadId as string;
+  const { data, error } = await admin.rpc('acquisition_record_reply', { p_admin_id: adminId, p_lead_id: leadId, p_klasse: p.klasse });
+  if (error) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_record_reply', adminId, leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));
+    throw error;
+  }
+  const r = (data ?? {}) as { ok?: boolean; reason?: string; klasse?: string; vorher?: string | null; nachher?: string | null };
+  await auditiere(admin, leadAudit({ aktion: 'acquisition_record_reply', adminId, leadId, erfolg: Boolean(r.ok), extra: { klasse: r.klasse ?? p.klasse, vorher: r.vorher ?? null, nachher: r.nachher ?? null } }));
+  return r.ok ? { ok: true, klasse: r.klasse, vorher: r.vorher ?? null, nachher: r.nachher ?? null } : { ok: false, code: r.reason ?? 'abgelehnt' };
 }
 
 /* ═════════════════════════════════════════════
