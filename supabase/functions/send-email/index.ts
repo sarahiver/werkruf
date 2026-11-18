@@ -32,7 +32,7 @@ import {
 /* WP6: Brevo-Zustellereignisse → feste Ereignismenge. */
 import { normalisierePayload } from '../../../src/utils/zustellEreignisse.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
-import { renderFpMail } from '../../../src/utils/akquise.js';
+import { renderFpMail, renderErstkontakt, renderNachfass } from '../../../src/utils/akquise.js';
 /* WP8 — Profil-Waechter: Werte und ehrliche Ueberschrift je Diff. */
 import { formatWert as formatDiffWert, diffUeberschrift } from '../../../src/utils/profilDiff.js';
 
@@ -49,7 +49,9 @@ type EmailTemplate =
   | 'support_reply'
   | 'consent_reminder'
   | 'account_deleted'
-  | 'founding_partner_outreach';
+  | 'founding_partner_outreach'
+  | 'outreach_erstkontakt'
+  | 'outreach_nachfass';
 
 interface EmailRow {
   id: string;
@@ -77,6 +79,9 @@ interface RenderedEmail {
   subject: string;
   html: string;
   text: string;
+  /* WP17: persoenliche Akquise-Mails gehen als „Iver Bohnes" raus.
+     Gleiche Adresse (brand.senderEmail) — SPF/DKIM/DMARC unberuehrt. */
+  senderName?: string;
 }
 
 /** Markenwerte je Vertikale. Spiegelt industryConfig.js. */
@@ -853,6 +858,30 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
       return { subject: r.subject, html: r.html, text: r.text };
     }
 
+    /* WP17 — Outreach „Antwort zuerst". Mail 1: Befund + eine Frage, kein
+       Link, kein Button. Betreff steht in der DB (outreach_messages.subject,
+       per payload.subject) und wird hier nicht neu erfunden. */
+    case 'outreach_erstkontakt': {
+      const r = renderErstkontakt({
+        companyName: String(payload.companyName ?? ''),
+        contactPerson: toName ?? String(payload.contactPerson ?? ''),
+        finding: String(payload.finding ?? ''),
+        variante: String(payload.variante ?? ''),
+      }) as RenderedEmail;
+      const subject = typeof payload.subject === 'string' && payload.subject.trim() ? payload.subject : r.subject;
+      return { subject, html: r.html, text: r.text, senderName: r.senderName };
+    }
+
+    case 'outreach_nachfass': {
+      const r = renderNachfass({
+        contactPerson: toName ?? String(payload.contactPerson ?? ''),
+        subject: String(payload.subject ?? ''),
+        originalText: String(payload.originalText ?? ''),
+        originalSentAt: typeof payload.originalSentAt === 'string' ? payload.originalSentAt : undefined,
+      }) as RenderedEmail;
+      return { subject: r.subject, html: r.html, text: r.text, senderName: r.senderName };
+    }
+
     case 'visibility_report': {
       const title = `Dein kostenloser Google-Profil-Bericht für ${escapeHtml(payload.companyName ?? 'deinen Betrieb')}`;
       const score = typeof payload.score === 'number' ? payload.score : null;
@@ -1306,7 +1335,7 @@ async function sendViaBrevo(row: EmailRow, rendered: RenderedEmail, brand: Brand
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        sender: { name: brand.name, email: brand.senderEmail },
+        sender: { name: rendered.senderName ?? brand.name, email: brand.senderEmail },
         to: [{ email: recipient, ...(row.to_name ? { name: row.to_name } : {}) }],
         subject: rendered.subject,
         htmlContent: rendered.html,

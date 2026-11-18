@@ -34,7 +34,10 @@ const ADMIN = { id: '00000000-0000-4000-8000-00000000ad01', app_metadata: { role
 const NUTZER = { id: '00000000-0000-4000-8000-0000000000b1', app_metadata: {} };
 const AO = lies('../supabase/functions/admin-ops/index.ts');
 const MIG = lies('../supabase/migrations/20261115090000_akquise_import.sql');
-const KOPF = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,import_status,imported_at,werkruf_lead_id';
+/* WP17: Vorlage hat die Spalte google_profile_finding. Alte Dateien ohne
+   diese Spalte (KOPF_ALT) muessen unveraendert funktionieren. */
+const KOPF_ALT = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,import_status,imported_at,werkruf_lead_id';
+const KOPF = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,google_profile_finding,import_status,imported_at,werkruf_lead_id';
 
 /* ───────── CSV ───────── */
 describe('CSV-Parser', () => {
@@ -64,10 +67,11 @@ describe('CSV-Parser', () => {
     expect(r).toMatchObject({ ok: true, trennzeichen: ';', zeilen: [{ i: 2, roh: { company_name: 'Krause GmbH', email: 'info@krause.de', city: 'Kiel' } }] });
   });
   it('Kopfzeile: Gross/Klein und Leerzeichen egal; ignorierte und unbekannte Spalten landen nie in Lead-Feldern', () => {
-    const r = csvZuZeilen(`${KOPF},geheim\nA,,a@b.de,,,,,,,,liste1,done,2026-01-01,abc,x\n`.replace('company_name', ' Company_Name '));
+    const r = csvZuZeilen(`${KOPF_ALT},geheim\nA,,a@b.de,,,,,,,,liste1,done,2026-01-01,abc,x\n`.replace('company_name', ' Company_Name '));
     expect(r.ok).toBe(true);
     expect(r.unbekannteSpalten).toEqual(['geheim']);
-    expect(Object.keys(r.zeilen[0].roh)).toEqual(IMPORT_SPALTEN);
+    /* alte Datei ohne Befund-Spalte: alles ausser google_profile_finding */
+    expect(Object.keys(r.zeilen[0].roh)).toEqual(IMPORT_SPALTEN.filter((sp) => sp !== 'google_profile_finding'));
     expect(r.zeilen[0].roh).not.toHaveProperty('werkruf_lead_id');
     expect(r.zeilen[0].roh).not.toHaveProperty('geheim');
   });

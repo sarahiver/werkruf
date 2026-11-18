@@ -18,6 +18,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import {
   AKQUISE_STATUS, AKQUISE_STATUS_TEXT, EREIGNIS_TEXT, SPERR_EREIGNISSE, normalisiereEmail, pruefeLeadEingabe,
   FP_MAIL_BETREFF, fpMailAbsaetze, renderFpMail, escapeHtml, istGueltigerToken, KPI_DEFINITION, VERSAND_GRUND_TEXT,
+  renderErstkontakt,
 } from './utils/akquise';
 import { ADMIN_AKTIONEN, pruefeAnfrage, baueAuditEintrag } from './utils/adminOps';
 import { ereignisArt, EREIGNISSE } from './utils/zustellEreignisse';
@@ -129,9 +130,9 @@ describe('Modul akquise.js', () => {
 
 /* ───────── Allowlist ───────── */
 describe('Allowlist (adminOps.js)', () => {
-  it('8 Akquise-Aktionen (WP16.1: + acquisition_import); schreibende haben Audit-Namen; send verlangt Bestaetigung', () => {
+  it('10 Akquise-Aktionen (WP16.1: + acquisition_import; WP17: + followup, record_reply); schreibende haben Audit-Namen; send verlangt Bestaetigung', () => {
     const akq = Object.keys(ADMIN_AKTIONEN).filter((k) => k.startsWith('acquisition_')).sort();
-    expect(akq).toEqual(['acquisition_import', 'acquisition_lead_create', 'acquisition_lead_detail', 'acquisition_lead_update', 'acquisition_list', 'acquisition_preview', 'acquisition_send', 'acquisition_set_status']);
+    expect(akq).toEqual(['acquisition_followup', 'acquisition_import', 'acquisition_lead_create', 'acquisition_lead_detail', 'acquisition_lead_update', 'acquisition_list', 'acquisition_preview', 'acquisition_record_reply', 'acquisition_send', 'acquisition_set_status']);
     expect(ADMIN_AKTIONEN.acquisition_lead_create.auditAktion).toBe('admin.acquisition_lead_created');
     expect(ADMIN_AKTIONEN.acquisition_lead_update.auditAktion).toBe('admin.acquisition_lead_updated');
     expect(ADMIN_AKTIONEN.acquisition_set_status.auditAktion).toBe('admin.acquisition_status_changed');
@@ -178,41 +179,46 @@ describe('admin-ops (Quelltext)', () => {
   it('C1 — jede Aktion laeuft durch das Tor (pruefeAnfrage) und den Dispatcher', () => {
     expect(AO).toMatch(/const urteil = pruefeAnfrage\(\{/);
     expect(AO).toMatch(/if \(!urteil\.erlaubt\) \{/);
-    for (const a of ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send']) {
+    for (const a of ['acquisition_list', 'acquisition_lead_detail', 'acquisition_preview', 'acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send', 'acquisition_followup', 'acquisition_record_reply']) {
       expect(AO).toMatch(new RegExp(`case '${a}':`));
     }
   });
   it('T17/C2 — Versand: Lead aus der DB (acquisition_lead_detail), nie eine Adresse aus dem Body; Payload ohne Adresse', () => {
-    expect(senden).toMatch(/admin\.rpc\('acquisition_lead_detail', \{ p_lead_id: leadId \}\)/);
+    expect(AO).toMatch(/admin\.rpc\('acquisition_lead_detail', \{ p_lead_id: leadId \}\)/);
+    expect(senden).toMatch(/const detail = await leseDetail\(admin, leadId\);/);
     expect(senden).not.toMatch(/p\.(email|to|toEmail|address)\b/);
-    expect(senden).toMatch(/companyName: lead\.companyName, contactPerson: lead\.contactPerson \?\? null,/);
+    expect(senden).toMatch(/companyName: lead\.companyName, contactPerson: lead\.contactPerson \?\? null, finding: lead\.googleProfileFinding, variante/);
     expect(senden).not.toMatch(/p_payload: \{[^}]*email/);
-    expect(senden).toMatch(/admin\.rpc\('acquisition_outreach_begin', \{/);
+    expect(senden).toMatch(/admin\.rpc\('acquisition_outreach_send', \{/);
+    expect(senden).not.toMatch(/acquisition_outreach_begin/);       // alte FP-Mail nicht mehr fuer Erstkontakte
     expect(senden).toMatch(/p_idempotency_key: p\.idempotencyKey/);
   });
-  it('T21/T48 — Token: 32 Zufallsbytes base64url, nur der Hash geht in die DB, nie Token im Audit/Log', () => {
-    expect(senden).toMatch(/crypto\.getRandomValues\(new Uint8Array\(32\)\)/);
-    expect(senden).toMatch(/const tokenHash = await sha256Hex\(token\);/);
-    expect(senden).toMatch(/p_token_hash: tokenHash/);
-    const audits = senden.match(/leadAudit\(\{ aktion: 'acquisition_send'[^\n]*/g) || [];
+  it('WP17 — Mail 1 ohne Token-Links: kein Token, keine Links im Payload; Audit ohne Mailinhalt', () => {
+    expect(senden).not.toMatch(/getRandomValues|tokenHash|presentationUrl|ctaUrl/);
+    const audits = senden.match(/leadAudit\(\{ aktion[^\n]*/g) || [];
     expect(audits.length).toBeGreaterThanOrEqual(3);
-    for (const a of audits) expect(a).not.toMatch(/\btoken\b|tokenHash|presentationUrl|ctaUrl/);
-    expect(senden).not.toMatch(/log\([^)]*token/);
+    for (const a of audits) expect(a).not.toMatch(/finding|text|html|subject/);
+    expect(senden).not.toMatch(/log\([^)]*(finding|text)/);
   });
   it('T23 — Testmodus kommt aus EMAIL_DELIVERY_MODE, wird mitgegeben und in der Antwort/Vorschau sichtbar', () => {
     expect(AO).toMatch(/Deno\.env\.get\('EMAIL_DELIVERY_MODE'\)/);
     expect(senden).toMatch(/p_delivery_mode: modus\.mode/);
-    expect(senden).toMatch(/deliveryMode: modus\.mode, testRecipient: modus\.testRecipient/);
+    /* WP17: Antwort fuer Mail 1 und Nachfass kommt aus versandErgebnis() */
+    const ergebnis = AO.slice(AO.indexOf('async function versandErgebnis'), AO.indexOf('async function akquiseSenden'));
+    expect(ergebnis).toMatch(/deliveryMode: modus\.mode, testRecipient: modus\.testRecipient/);
     const vorschau = AO.slice(AO.indexOf('async function akquiseVorschau'), AO.indexOf('async function akquiseLeadAnlegen'));
     expect(vorschau).toMatch(/deliveryMode: modus\.mode, testRecipient: modus\.testRecipient/);
-    expect(vorschau).toMatch(/renderFpMail\(\{/);
-    expect(vorschau).toMatch(/sender: \{ name: 'WERKRUF', email: 'info@werkruf\.com' \}/);
+    expect(vorschau).toMatch(/renderErstkontakt\(\{/);
+    expect(vorschau).toMatch(/renderNachfass\(\{/);
+    expect(AO).toMatch(/const AKQUISE_ABSENDER = \{ name: ABSENDER_NAME, email: 'info@werkruf\.com' \};/);
   });
-  it('T15 — Vorschau und Worker rendern mit derselben Funktion (renderFpMail aus akquise.js)', () => {
-    expect(AO).toMatch(/import \{ renderFpMail \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
-    expect(SE).toMatch(/import \{ renderFpMail \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
+  it('T15 — Vorschau und Worker rendern mit derselben Funktion (akquise.js); alte FP-Vorlage bleibt zustellbar', () => {
+    expect(AO).toMatch(/import \{ renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
+    expect(SE).toMatch(/import \{ renderFpMail, renderErstkontakt, renderNachfass \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
+    expect(SE).toMatch(/case 'outreach_erstkontakt': \{[\s\S]*?renderErstkontakt\(\{/);
+    expect(SE).toMatch(/case 'outreach_nachfass': \{[\s\S]*?renderNachfass\(\{/);
     expect(SE).toMatch(/case 'founding_partner_outreach': \{[\s\S]*?renderFpMail\(\{[\s\S]*?presentationUrl: String\(payload\.presentationUrl \?\? ''\),\s*ctaUrl: String\(payload\.ctaUrl \?\? ''\),/);
-    expect(SE).toMatch(/\| 'founding_partner_outreach';/);
+    expect(SE).toMatch(/\| 'founding_partner_outreach'\n  \| 'outreach_erstkontakt'\n  \| 'outreach_nachfass';/);
   });
   it('T13 — Audit bei Anlegen/Aendern/Status/Versand, auch bei Fehlschlag', () => {
     for (const a of ['acquisition_lead_create', 'acquisition_lead_update', 'acquisition_set_status', 'acquisition_send']) {
@@ -303,38 +309,57 @@ describe('Migration (Quelltext) — Trennung und Sperre', () => {
 
 /* ───────── UI ───────── */
 describe('Akquise-Bauteil', () => {
+  /* WP17: Fixtures in der neuen Logik — LEAD hat Mail 1 bekommen
+     (Erstkontakt, Variante A), NEU ist versandbereit (Befund), OHNE hat
+     keinen Befund, GESPERRT hat einen Hard Bounce. */
+  const BEFUND = 'Krause GmbH hat bei Google 23 gute Bewertungen, auf die letzten fünf gibt es aber keine Antwort.';
   const LEAD = {
     id: LEAD_ID, companyName: 'Krause GmbH', contactPerson: 'Jens Krause', email: 'jens@krause.de', city: 'Kiel', trade: 'Elektro',
     acquisitionStatus: 'angeschrieben', leadStatus: 'new', lastOutreachAt: '2026-11-10T09:00:00Z',
-    lastMessage: { id: 'm1', status: 'sent', deliveryMode: 'production' },
-    deliveredAt: '2026-11-10T09:01:00Z', firstOpenAt: '2026-11-10T09:30:00Z', presentationClickedAt: null, ctaClickedAt: null, blockReason: null,
+    lastMessage: { id: 'm1', template: 'outreach_erstkontakt', status: 'sent', deliveryMode: 'production' },
+    deliveredAt: '2026-11-10T09:01:00Z', firstOpenAt: '2026-11-10T09:30:00Z', followupSentAt: null, replyReceivedAt: null, blockReason: null,
+    googleProfileFinding: BEFUND, subjectVariant: 'A', followupGrund: null, replyClassification: null,
   };
+  const NEU = { ...LEAD, id: '44444444-4444-4444-8444-444444444444', companyName: 'Neu Elektro', email: 'info@neu-elektro.de', acquisitionStatus: 'neu',
+    lastOutreachAt: null, lastMessage: null, deliveredAt: null, firstOpenAt: null, subjectVariant: null, followupGrund: 'keine_erstmail' };
+  const OHNE = { ...NEU, id: '55555555-5555-4555-8555-555555555555', companyName: 'Ohne Befund KG', email: 'a@ohne.de', googleProfileFinding: null };
   const GESPERRT = { ...LEAD, id: '33333333-3333-4333-8333-333333333333', companyName: 'Bounce AG', email: 'x@bounce.de', blockReason: 'hard_bounce', acquisitionStatus: 'angeschrieben' };
+  const MSG_ERST = { id: 'm1', template: 'outreach_erstkontakt', subjectVariant: 'A', subject: 'Ihre Google-Bewertungen', finding: BEFUND, status: 'sent', deliveryMode: 'production', createdAt: '2026-11-10T09:00:00Z', sentAt: '2026-11-10T09:00:30Z' };
   const DETAIL = (lead) => ({
-    lead: { ...lead, personalizedSentence: 'Drei Bewertungen unbeantwortet.', note: '' },
-    messages: [{ id: 'm1', status: 'sent', deliveryMode: 'production', createdAt: '2026-11-10T09:00:00Z' }],
-    events: [
+    lead: { ...lead, note: '' },
+    messages: lead.lastMessage ? [MSG_ERST] : [],
+    events: lead.lastMessage ? [
       { id: 'e1', type: 'sent', at: '2026-11-10T09:00:00Z' }, { id: 'e2', type: 'delivered', at: '2026-11-10T09:01:00Z' },
       { id: 'e3', type: 'first_open', at: '2026-11-10T09:30:00Z' }, { id: 'e4', type: 'opened', at: '2026-11-10T10:30:00Z' },
-    ],
+    ] : [],
     deliveryMode: 'production',
   });
-  const VORSCHAU = {
-    ok: true, to: 'jens@krause.de', toName: 'Jens Krause', subject: 'Darf ich Krause GmbH als WERKRUF Founding Partner einladen?',
-    text: 'Hallo Jens Krause,\n\nstell dir vor …\n\nDrei Bewertungen unbeantwortet.\n\nBeste Grüße\nIver Bohnes', html: '<p>x</p>',
-    personalizedSentence: 'Drei Bewertungen unbeantwortet.', presentationUrl: 'https://werkruf.com/p/fp/VORSCHAU-TOKEN', ctaUrl: 'https://werkruf.com/founding-partner/VORSCHAU-TOKEN',
-    sender: { name: 'WERKRUF', email: 'info@werkruf.com' }, deliveryMode: 'production', testRecipient: null, blockReason: null,
-  };
+  const MAIL1_TEXT = renderErstkontakt({ companyName: 'Neu Elektro', contactPerson: 'Jens Krause', finding: BEFUND, variante: 'B' }).text;
+  const VORSCHAU = (lead, art) => (art === 'nachfass'
+    ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Ihre Google-Bewertungen', text: 'Guten Tag Jens Krause,\n\nkurz nachgehakt: …', html: '<p>x</p>',
+      sender: { name: 'Iver Bohnes', email: 'info@werkruf.com' }, replyTo: 'info@werkruf.com', deliveryMode: 'production', testRecipient: null, blockReason: null }
+    : lead.googleProfileFinding
+      ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Kurze Frage zu Neu Elektro bei Google', subjectVariant: 'B', varianteVorlaeufig: true,
+        text: MAIL1_TEXT, html: '<p>x</p>', finding: BEFUND,
+        sender: { name: 'Iver Bohnes', email: 'info@werkruf.com' }, replyTo: 'info@werkruf.com', deliveryMode: 'production', testRecipient: null, blockReason: null }
+      : { ok: true, art, sendbar: false, grund: 'befund_fehlt', to: lead.email, subject: null, text: null, deliveryMode: 'production' });
 
-  function mockOps({ deliveryMode = 'production', leads = [LEAD, GESPERRT], sendErgebnis } = {}) {
+  function mockOps({ deliveryMode = 'production', leads = [LEAD, NEU, OHNE, GESPERRT], sendErgebnis, varianten } = {}) {
     const calls = [];
     const ops = jest.fn(async (action, params = {}) => {
       calls.push({ action, params });
+      const lead = leads.find((l) => l.id === params.leadId) || LEAD;
       switch (action) {
-        case 'acquisition_list': return { leads, kpi: { leads: 2, angeschrieben: 2, zugestellt: 1, oeffnungErkannt: 1, interesse: 0, foundingPartner: 0, gesperrt: 1 }, deliveryMode };
-        case 'acquisition_lead_detail': return DETAIL(leads.find((l) => l.id === params.leadId) || LEAD);
-        case 'acquisition_preview': return { ...VORSCHAU, deliveryMode, testRecipient: deliveryMode === 'test' ? 'iver@test.de' : null };
-        case 'acquisition_send': return sendErgebnis || { ok: true, messageId: 'm2', reused: false, status: 'queued', deliveryMode, testRecipient: deliveryMode === 'test' ? 'iver@test.de' : null };
+        case 'acquisition_list': return { leads, kpi: { leads: 4, angeschrieben: 20, zugestellt: 18, oeffnungErkannt: 6, antworten: 3, antwortenPositiv: 1, interesse: 1, foundingPartner: 0, gesperrt: 1 }, varianten: varianten || {}, deliveryMode };
+        case 'acquisition_lead_detail': return DETAIL(lead);
+        case 'acquisition_preview': {
+          const v = VORSCHAU(lead, params.art);
+          return { ...v, deliveryMode, testRecipient: deliveryMode === 'test' ? 'iver@test.de' : null };
+        }
+        case 'acquisition_send':
+        case 'acquisition_followup':
+          return sendErgebnis || { ok: true, messageId: 'm2', reused: false, status: 'queued', deliveryMode, testRecipient: deliveryMode === 'test' ? 'iver@test.de' : null };
+        case 'acquisition_record_reply': return { ok: true, klasse: params.klasse, vorher: 'angeschrieben', nachher: params.klasse === 'positiv' ? 'interesse' : 'angeschrieben' };
         case 'acquisition_lead_create': return { ok: true, leadId: LEAD_ID };
         default: return { ok: true };
       }
@@ -342,80 +367,157 @@ describe('Akquise-Bauteil', () => {
     return { ops, calls };
   }
 
-  it('KPI-Block, Liste mit Zustellung/Öffnung erkannt, Sperrwarnung; Wortlaut ohne „gelesen"', async () => {
+  it('KPI-Block mit Antworten und Quoten, Liste mit Signalen, Sperrwarnung; Wortlaut ohne „gelesen"', async () => {
     const { ops } = mockOps();
     render(<Akquise rufeAdminOps={ops} />);
     await screen.findByText('Krause GmbH');
     const kpi = screen.getByTestId('akquise-kpi');
-    expect(kpi).toHaveTextContent('Leads'); expect(kpi).toHaveTextContent('Öffnung erkannt'); expect(kpi).toHaveTextContent('Founding Partner');
-    expect(screen.getAllByTestId('akquise-lead')).toHaveLength(2);
+    for (const t of ['Leads', 'Angeschrieben', 'Zugestellt', 'Öffnung erkannt', 'Antworten', 'Positive Antworten / Interesse', 'Founding Partner']) expect(kpi).toHaveTextContent(t);
+    expect(screen.getByTestId('akquise-kpi-antworten')).toHaveTextContent('3');
+    expect(screen.getByTestId('akquise-kpi-interesse')).toHaveTextContent('1');
+    /* Quoten bezogen auf zugestellt: 18/20 = 90 %, 6/18 = 33,3 %, 3/18 = 16,7 %, 1/18 = 5,6 % */
+    const q = screen.getByTestId('akquise-quoten');
+    expect(q).toHaveTextContent('Zustellung 90 %'); expect(q).toHaveTextContent('Öffnung erkannt 33,3 %');
+    expect(q).toHaveTextContent('Antworten 16,7 %'); expect(q).toHaveTextContent('Interesse 5,6 %');
+    expect(q).toHaveTextContent('nicht erkannt heißt nicht „nicht gelesen"');
+    expect(screen.getAllByTestId('akquise-lead')).toHaveLength(4);
     const signale = screen.getAllByTestId('akquise-signale')[0];
-    /* WP16.1: kompakte Signal-Chips; der volle Wortlaut steht im aria-label/title
-       („Öffnung erkannt", nie „gelesen"). */
     expect(within(signale).getByLabelText(/^Zugestellt /)).toHaveAttribute('data-ja', 'true');
     expect(within(signale).getByLabelText(/^Öffnung erkannt \(kein Lesebeweis\) /)).toHaveAttribute('data-ja', 'true');
-    expect(within(signale).getByLabelText(/^Präsentation geklickt: noch nicht/)).toHaveAttribute('data-ja', 'false');
-    expect(within(signale).getByLabelText(/^Interesse bestätigt: noch nicht/)).toHaveAttribute('data-ja', 'false');
+    expect(within(signale).getByLabelText(/^Nachgefasst: noch nicht/)).toHaveAttribute('data-ja', 'false');
+    expect(within(signale).getByLabelText(/^Antwort erfasst: noch nicht/)).toHaveAttribute('data-ja', 'false');
     expect(screen.getByTestId('akquise-gesperrt')).toHaveTextContent('Hard Bounce');
-    expect(document.body.textContent).not.toMatch(/gelesen/);
+    expect(document.body.textContent.replace('„nicht gelesen"', '')).not.toMatch(/gelesen/);
     expect(screen.queryByTestId('akquise-testmodus')).toBeNull();
+    expect(screen.queryByTestId('akquise-ab')).toBeNull();      // noch keine Varianten
   });
 
-  it('T14/T24 — Vorschau → „Mail senden" → Bestaetigung → genau EIN acquisition_send mit leadId + idempotencyKey (keine Adresse); Doppelklick blockiert', async () => {
+  it('A/B-Tabelle zeigt beide Varianten nebeneinander', async () => {
+    const { ops } = mockOps({ varianten: { A: { angeschrieben: 3, zugestellt: 3, oeffnungErkannt: 1, antworten: 1, antwortenPositiv: 1 }, B: { angeschrieben: 2, zugestellt: 2, oeffnungErkannt: 0, antworten: 0, antwortenPositiv: 0 } } });
+    render(<Akquise rufeAdminOps={ops} />);
+    const ab = await screen.findByTestId('akquise-ab');
+    const zeilen = within(ab).getAllByRole('row').map((r) => r.textContent);
+    expect(zeilen[1]).toBe('A33111'); expect(zeilen[2]).toBe('B22000');
+  });
+
+  it('T14/T24 + WP17 — Mail 1: Vorschau ohne Link/Button, Betreff-Variante, Absender Iver → Bestaetigung → genau EIN acquisition_send (leadId + idempotencyKey)', async () => {
     const { ops, calls } = mockOps();
     render(<Akquise rufeAdminOps={ops} />);
-    fireEvent.click(await screen.findByText('Krause GmbH'));
+    fireEvent.click(await screen.findByText('Neu Elektro'));
     await screen.findByTestId('akquise-detail');
     expect(screen.queryByTestId('akquise-senden')).toBeNull();                 // kein One-Click aus der Zeile
     fireEvent.click(await screen.findByTestId('akquise-vorschau'));
     const inhalt = await screen.findByTestId('akquise-vorschau-inhalt');
-    expect(inhalt).toHaveTextContent('An: jens@krause.de');
-    expect(inhalt).toHaveTextContent('Betreff: Darf ich Krause GmbH als WERKRUF Founding Partner einladen?');
-    expect(inhalt).toHaveTextContent('Präsentationslink: https://werkruf.com/p/fp/VORSCHAU-TOKEN');
-    expect(inhalt).toHaveTextContent('CTA: https://werkruf.com/founding-partner/VORSCHAU-TOKEN');
-    expect(screen.getByTestId('akquise-vorschau-text')).toHaveTextContent('Drei Bewertungen unbeantwortet.');
+    expect(calls.find((c) => c.action === 'acquisition_preview').params).toEqual({ leadId: NEU.id, art: 'erstkontakt' });
+    expect(inhalt).toHaveTextContent('reiner Text, kein Link, kein Button');
+    expect(inhalt).toHaveTextContent('Von: Iver Bohnes <info@werkruf.com> · Antworten an info@werkruf.com');
+    expect(screen.getByTestId('akquise-vorschau-betreff')).toHaveTextContent('Betreff: Kurze Frage zu Neu Elektro bei Google (Variante B, wird beim Senden fest vergeben)');
+    const text = screen.getByTestId('akquise-vorschau-text').textContent;
+    expect(text).toContain(BEFUND);
+    expect(text).not.toMatch(/https?:\/\/|Founding Partner|Präsentation/);
+    expect(inhalt).not.toHaveTextContent('Präsentationslink');
     fireEvent.click(screen.getByTestId('akquise-senden'));
     expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);   // erst Bestaetigung
     const ja = screen.getByTestId('akquise-senden-bestaetigen');
-    expect(ja).toHaveTextContent('Ja, jetzt an jens@krause.de senden');
+    expect(ja).toHaveTextContent('Ja, jetzt an info@neu-elektro.de senden');
     fireEvent.click(ja); fireEvent.click(ja); fireEvent.click(ja);
     await waitFor(() => expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(1));
     const send = calls.find((c) => c.action === 'acquisition_send');
     expect(Object.keys(send.params).sort()).toEqual(['idempotencyKey', 'leadId']);
-    expect(send.params.leadId).toBe(LEAD_ID);
-    expect(send.params.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{8,120}$/);   // was der Server verlangt
-    expect(JSON.stringify(send.params)).not.toContain('krause.de');
-    expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Mail eingereiht');
-    expect(screen.queryByTestId('akquise-senden-bestaetigen')).toBeNull();
+    expect(send.params.leadId).toBe(NEU.id);
+    expect(send.params.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{8,120}$/);
+    expect(JSON.stringify(send.params)).not.toContain('neu-elektro.de');
+    expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Mail 1 eingereiht');
+  });
+
+  it('WP17 — ohne Google-Befund: Hinweis im Detail, Vorschau sagt „nicht versandbereit", kein Sendeknopf', async () => {
+    const { ops, calls } = mockOps();
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Ohne Befund KG'));
+    expect(await screen.findByTestId('akquise-befund-fehlt')).toHaveTextContent('Kein Google-Befund hinterlegt');
+    fireEvent.click(screen.getByTestId('akquise-vorschau'));
+    expect(await screen.findByTestId('akquise-vorschau-gesperrt')).toHaveTextContent(VERSAND_GRUND_TEXT.befund_fehlt);
+    expect(screen.queryByTestId('akquise-senden')).toBeNull();
+    expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);
+  });
+
+  it('WP17 — Nachfassen: Knopf nur nach Mail 1 ohne Antwort; Vorschau → Bestaetigung → genau EIN acquisition_followup', async () => {
+    const { ops, calls } = mockOps();
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Krause GmbH'));
+    expect(await screen.findByTestId('akquise-erstmail-info')).toHaveTextContent('Betreff-Variante A: „Ihre Google-Bewertungen"');
+    expect(screen.queryByTestId('akquise-vorschau')).toBeNull();               // keine zweite Erstmail
+    fireEvent.click(screen.getByTestId('akquise-nachfassen'));
+    await screen.findByTestId('akquise-vorschau-inhalt');
+    expect(calls.find((c) => c.action === 'acquisition_preview').params).toEqual({ leadId: LEAD_ID, art: 'nachfass' });
+    fireEvent.click(screen.getByTestId('akquise-senden'));
+    fireEvent.click(screen.getByTestId('akquise-senden-bestaetigen'));
+    fireEvent.click(screen.getByTestId('akquise-senden-bestaetigen'));
+    await waitFor(() => expect(calls.filter((c) => c.action === 'acquisition_followup')).toHaveLength(1));
+    expect(Object.keys(calls.find((c) => c.action === 'acquisition_followup').params).sort()).toEqual(['idempotencyKey', 'leadId']);
+    expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);
+    expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Nachfass-Mail eingereiht');
+  });
+
+  it('WP17 — Nachfassen nicht moeglich: Grund statt Knopf; neuer Lead ohne Mail 1 hat keinen Knopf', async () => {
+    const BEANTWORTET = { ...LEAD, id: '66666666-6666-4666-8666-666666666666', companyName: 'Beantwortet GmbH', followupGrund: 'antwort_erfasst', replyReceivedAt: '2026-11-11T08:00:00Z', replyClassification: 'sonstige' };
+    const { ops } = mockOps({ leads: [BEANTWORTET, NEU] });
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Beantwortet GmbH'));
+    expect(await screen.findByTestId('akquise-nachfass-grund')).toHaveTextContent('Es ist bereits eine Antwort erfasst.');
+    expect(screen.queryByTestId('akquise-nachfassen')).toBeNull();
+    fireEvent.click(screen.getByText('Neu Elektro'));
+    await screen.findByTestId('akquise-vorschau');
+    expect(screen.queryByTestId('akquise-nachfassen')).toBeNull();
+  });
+
+  it('WP17 — Antwort erfassen: positiv/negativ/sonstige rufen acquisition_record_reply; Wirkung wird genannt; Vorlage fuer ein „Ja"', async () => {
+    const { ops, calls } = mockOps();
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Krause GmbH'));
+    await screen.findByTestId('akquise-antwort');
+    for (const k of ['positiv', 'negativ', 'sonstige']) {
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(() => expect(screen.getByTestId(`akquise-antwort-${k}`)).not.toBeDisabled());
+      fireEvent.click(screen.getByTestId(`akquise-antwort-${k}`));
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(() => expect(calls.filter((c) => c.action === 'acquisition_record_reply' && c.params.klasse === k)).toHaveLength(1));
+    }
+    expect(calls.filter((c) => c.action === 'acquisition_record_reply').map((c) => c.params)).toEqual([
+      { leadId: LEAD_ID, klasse: 'positiv' }, { leadId: LEAD_ID, klasse: 'negativ' }, { leadId: LEAD_ID, klasse: 'sonstige' }]);
+    expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Antwort erfasst: Sonstige Antwort.');
+    const vorlage = screen.getByTestId('akquise-vorlage');
+    expect(vorlage).toHaveTextContent('Bei Ihrem Profil würde ich aktuell vor allem diese drei Dinge angehen');
+    expect(vorlage).not.toHaveTextContent(/überwacht|meldet sich nur/);
   });
 
   it('T23 — Testmodus: Band oben, Vorschau und Bestaetigung nennen den Testempfaenger, nicht den Lead', async () => {
     const { ops } = mockOps({ deliveryMode: 'test' });
     render(<Akquise rufeAdminOps={ops} />);
     expect(await screen.findByTestId('akquise-testmodus')).toHaveTextContent('Testmodus');
-    fireEvent.click(screen.getByText('Krause GmbH'));
+    fireEvent.click(screen.getByText('Neu Elektro'));
     fireEvent.click(await screen.findByTestId('akquise-vorschau'));
-    expect(await screen.findByTestId('akquise-vorschau-test')).toHaveTextContent('geht an iver@test.de, nicht an jens@krause.de');
+    expect(await screen.findByTestId('akquise-vorschau-test')).toHaveTextContent('geht an iver@test.de, nicht an info@neu-elektro.de');
     fireEvent.click(screen.getByTestId('akquise-senden'));
     expect(screen.getByTestId('akquise-senden-bestaetigen')).toHaveTextContent('an den Testempfänger senden');
     fireEvent.click(screen.getByTestId('akquise-senden-bestaetigen'));
     expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Testversand eingereiht — geht nur an iver@test.de');
   });
 
-  it('T32 — gesperrter Lead: kein Vorschau-/Sendeknopf, klare Warnung; Server-Ablehnung wird lesbar', async () => {
-    const { ops, calls } = mockOps({ sendErgebnis: { ok: false, code: 'gesperrt', grund: 'hard_bounce' } });
+  it('T32 — gesperrter Lead: kein Vorschau-/Sende-/Nachfassknopf, klare Warnung; Server-Ablehnung wird lesbar', async () => {
+    const { ops, calls } = mockOps({ sendErgebnis: { ok: false, code: 'befund_fehlt' } });
     render(<Akquise rufeAdminOps={ops} />);
     fireEvent.click(await screen.findByText('Bounce AG'));
     expect(await screen.findByTestId('akquise-versand-gesperrt')).toHaveTextContent('Lead ist für weiteren Mailversand gesperrt: Hard Bounce.');
     expect(screen.queryByTestId('akquise-vorschau')).toBeNull();
+    expect(screen.queryByTestId('akquise-nachfassen')).toBeNull();
     expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);
     /* Server lehnt trotzdem ab (zweite Verteidigung) → Text */
-    /* WP16.1: Detail-Panel statt Aufklappen — ein Klick auf einen anderen Lead wechselt. */
-    fireEvent.click(screen.getByText('Krause GmbH'));
+    fireEvent.click(screen.getByText('Neu Elektro'));
     fireEvent.click(await screen.findByTestId('akquise-vorschau'));
     fireEvent.click(await screen.findByTestId('akquise-senden'));
     fireEvent.click(screen.getByTestId('akquise-senden-bestaetigen'));
-    expect(await screen.findByRole('alert')).toHaveTextContent(VERSAND_GRUND_TEXT.gesperrt);
+    expect(await screen.findByRole('alert')).toHaveTextContent(VERSAND_GRUND_TEXT.befund_fehlt);
   });
 
   it('Eventhistorie chronologisch mit Wortlaut; Statusfeld ist manuell und ruft acquisition_set_status', async () => {
@@ -429,7 +531,7 @@ describe('Akquise-Bauteil', () => {
     await waitFor(() => expect(calls.find((c) => c.action === 'acquisition_set_status')).toEqual({ action: 'acquisition_set_status', params: { leadId: LEAD_ID, status: 'interesse' } }));
   });
 
-  it('T7 — Lead anlegen: Pflichtfelder Betrieb + E-Mail, sonst Knopf aus; Request nur mit Formularfeldern', async () => {
+  it('T7 — Lead anlegen: Pflichtfelder Betrieb + E-Mail, sonst Knopf aus; Request nur mit Formularfeldern (inkl. Google-Befund)', async () => {
     const { ops, calls } = mockOps({ leads: [] });
     render(<Akquise rufeAdminOps={ops} />);
     await screen.findByText(/Noch keine Akquise-Leads/);
@@ -438,11 +540,11 @@ describe('Akquise-Bauteil', () => {
     fireEvent.change(screen.getByTestId('lead-company'), { target: { value: 'Neu GmbH' } });
     expect(screen.getByTestId('akquise-anlegen')).toBeDisabled();
     fireEvent.change(screen.getByTestId('lead-email'), { target: { value: 'neu@firma.de' } });
-    fireEvent.change(screen.getByTestId('lead-satz'), { target: { value: 'Persönlicher Satz.' } });
+    fireEvent.change(screen.getByTestId('lead-befund'), { target: { value: BEFUND } });
     fireEvent.click(screen.getByTestId('akquise-anlegen'));
     await waitFor(() => expect(calls.find((c) => c.action === 'acquisition_lead_create')).toBeTruthy());
     const c = calls.find((c) => c.action === 'acquisition_lead_create');
-    expect(c.params.lead).toMatchObject({ company_name: 'Neu GmbH', email: 'neu@firma.de', personalized_sentence: 'Persönlicher Satz.' });
+    expect(c.params.lead).toMatchObject({ company_name: 'Neu GmbH', email: 'neu@firma.de', google_profile_finding: BEFUND });
     expect(Object.keys(c.params.lead)).not.toContain('acquisition_status');
   });
 });

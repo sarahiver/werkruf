@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import styled from 'styled-components';
-import { Send, RefreshCw, Plus, Mail, AlertTriangle, Upload, X, ArrowLeft, Check, Circle } from 'lucide-react';
+import { Send, RefreshCw, Plus, Mail, AlertTriangle, Upload, X, ArrowLeft, Check, Circle, MessageSquare, Copy } from 'lucide-react';
 import { formatAdminDate } from '../../utils/adminOps';
 import {
   AKQUISE_STATUS, AKQUISE_STATUS_TEXT, EREIGNIS_TEXT, SPERR_TEXT, VERSAND_GRUND_TEXT, KPI_DEFINITION,
+  NACHFASS_GRUND_TEXT, ANTWORT_KLASSEN, ANTWORT_TEXT, ANTWORT_WIRKUNG, ANTWORT_VORLAGE_POSITIV, akquiseQuoten,
 } from '../../utils/akquise';
 import { BereichKopf, Kpi, KpiReihe, Flaeche, FlaecheKopf, Knopf, Chip, Leer } from './adminUi';
 import AkquiseImport from './AkquiseImport';
@@ -20,6 +21,11 @@ import AkquiseImport from './AkquiseImport';
    Dinge — nichts hier leitet das eine aus dem anderen ab.
 
    Wortlaut: „Öffnung erkannt", nie „gelesen" (src/utils/akquise.js).
+
+   WP17 (18.11.2026) „Antwort zuerst": Mail 1 nur mit recherchiertem
+   Google-Befund, Betreff A/B (einmal vergeben), einmal „Nachfassen",
+   „Antwort erfassen" (Antwort ≠ Interesse). Die alte FP-Mail wird fuer
+   neue Erstkontakte nicht mehr angeboten.
 
    Layout: Liste links, Detail rechts als Panel (ab 1100 px). Schmaler:
    Detail vollbreit statt der Liste, mit „Zurück zur Liste". Die Liste
@@ -114,8 +120,20 @@ const Warn = styled.p`display: flex; gap: 6px; align-items: center; font-family:
 const Info = styled.p`font-family: var(--font-body); font-size: .74rem; color: var(--color-text-muted); margin: 8px 0 0; line-height: 1.5;`;
 const MetaZeile = styled.div`display: flex; justify-content: space-between; gap: 10px; font-family: var(--font-body); font-size: .8rem; padding: 3px 0; span:first-child { color: var(--color-text-muted); } span:last-child { font-weight: 600; text-align: right; }`;
 
+const Quoten = styled.p`font-family: var(--font-body); font-size: .76rem; color: var(--color-text-muted); margin: -4px 0 14px; line-height: 1.6; strong { color: var(--color-text); }`;
+const AbTabelle = styled.table`
+  border-collapse: collapse; font-family: var(--font-body); font-size: .78rem; margin: 0 0 16px; background: var(--color-white); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px rgba(11,37,69,.07);
+  th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid rgba(11,37,69,.06); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); font-weight: 700; }
+  caption { text-align: left; font-size: .72rem; color: var(--color-text-muted); padding: 0 0 6px; caption-side: top; }
+  @media (max-width: 560px) { th, td { padding: 6px 7px; } }
+`;
+const KnopfReihe = styled.div`display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;`;
+
 const fmtZ = (d) => formatAdminDate(d, true);
-const LEER_LEAD = { company_name: '', contact_person: '', email: '', trade: '', city: '', website: '', google_profile_url: '', personalized_sentence: '', note: '' };
+const fmtP = (v) => (v === null || v === undefined ? '—' : `${String(v).replace('.', ',')} %`);
+const LEER_LEAD = { company_name: '', contact_person: '', email: '', trade: '', city: '', website: '', google_profile_url: '', personalized_sentence: '', google_profile_finding: '', note: '' };
 const STATUS_TON = { interesse: 'gut', founding_partner: 'gut', angeschrieben: 'info', zurueckgestellt: 'warn', kein_interesse: 'neutral', neu: 'neutral', vorbereitet: 'neutral' };
 
 function neuerIdempotenzKey() {
@@ -125,14 +143,15 @@ function neuerIdempotenzKey() {
   } catch { return `k${Date.now()}${Math.random().toString(16).slice(2)}`; }
 }
 
-/* Vier kompakte Signale. Haken = erkannt, Kreis = noch nicht. Farbe
+/* Vier kompakte Signale (WP17: Zugestellt, Öffnung, Nachgefasst, Antwort).
+   Haken = erkannt, Kreis = noch nicht. Farbe
    unterstuetzt, Text traegt (auch ohne Farbe lesbar). */
 function Signale({ lead }) {
   const s = [
     ['Zugestellt', 'Zugestellt', lead.deliveredAt],
     ['Öffnung', 'Öffnung erkannt (kein Lesebeweis)', lead.firstOpenAt],
-    ['Präsentation', 'Präsentation geklickt', lead.presentationClickedAt],
-    ['Interesse', 'Interesse bestätigt', lead.ctaClickedAt],
+    ['Nachgefasst', 'Nachgefasst', lead.followupSentAt],
+    ['Antwort', 'Antwort erfasst', lead.replyReceivedAt],
   ];
   return (
     <SignalListe data-testid="akquise-signale">
@@ -186,7 +205,8 @@ export default function Akquise({ rufeAdminOps }) {
     const l = d?.lead || {};
     setBearbeiten({
       company_name: l.companyName || '', contact_person: l.contactPerson || '', email: l.email || '', trade: l.trade || '', city: l.city || '',
-      website: l.website || '', google_profile_url: l.googleProfileUrl || '', personalized_sentence: l.personalizedSentence || '', note: l.note || '',
+      website: l.website || '', google_profile_url: l.googleProfileUrl || '', personalized_sentence: l.personalizedSentence || '',
+      google_profile_finding: l.googleProfileFinding || '', note: l.note || '',
     });
   }, [rufeAdminOps]);
 
@@ -230,11 +250,11 @@ export default function Akquise({ rufeAdminOps }) {
     finally { setLaeuft(false); }
   };
 
-  const zeigeVorschau = async () => {
+  const zeigeVorschau = async (art = 'erstkontakt') => {
     setLaeuft(true); setMeldung(null); setBestaetigen(false);
     try {
-      const v = await rufeAdminOps('acquisition_preview', { leadId: offen });
-      setVorschau(v); setIdemKey(neuerIdempotenzKey());
+      const v = await rufeAdminOps('acquisition_preview', { leadId: offen, art });
+      setVorschau({ ...v, art }); setIdemKey(neuerIdempotenzKey());
     } catch (e) { setMeldung({ text: e.message, fehler: true }); }
     finally { setLaeuft(false); }
   };
@@ -243,19 +263,37 @@ export default function Akquise({ rufeAdminOps }) {
     if (!idemKey) return;
     setLaeuft(true); setMeldung(null);
     try {
-      const r = await rufeAdminOps('acquisition_send', { leadId: offen, idempotencyKey: idemKey });
+      const aktion = vorschau?.art === 'nachfass' ? 'acquisition_followup' : 'acquisition_send';
+      const r = await rufeAdminOps(aktion, { leadId: offen, idempotencyKey: idemKey });
       if (r?.ok) {
         setMeldung({ text: r.deliveryMode === 'test'
           ? `Testversand eingereiht — geht nur an ${r.testRecipient || 'den Testempfänger'}.`
-          : 'Mail eingereiht. Der Versand läuft über die Warteschlange (bis zu 30 Minuten); Zustellung erscheint in der Historie.', fehler: false });
+          : `${aktion === 'acquisition_followup' ? 'Nachfass-Mail' : 'Mail 1'} eingereiht. Der Versand läuft über die Warteschlange (bis zu 30 Minuten); Zustellung erscheint in der Historie.`, fehler: false });
         setVorschau(null); setBestaetigen(false); setIdemKey(null);
         await ladeDetail(offen); await lade();
       } else {
-        setMeldung({ text: VERSAND_GRUND_TEXT[r?.code] || `Nicht gesendet (${r?.code || 'abgelehnt'}).`, fehler: true });
+        setMeldung({ text: (r?.code === 'nachfass_nicht_moeglich' && NACHFASS_GRUND_TEXT[r?.grund]) || VERSAND_GRUND_TEXT[r?.code] || `Nicht gesendet (${r?.code || 'abgelehnt'}).`, fehler: true });
         setBestaetigen(false);
       }
     } catch (e) { setMeldung({ text: e.message, fehler: true }); setBestaetigen(false); }
     finally { setLaeuft(false); }
+  };
+
+  const erfasseAntwort = async (klasse) => {
+    setLaeuft(true); setMeldung(null);
+    try {
+      const r = await rufeAdminOps('acquisition_record_reply', { leadId: offen, klasse });
+      if (r?.ok) {
+        setMeldung({ text: `Antwort erfasst: ${ANTWORT_TEXT[klasse]}. ${ANTWORT_WIRKUNG[klasse]}`, fehler: false });
+        await ladeDetail(offen); await lade();
+      } else setMeldung({ text: VERSAND_GRUND_TEXT[r?.code] || `Nicht erfasst (${r?.code || 'abgelehnt'}).`, fehler: true });
+    } catch (e) { setMeldung({ text: e.message, fehler: true }); }
+    finally { setLaeuft(false); }
+  };
+
+  const kopiereVorlage = async () => {
+    try { await navigator.clipboard.writeText(ANTWORT_VORLAGE_POSITIV); setMeldung({ text: 'Vorlage kopiert.', fehler: false }); }
+    catch { setMeldung({ text: 'Kopieren nicht möglich — bitte den Text markieren und kopieren.', fehler: true }); }
   };
 
   const zeigeImport = (importId) => {
@@ -264,6 +302,8 @@ export default function Akquise({ rufeAdminOps }) {
 
   const leads = daten?.leads || [];
   const kpi = daten?.kpi || {};
+  const quoten = akquiseQuoten(kpi);
+  const varianten = daten?.varianten || {};
   const testmodus = daten?.deliveryMode === 'test';
   const offenerLead = leads.find((l) => l.id === offen) || null;
 
@@ -282,10 +322,32 @@ export default function Akquise({ rufeAdminOps }) {
       {testmodus && <Testband data-testid="akquise-testmodus">Testmodus: Mails gehen nur an den Testempfänger (EMAIL_DELIVERY_MODE=test).</Testband>}
 
       <KpiReihe data-testid="akquise-kpi">
-        {[['leads', 'Leads'], ['angeschrieben', 'Angeschrieben'], ['zugestellt', 'Zugestellt'], ['oeffnungErkannt', 'Öffnung erkannt'], ['interesse', 'Interesse'], ['foundingPartner', 'Founding Partner']].map(([k, label]) => (
-          <Kpi key={k} wert={kpi[k] ?? '—'} label={label} titel={KPI_DEFINITION[k]} ton={k === 'interesse' && kpi[k] > 0 ? 'gut' : null} />
+        {[['leads', 'Leads'], ['angeschrieben', 'Angeschrieben'], ['zugestellt', 'Zugestellt'], ['oeffnungErkannt', 'Öffnung erkannt'],
+          ['antworten', 'Antworten'], ['interesse', 'Positive Antworten / Interesse'], ['foundingPartner', 'Founding Partner']].map(([k, label]) => (
+          <Kpi key={k} wert={kpi[k] ?? '—'} label={label} titel={KPI_DEFINITION[k]} ton={(k === 'interesse' || k === 'antworten') && kpi[k] > 0 ? 'gut' : null} testid={`akquise-kpi-${k}`} />
         ))}
       </KpiReihe>
+      <Quoten data-testid="akquise-quoten">
+        Zustellung <strong>{fmtP(quoten.zustellRate)}</strong> · Öffnung erkannt <strong>{fmtP(quoten.oeffnungsRate)}</strong>
+        {' '}(Untergrenze — nicht erkannt heißt nicht „nicht gelesen") · Antworten <strong>{fmtP(quoten.antwortRate)}</strong>
+        {' '}· Interesse <strong>{fmtP(quoten.positivRate)}</strong> — jeweils bezogen auf zugestellte Mails.
+      </Quoten>
+      {['A', 'B'].some((v) => varianten[v]) && (
+        <div style={{ overflowX: 'auto' }}>
+          <AbTabelle data-testid="akquise-ab">
+            <caption>Betreff-Test (Mail 1): A „Ihre Google-Bewertungen" · B „Kurze Frage zu … bei Google"</caption>
+            <thead><tr><th>Variante</th><th>Angeschr.</th><th>Zugest.</th><th>Öffnung</th><th>Antworten</th><th>Positiv</th></tr></thead>
+            <tbody>
+              {['A', 'B'].map((v) => {
+                const x = varianten[v] || {};
+                return (
+                  <tr key={v}><td><strong>{v}</strong></td><td>{x.angeschrieben ?? 0}</td><td>{x.zugestellt ?? 0}</td><td>{x.oeffnungErkannt ?? 0}</td><td>{x.antworten ?? 0}</td><td>{x.antwortenPositiv ?? 0}</td></tr>
+                );
+              })}
+            </tbody>
+          </AbTabelle>
+        </div>
+      )}
 
       {neu && (
         <Flaeche data-testid="akquise-neu-form">
@@ -363,7 +425,7 @@ export default function Akquise({ rufeAdminOps }) {
                   <LeadForm werte={bearbeiten || LEER_LEAD} setze={setBearbeiten} teil="stamm" />
                 </Abschnitt>
                 <Abschnitt>
-                  <h3>Personalisierung</h3>
+                  <h3>Google-Befund &amp; Notiz</h3>
                   <LeadForm werte={bearbeiten || LEER_LEAD} setze={setBearbeiten} teil="personal" />
                   <Knopf type="button" onClick={speichereLead} disabled={laeuft} style={{ marginTop: 10 }} data-testid="akquise-speichern">Speichern</Knopf>
                 </Abschnitt>
@@ -374,7 +436,8 @@ export default function Akquise({ rufeAdminOps }) {
                     {AKQUISE_STATUS.map((s) => <option key={s} value={s}>{AKQUISE_STATUS_TEXT[s]}</option>)}
                   </Feld>
                   <Info>
-                    Mail-Ereignisse ändern diesen Status nie. Nur „Ja, Interesse" auf der Interessensseite setzt ihn auf Interesse — und nie zurück.
+                    Mail-Ereignisse ändern diesen Status nie. „Antwort erfassen" setzt ihn: positiv → Interesse, negativ → Kein Interesse
+                    (sonstige Antworten ändern nichts). Bei alten FP-Mails setzt auch „Ja, Interesse" auf der Interessensseite Interesse.
                     {detail.lead?.leadStatus === 'converted' ? ' Dieser Lead hat sich bereits registriert (Lead-Status converted).' : ''}
                     {' '}Founding Partner setzt du nach dem Gespräch unter Kunden (bestehende Admin-Aktion), sobald der Betrieb registriert ist.
                   </Info>
@@ -382,39 +445,96 @@ export default function Akquise({ rufeAdminOps }) {
 
                 <Abschnitt>
                   <h3>Mail</h3>
-                  {detail.lead?.blockReason ? (
-                    <Warn data-testid="akquise-versand-gesperrt"><AlertTriangle size={13} /> {SPERR_TEXT[detail.lead.blockReason]}</Warn>
-                  ) : (
-                    <>
-                      {!vorschau && <Knopf type="button" className="ghost" onClick={zeigeVorschau} disabled={laeuft} data-testid="akquise-vorschau"><Mail size={13} /> Mail-Vorschau</Knopf>}
-                      {vorschau && (
-                        <div data-testid="akquise-vorschau-inhalt">
-                          <div style={{ fontFamily: 'var(--font-body)', fontSize: '.8rem', color: 'var(--color-text)', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
-                            <div><strong>An:</strong> {vorschau.to}{vorschau.toName ? ` (${vorschau.toName})` : ''}</div>
-                            <div><strong>Von:</strong> {vorschau.sender?.name} &lt;{vorschau.sender?.email}&gt;</div>
-                            <div><strong>Betreff:</strong> {vorschau.subject}</div>
-                            <div><strong>Präsentationslink:</strong> {vorschau.presentationUrl}</div>
-                            <div><strong>CTA:</strong> {vorschau.ctaUrl}</div>
-                            {vorschau.deliveryMode === 'test' && <Testband style={{ margin: '8px 0 0' }} data-testid="akquise-vorschau-test">Testversand: geht an {vorschau.testRecipient || 'den Testempfänger'}, nicht an {vorschau.to}.</Testband>}
-                            {!vorschau.personalizedSentence && <Warn><AlertTriangle size={13} /> Kein personalisierter Satz — die Mail geht ohne ihn raus.</Warn>}
-                          </div>
-                          <Vorschau data-testid="akquise-vorschau-text">{vorschau.text}</Vorschau>
-                          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                            {!bestaetigen ? (
-                              <Knopf type="button" onClick={() => setBestaetigen(true)} disabled={laeuft} data-testid="akquise-senden"><Send size={13} /> Mail senden</Knopf>
+                  {(() => {
+                    const msgs = detail.messages || [];
+                    const erst = msgs.find((m) => m.template === 'outreach_erstkontakt' && m.status !== 'failed');
+                    const nach = msgs.find((m) => m.template === 'outreach_nachfass' && m.status !== 'failed');
+                    const altGesendet = msgs.some((m) => m.template === 'founding_partner_outreach' && m.status === 'sent');
+                    const lead = detail.lead || {};
+                    if (lead.blockReason) return <Warn data-testid="akquise-versand-gesperrt"><AlertTriangle size={13} /> {SPERR_TEXT[lead.blockReason] || 'Lead ist für weiteren Mailversand gesperrt.'}</Warn>;
+                    return (
+                      <>
+                        {erst ? (
+                          <Info style={{ marginTop: 0 }} data-testid="akquise-erstmail-info">
+                            Mail 1 {erst.status === 'queued' ? 'eingereiht' : `gesendet ${fmtZ(erst.sentAt)}`}{erst.deliveryMode === 'test' ? ' (Test)' : ''} · Betreff-Variante <strong>{erst.subjectVariant}</strong>: „{erst.subject}"
+                          </Info>
+                        ) : altGesendet ? (
+                          <Info style={{ marginTop: 0 }} data-testid="akquise-alt-info">Hat bereits die alte Founding-Partner-Mail bekommen — keine zweite Erstmail, kein Nachfassen mit der neuen Vorlage.</Info>
+                        ) : !vorschau && (
+                          <>
+                            {!lead.googleProfileFinding && <Warn data-testid="akquise-befund-fehlt"><AlertTriangle size={13} /> {VERSAND_GRUND_TEXT.befund_fehlt}</Warn>}
+                            <Knopf type="button" className="ghost" onClick={() => zeigeVorschau('erstkontakt')} disabled={laeuft} data-testid="akquise-vorschau" style={{ marginTop: 6 }}><Mail size={13} /> Mail 1 – Vorschau</Knopf>
+                          </>
+                        )}
+
+                        {nach && <Info data-testid="akquise-nachfass-info">Nachgefasst {nach.status === 'queued' ? '(eingereiht)' : fmtZ(nach.sentAt || lead.followupSentAt)} — nur einmal möglich.</Info>}
+                        {!nach && erst && !vorschau && (lead.followupGrund ? (
+                          lead.followupGrund !== 'keine_erstmail' && <Info data-testid="akquise-nachfass-grund">Nachfassen: {NACHFASS_GRUND_TEXT[lead.followupGrund] || lead.followupGrund}</Info>
+                        ) : (
+                          <Knopf type="button" onClick={() => zeigeVorschau('nachfass')} disabled={laeuft} data-testid="akquise-nachfassen" style={{ marginTop: 8 }}><Send size={13} /> Nachfassen</Knopf>
+                        ))}
+
+                        {vorschau && (
+                          <div data-testid="akquise-vorschau-inhalt">
+                            {!vorschau.sendbar ? (
+                              <>
+                                <Warn data-testid="akquise-vorschau-gesperrt"><AlertTriangle size={13} /> {vorschau.art === 'nachfass' ? (NACHFASS_GRUND_TEXT[vorschau.grund] || 'Nachfassen nicht möglich.') : (VERSAND_GRUND_TEXT[vorschau.grund] || 'Nicht versandbereit.')}</Warn>
+                                <KnopfReihe><Knopf type="button" className="ghost" onClick={() => setVorschau(null)}>Schließen</Knopf></KnopfReihe>
+                              </>
                             ) : (
                               <>
-                                <Knopf type="button" className="warn" onClick={sende} disabled={laeuft} data-testid="akquise-senden-bestaetigen" style={{ whiteSpace: 'normal' }}><Send size={13} /> {laeuft ? 'Wird gesendet …' : `Ja, jetzt an ${vorschau.deliveryMode === 'test' ? 'den Testempfänger' : vorschau.to} senden`}</Knopf>
-                                <Knopf type="button" className="ghost" onClick={() => setBestaetigen(false)} disabled={laeuft}>Abbrechen</Knopf>
+                                <div style={{ fontFamily: 'var(--font-body)', fontSize: '.8rem', color: 'var(--color-text)', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
+                                  <div><strong>{vorschau.art === 'nachfass' ? 'Nachfass-Mail' : 'Mail 1'}</strong> · reiner Text, kein Link, kein Button</div>
+                                  <div><strong>An:</strong> {vorschau.to}{vorschau.toName ? ` (${vorschau.toName})` : ''}</div>
+                                  <div><strong>Von:</strong> {vorschau.sender?.name} &lt;{vorschau.sender?.email}&gt; · Antworten an {vorschau.replyTo}</div>
+                                  <div data-testid="akquise-vorschau-betreff"><strong>Betreff:</strong> {vorschau.subject}
+                                    {vorschau.art !== 'nachfass' && vorschau.subjectVariant ? ` (Variante ${vorschau.subjectVariant}${vorschau.varianteVorlaeufig ? ', wird beim Senden fest vergeben' : ''})` : ''}</div>
+                                  {vorschau.deliveryMode === 'test' && <Testband style={{ margin: '8px 0 0' }} data-testid="akquise-vorschau-test">Testversand: geht an {vorschau.testRecipient || 'den Testempfänger'}, nicht an {vorschau.to}.</Testband>}
+                                </div>
+                                <Vorschau data-testid="akquise-vorschau-text">{vorschau.text}</Vorschau>
+                                <KnopfReihe>
+                                  {!bestaetigen ? (
+                                    <Knopf type="button" onClick={() => setBestaetigen(true)} disabled={laeuft} data-testid="akquise-senden"><Send size={13} /> {vorschau.art === 'nachfass' ? 'Nachfass-Mail senden' : 'Mail 1 senden'}</Knopf>
+                                  ) : (
+                                    <>
+                                      <Knopf type="button" className="warn" onClick={sende} disabled={laeuft} data-testid="akquise-senden-bestaetigen" style={{ whiteSpace: 'normal' }}><Send size={13} /> {laeuft ? 'Wird gesendet …' : `Ja, jetzt an ${vorschau.deliveryMode === 'test' ? 'den Testempfänger' : vorschau.to} senden`}</Knopf>
+                                      <Knopf type="button" className="ghost" onClick={() => setBestaetigen(false)} disabled={laeuft}>Abbrechen</Knopf>
+                                    </>
+                                  )}
+                                  <Knopf type="button" className="ghost" onClick={() => { setVorschau(null); setBestaetigen(false); }} disabled={laeuft}>Vorschau schließen</Knopf>
+                                </KnopfReihe>
                               </>
                             )}
-                            <Knopf type="button" className="ghost" onClick={() => { setVorschau(null); setBestaetigen(false); }} disabled={laeuft}>Vorschau schließen</Knopf>
                           </div>
-                        </div>
-                      )}
-                    </>
-                  )}
+                        )}
+                      </>
+                    );
+                  })()}
                   {meldung && <Meldung $fehler={meldung.fehler} role={meldung.fehler ? 'alert' : 'status'} data-testid="akquise-meldung">{meldung.text}</Meldung>}
+                </Abschnitt>
+
+                <Abschnitt data-testid="akquise-antwort">
+                  <h3>Antwort erfassen</h3>
+                  {detail.lead?.replyReceivedAt ? (
+                    <Info style={{ marginTop: 0 }} data-testid="akquise-antwort-stand">
+                      <MessageSquare size={12} style={{ verticalAlign: '-2px' }} /> Antwort erfasst {fmtZ(detail.lead.replyReceivedAt)}: <strong>{ANTWORT_TEXT[detail.lead.replyClassification]}</strong>. Korrigieren:
+                    </Info>
+                  ) : (
+                    <Info style={{ marginTop: 0 }}>Antworten landen in deinem Postfach (info@werkruf.com) — WERKRUF erkennt sie nicht selbst. Hier von Hand markieren:</Info>
+                  )}
+                  <KnopfReihe>
+                    {ANTWORT_KLASSEN.map((k) => (
+                      <Knopf key={k} type="button" className={detail.lead?.replyClassification === k ? '' : 'ghost'} onClick={() => erfasseAntwort(k)}
+                        disabled={laeuft || detail.lead?.replyClassification === k} title={ANTWORT_WIRKUNG[k]} data-testid={`akquise-antwort-${k}`}>
+                        {ANTWORT_TEXT[k]}
+                      </Knopf>
+                    ))}
+                  </KnopfReihe>
+                  <details style={{ marginTop: 12 }} open={detail.lead?.replyClassification === 'positiv'} data-testid="akquise-vorlage">
+                    <summary style={{ fontFamily: 'var(--font-body)', fontSize: '.78rem', cursor: 'pointer', color: 'var(--color-primary)', fontWeight: 600 }}>Vorlage für deine Antwort auf ein „Ja" (persönlich, nicht automatisch)</summary>
+                    <Vorschau>{ANTWORT_VORLAGE_POSITIV}</Vorschau>
+                    <KnopfReihe><Knopf type="button" className="ghost" onClick={kopiereVorlage}><Copy size={13} /> Vorlage kopieren</Knopf></KnopfReihe>
+                  </details>
                 </Abschnitt>
 
                 <Abschnitt>
@@ -467,7 +587,12 @@ function LeadForm({ werte, setze, teil = 'alles' }) {
       )}
       {personal && (
         <>
-          <label className="breit">Personalisierter Satz (von Hand)<textarea {...f('personalized_sentence')} data-testid="lead-satz" placeholder="Bei euch sind aktuell mehrere Bewertungen unbeantwortet — genau solche Dinge würde WERKRUF automatisch auf dem Schirm behalten." /></label>
+          <label className="breit">Google-Befund * (Pflicht für Mail 1 — ein Satz, selbst geprüft)
+            <textarea {...f('google_profile_finding')} data-testid="lead-befund" maxLength={600}
+              placeholder="z. B. Elektrotechnik Mack hat bei Google 23 gute Bewertungen, auf die letzten fünf gibt es aber keine Antwort." />
+          </label>
+          <Info className="breit" style={{ margin: '-2px 0 4px' }}>Nur, was du selbst im Google-Profil gesehen hast. WERKRUF erfindet oder ergänzt beim Senden nichts. Beispiele: letzte Bewertung von August 2026 · keine Öffnungszeiten hinterlegt · auf die 2-Sterne-Bewertung vom September keine Antwort.</Info>
+          <label className="breit">Personalisierter Satz (nur alte Founding-Partner-Mail)<textarea {...f('personalized_sentence')} data-testid="lead-satz" style={{ minHeight: 44 }} /></label>
           <label className="breit">Notiz<textarea {...f('note')} /></label>
         </>
       )}
