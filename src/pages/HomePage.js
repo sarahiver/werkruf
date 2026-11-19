@@ -5,6 +5,7 @@ import Features     from '../components/Features';
 import Vergleich    from '../components/Vergleich';
 import Preis        from '../components/Preis';
 import FAQ          from '../components/FAQ';
+import WerDahinter  from '../components/WerDahinter';
 import AbschlussCTA from '../components/AbschlussCTA';
 import { clearPublicFunnel } from '../utils/publicFunnel';
 
@@ -34,6 +35,7 @@ import { clearPublicFunnel } from '../utils/publicFunnel';
  *   Features      Drei Ergebnisse, darunter die Funktionen
  *   Vergleich     Selbst machen, Agentur oder WERKRUF
  *   Preis         49 €, einmal und deutlich
+ *   WerDahinter   Wer WERKRUF macht und wie man ihn erreicht (19.11.2026)
  *   FAQ           Die sieben Fragen vor der Entscheidung
  *   AbschlussCTA  Ein Ziel, derselbe Weg wie im Hero
  *
@@ -57,6 +59,7 @@ export default function HomePage() {
       <Features />
       <Vergleich />
       <Preis />
+      <WerDahinter />
       <FAQ />
       <AbschlussCTA />
     </main>

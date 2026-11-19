@@ -154,8 +154,8 @@ export const INDUSTRIES = {
             },
             {
               title: 'Mehr Bewertungen bekommen',
-              body: 'Dein persönlicher Google-Bewertungslink und ein QR-Code zum Ausdrucken — für die Rechnung, die Übergabe, den Transporter. Den Link verschickst du selbst, wann du willst.',
-              tag: 'Link und QR-Code',
+              body: 'Dein persönlicher Google-Bewertungslink, ein QR-Code zum Ausdrucken und eine kurze SMS an zufriedene Kunden — für die Rechnung, die Übergabe, den Transporter. Du entscheidest, wen du fragst und wann.',
+              tag: 'Link, QR-Code und SMS',
             },
           ],
         },
@@ -229,7 +229,7 @@ export const INDUSTRIES = {
         },
         {
           frage:   'Wie lange dauert die Einrichtung?',
-          antwort: 'Zwei Minuten. Konto anlegen, Google-Profil verbinden, fertig. Den Rest macht WERKRUF.',
+          antwort: 'Zwei Minuten. Konto anlegen, Google-Profil verbinden, fertig. Danach sagt dir WERKRUF, was zu tun ist — du entscheidest, was davon zu Google geht.',
         },
         {
           frage:   'Brauche ich technisches Wissen?',
@@ -357,7 +357,7 @@ export const INDUSTRIES = {
         'Antwortvorschlag zu jeder Bewertung — du gibst frei',
         'Öffnungszeiten, Leistungen und Kontaktdaten direkt ändern',
         'Fotos hochladen, die bei Google landen',
-        'Bewertungslink und QR-Code für deine Kunden',
+        'Bewertungslink, QR-Code und SMS-Anfrage für deine Kunden',
         'Dein Google-Profil regelmäßig geprüft',
         'Monatlich kündbar — kein Jahresvertrag',
       ],

@@ -88,7 +88,7 @@ export default function AbschlussCTA() {
         </Titel>
         <Text>
           {brand.name} behält ihn im Blick und sagt dir, was zu tun ist.
-          Den Rest kannst du vergessen.
+          Veröffentlicht wird nur, was du freigibst.
         </Text>
 
         <Cta to={ziel}>

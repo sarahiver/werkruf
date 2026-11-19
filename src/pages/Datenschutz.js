@@ -462,21 +462,33 @@ export default function Datenschutz() {
       <Section>
         <H2>16. Geschäftliche Ansprache von Betrieben</H2>
         <P>
-          Wir sprechen Handwerksbetriebe einzeln an, um sie als frühe Kunden („Founding Partner")
-          zu gewinnen. Dafür verarbeiten wir öffentlich zugängliche geschäftliche Angaben aus
-          Branchenverzeichnissen, von Websites und aus Google-Unternehmensprofilen: Betriebsname,
-          Gewerk, Ort, geschäftliche E-Mail-Adresse, Telefon, Website, gegebenenfalls Name eines
-          öffentlich genannten Ansprechpartners sowie einen von uns formulierten Satz zum
-          öffentlichen Profil. Zu jeder Nachricht speichern wir Versand, Zustellung, Öffnung, den
-          Aufruf der Präsentation und eine Rückmeldung über den Knopf „Ja, Interesse".
+          Wir sprechen Handwerksbetriebe einzeln per E-Mail an, um sie als frühe Kunden
+          („Founding Partner") zu gewinnen. Jede Nachricht wird von Hand vorbereitet und einzeln
+          verschickt. Dafür verarbeiten wir öffentlich zugängliche geschäftliche Angaben aus
+          Branchen- und Mitgliederverzeichnissen, von Websites und aus Google-Unternehmensprofilen:
+          Betriebsname, Gewerk, Ort, geschäftliche E-Mail-Adresse, Telefon, Website, gegebenenfalls
+          den Namen eines öffentlich genannten Ansprechpartners sowie einen von uns notierten
+          Hinweis zum öffentlichen Google-Profil des Betriebs (zum Beispiel zur Zahl der
+          Bewertungen oder zu fehlenden Angaben).
+        </P>
+        <P>
+          Zu jeder Nachricht speichern wir den Text, die Betreffzeile (wir vergleichen zwei
+          Varianten), den Versand, die Zustellung und — soweit der E-Mail-Dienst sie erkennt —
+          die Öffnung. Erkannt wird eine Öffnung über ein kleines Bild in der Nachricht; das ist
+          kein sicherer Lesenachweis. Antwortet ein Betrieb, vermerken wir von Hand, dass und in
+          welche Richtung er geantwortet hat (Interesse, kein Interesse, sonstiges). Ohne Antwort
+          schicken wir höchstens eine kurze Erinnerung. Bei früheren Nachrichten mit Link auf eine
+          Präsentationsseite haben wir außerdem den Aufruf der Seite und eine Rückmeldung über den
+          Knopf „Ja, Interesse" gespeichert. Den Versand übernimmt Brevo (Abschnitt 12).
         </P>
         <P>
           Rechtsgrundlage ist unser berechtigtes Interesse, unser Angebot Betrieben vorzustellen,
           für die es passt (Art. 6 Abs. 1 lit. f DSGVO). Wer nicht mehr angesprochen werden möchte,
-          kann jederzeit widersprechen — eine kurze Antwort genügt. Wir schicken dann keine weitere
-          Ansprache und behalten nur, was nötig ist, damit es dabei bleibt. Angaben zu Betrieben,
-          bei denen eine Zusammenarbeit nicht zustande kommt, löschen wir, sobald wir sie dafür
-          nicht mehr benötigen.
+          kann jederzeit widersprechen (Art. 21 DSGVO) — eine kurze Antwort wie „Nein" genügt. Wir
+          schicken dann keine weitere Nachricht und behalten nur, was nötig ist, damit es dabei
+          bleibt (Betriebsname, E-Mail-Adresse, Sperrvermerk). Angaben zu Betrieben, bei denen eine
+          Zusammenarbeit nicht zustande kommt, löschen wir, sobald wir sie dafür nicht mehr
+          benötigen.
         </P>
       </Section>
 
