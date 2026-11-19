@@ -185,7 +185,11 @@ function ga4Zeilen(antwort) {
   }));
 }
 
-export function werteGa4Aus(a, z = null) {
+/**
+ * @param {any} a  Rohantworten
+ * @param {any} [z]  Zeitraeume (zeitraeume()); fehlt er, werden keine Tage aufgefuellt
+ */
+export function werteGa4Aus(a, z = undefined) {
   /* Summen: mit zwei Zeitraeumen kommen zwei Zeilen (date_range_0/1). */
   const summenZeilen = ga4Zeilen(a.summen);
   const nachRange = (name) => summenZeilen.find((z) => z.dims.includes(name))?.mets ?? [0, 0, 0, 0];
@@ -217,7 +221,11 @@ export function werteGa4Aus(a, z = null) {
   };
 }
 
-export function werteGscAus(a, z = null) {
+/**
+ * @param {any} a  Rohantworten
+ * @param {any} [z]  Zeitraeume (zeitraeume()); fehlt er, werden keine Tage aufgefuellt
+ */
+export function werteGscAus(a, z = undefined) {
   const summe = (antwort) => {
     const r = antwort?.rows?.[0] ?? {};
     return { klicks: zahl(r.clicks), impressionen: zahl(r.impressions), ctr: zahl(r.ctr), position: zahl(r.position) };
