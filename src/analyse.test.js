@@ -194,7 +194,19 @@ describe('admin-ops', () => {
       'https://oauth2.googleapis.com/token',
       'https://www.googleapis.com/webmasters/v3/sites/${site}/searchAnalytics/query',
     ]);
-    expect(a).not.toMatch(/\.insert\(|\.update\(|\.delete\(|\.upsert\(|\.rpc\(/);
+    /* Einzige erlaubte RPC: interne_konten() — stable, nur lesend (Admin-Konten aus dem Funnel nehmen). */
+    expect(a.match(/\.rpc\(/g) || []).toHaveLength(1);
+    expect(a).toMatch(/\.rpc\('interne_konten'\)/);
+    expect(a).not.toMatch(/\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
+  });
+  it('S5 — Admin-Konten zählen nicht: Funnel und Kundenliste filtern über die Rolle (interne_konten), nie über eine Adresse', () => {
+    const idx = lies('supabase/functions/admin-ops/index.ts');
+    expect(a).toMatch(/produktFunnel\(kunden, verbundene\)/);
+    expect(idx).toMatch(/const intern = await interneKonten\(admin\);/);
+    expect(idx).toMatch(/filter\(\(row\) => !intern\.has\(row\.id\)\)/);
+    for (const t of [a, idx, lies('supabase/migrations/20261120110000_admin_konten_keine_kunden.sql')]) {
+      expect(t).not.toMatch(/iverbohnes|@gmail\.com|684e9f45/i);
+    }
   });
   it('S3 — Fehler gehen nur als Code raus, nie Rohantwort, Schluessel oder Token', () => {
     expect(a).toMatch(/status: 'fehler', code: fehlerCode\(err\)/);

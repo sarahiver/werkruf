@@ -61,6 +61,9 @@ create table if not exists auth.users (
      ausdruecklich, der Helfer test.benutzer() laesst sie leer. */
   email_confirmed_at timestamptz,
   raw_user_meta_data jsonb,
+  /* 19.11.2026: ist_internes_konto()/interne_konten() lesen die Rolle
+     (raw_app_meta_data.role = 'admin') — wie in Produktion jsonb. */
+  raw_app_meta_data  jsonb,
   /* 09.11.2026 (WP6): fp_cockpit_overview() liest last_sign_in_at —
      „letzte Anmeldung" im Founding-Partner-Cockpit. Wie in Produktion
      timestamptz, lokal leer, bis ein Test es setzt. */

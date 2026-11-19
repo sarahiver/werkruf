@@ -316,9 +316,19 @@ const LISTEN_SPALTEN =
  * (adminOps.js), ohne Angabe 25. Und keine Scores — die Liste soll
  * eine Zeile pro Kunde kosten, nicht einen RPC.
  */
+/* Admin-Konten (Rolle admin) sind keine Kunden — weder in der Liste
+   noch in Zaehlungen. Entscheidung in der Datenbank ueber die Rolle
+   (interne_konten()), nie ueber eine E-Mail-Adresse im Code. */
+async function interneKonten(admin: SupabaseClient): Promise<Set<string>> {
+  const { data, error } = await admin.rpc('interne_konten');
+  if (error) throw error;
+  return new Set(((data ?? []) as Array<string | { interne_konten?: string }>).map((x) => (typeof x === 'string' ? x : String(x?.interne_konten ?? ''))).filter(Boolean));
+}
+
 async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
   const suche = String(p.suche ?? '').trim();
   const limit = Number(p.limit ?? 25);
+  const intern = await interneKonten(admin);
 
   let treffer: string[] | null = null;
 
@@ -358,12 +368,15 @@ async function listeKunden(admin: SupabaseClient, p: Record<string, unknown>) {
 
   let abfrage = admin.from('user_profiles').select(LISTEN_SPALTEN)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .limit(limit + intern.size);
 
   if (treffer) abfrage = abfrage.in('id', treffer);
 
-  const { data: profile, error } = await abfrage;
+  const { data: rohProfile, error } = await abfrage;
   if (error) throw error;
+  type ListenZeile = { id: string; company_name: string | null; plan: string | null; created_at: string;
+    stripe_subscription_status: string | null; founding_partner_since: string | null; accepted_terms_at: string | null };
+  const profile = ((rohProfile ?? []) as ListenZeile[]).filter((row) => !intern.has(row.id)).slice(0, limit);
 
   const ids = (profile ?? []).map((row) => row.id);
 
