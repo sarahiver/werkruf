@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  Settings, LogOut, Menu, X, Users, MapPin, MessageCircle
+  Settings, LogOut, Menu, X, Users, MapPin, MessageCircle, HelpCircle
 } from 'lucide-react';
 import { isFoundingPartner, hasPaidAccess } from '../../utils/subscription';
 import { sichererRueckkehrpfad } from '../../utils/checkoutRegeln';
@@ -159,6 +159,9 @@ const SignOutBtn = styled.button`
 ───────────────────────────────────────────── */
 const Main = styled.main`
   flex: 1;
+  /* Ohne min-width:0 waechst ein Flex-Kind auf die Breite seines
+     breitesten Inhalts — am 320-px-Handy lief die Seite seitlich raus. */
+  min-width: 0;
   margin-left: 240px;
   min-height: 100vh;
   display: flex; flex-direction: column;
@@ -172,11 +175,14 @@ const TopBar = styled.div`
   display: flex; align-items: center;
   padding: 0 24px; gap: 14px;
   position: sticky; top: 0; z-index: 40;
+  @media(max-width:600px) { padding: 0 10px 0 6px; gap: 6px; }
 `;
 
+/* Mobil: 44 × 44 Tippflaeche (vorher 30 × 30), mit Namen fuer Screenreader. */
 const MobileBtn = styled.button`
   display: none; background: none; border: none;
-  cursor: pointer; color: var(--color-primary); padding: 4px;
+  cursor: pointer; color: var(--color-primary); padding: 0;
+  min-width: 44px; min-height: 44px; justify-content: center; flex-shrink: 0;
   @media(max-width:900px) { display: flex; align-items: center; }
 `;
 
@@ -184,10 +190,14 @@ const TopBarTitle = styled.p`
   font-family: var(--font-display); font-weight: var(--heading-weight);
   font-size: .95rem; text-transform: var(--text-transform);
   color: var(--color-primary); letter-spacing: .04em;
-  display: flex; align-items: center; gap: 10px; min-width: 0;
+  display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; margin: 0;
   /* WP3: Betriebszeile im Kopf — sichtbar auf jeder Breite, auch wenn
-     die Sidebar mobil eingeklappt ist. */
-  & > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+     die Sidebar mobil eingeklappt ist. Kuerzt mit „…" statt die Seite
+     zu verbreitern (bei 320 px lief vorher alles seitlich raus). */
+  & > span { min-width: 0; }
+  & > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+  /* Schmale Handys: Markenname weg, der Betrieb ist wichtiger. */
+  @media(max-width:420px) { & > span:first-child:not(:last-child) { display: none; } }
 `;
 
 const Overlay = styled.div`
@@ -199,7 +209,7 @@ const Overlay = styled.div`
 `;
 
 const Content = styled.div`
-  flex: 1; padding: 28px 24px;
+  flex: 1; padding: 28px 24px; min-width: 0;
   @media(max-width:560px) { padding: 18px 14px; }
 `;
 
@@ -363,6 +373,13 @@ export default function DashboardLayout() {
             </NavItem>
           ))}
           <NavDivider />
+          {/* Mobil-Check 19.11.2026: Die Hilfe war aus dem Dashboard
+              nicht erreichbar (nur ueber die Website-Fusszeile). Neuer
+              Tab, damit man den Platz im Dashboard nicht verliert. */}
+          <NavItem to="/hilfe" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)} data-testid="nav-hilfe">
+            <HelpCircle size={16} />
+            Hilfe &amp; Anleitungen
+          </NavItem>
         </Nav>
 
         <SidebarBottom>
@@ -375,7 +392,7 @@ export default function DashboardLayout() {
 
       <Main>
         <TopBar>
-          <MobileBtn onClick={() => setOpen(!open)}>
+          <MobileBtn onClick={() => setOpen(!open)} aria-label={open ? 'Menü schließen' : 'Menü öffnen'} aria-expanded={open} data-testid="menue-knopf">
             {open ? <X size={22} /> : <Menu size={22} />}
           </MobileBtn>
           <TopBarTitle>

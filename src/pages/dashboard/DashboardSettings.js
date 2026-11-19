@@ -24,6 +24,17 @@ import {
 } from '../../utils/subscription';
 import { proCtaText } from '../../utils/freeUmfang';
 
+/* Mobil-Check 19.11.2026: Rohwerte von Stripe („active") und der
+   interne Schluessel („handwerk") standen so in der Oberflaeche. */
+const ABO_STATUS_TEXT = {
+  active: 'aktiv', trialing: 'Testphase', past_due: 'Zahlung offen',
+  unpaid: 'unbezahlt', canceled: 'gekündigt', incomplete: 'nicht abgeschlossen',
+  incomplete_expired: 'abgelaufen', paused: 'pausiert',
+};
+export const aboStatusText = (s) => ABO_STATUS_TEXT[s] || s;
+const BRANCHE_TEXT = { handwerk: 'Handwerk', gastro: 'Gastronomie', beauty: 'Beauty' };
+export const brancheText = (k) => BRANCHE_TEXT[k] || k || '—';
+
 const fadeUp = keyframes`from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}`;
 const spin   = keyframes`to{transform:rotate(360deg)}`;
 
@@ -323,7 +334,7 @@ export default function DashboardSettings() {
               </PlanDetail>
             )}
             {plan === 'pro' && profile?.stripe_subscription_status && (
-              <PlanDetail>Status: {profile.stripe_subscription_status}</PlanDetail>
+              <PlanDetail>Status: {aboStatusText(profile.stripe_subscription_status)}</PlanDetail>
             )}
             {/* WP13 — Intervall, Preis und naechster Termin: nur echte Daten
                 (Spiegel aus Stripe via Webhook). Bei geplanter Kuendigung
@@ -370,7 +381,7 @@ export default function DashboardSettings() {
                 <>
                   <PlanDetail style={{ color: '#D48A00', fontWeight: 700, marginTop: 0 }}>
                     Bei Stripe läuft noch ein Abo (Status:{' '}
-                    {profile?.stripe_subscription_status}).
+                    {aboStatusText(profile?.stripe_subscription_status)}).
                   </PlanDetail>
                   <PlanDetail>
                     Dein Zugang ist als Founding Partner kostenlos — dieses Abo
@@ -480,7 +491,7 @@ export default function DashboardSettings() {
           </InfoItem>
           <InfoItem>
             <InfoLabel>Branche</InfoLabel>
-            <InfoValue>{profile?.industry_key || brand.key}</InfoValue>
+            <InfoValue>{brancheText(profile?.industry_key || brand.key)}</InfoValue>
           </InfoItem>
           {profile?.setup_fee_paid && (
             <InfoItem style={{ background: '#E8F5E9', border: '1px solid #A5D6A7' }}>

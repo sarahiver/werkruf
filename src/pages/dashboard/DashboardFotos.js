@@ -257,8 +257,14 @@ const PhotoOverlay = styled.div`
   background: linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 50%);
   opacity: 0; transition: opacity .2s;
   ${PhotoCard}:hover & { opacity: 1; }
-  display: flex; flex-direction: column; justify-content: flex-end;
-  padding: 10px;
+  /* Handy/Tablet kennt kein Hover: Loeschen sonst unsichtbar. */
+  @media (hover: none) { opacity: 1; background: linear-gradient(to bottom, rgba(0,0,0,.45) 0%, transparent 40%); }
+  display: flex; flex-direction: column; justify-content: flex-start;
+  padding: 6px;
+  /* Die Flaeche selbst faengt keine Klicks ab — sonst blockiert sie
+     „Beitrag daraus" darunter. Nur der Knopf ist klickbar. */
+  pointer-events: none;
+  & > * { pointer-events: auto; }
 `;
 
 const SyncBadge = styled.div`
@@ -273,9 +279,9 @@ const SyncBadge = styled.div`
 /* Foto → Beitrag: Knopf unten auf der Karte, immer sichtbar (auch am Handy ohne Hover). */
 const BeitragKnopf = styled.button`
   position: absolute; left: 8px; bottom: 8px; z-index: 2;
-  display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; min-height: 38px; border-radius: 999px;
   background: rgba(255,255,255,.95); border: 1px solid var(--color-border); cursor: pointer;
-  font-family: var(--font-body); font-size: .72rem; font-weight: 700; color: var(--color-primary);
+  font-family: var(--font-body); font-size: .8rem; font-weight: 700; color: var(--color-primary);
   svg { color: var(--color-accent); }
 `;
 const PulseDot = styled.span`
@@ -285,9 +291,10 @@ const PulseDot = styled.span`
 
 const DeleteBtn = styled.button`
   align-self: flex-end;
-  background: rgba(255,255,255,.15); border: none; cursor: pointer;
-  color: white; padding: 5px; border-radius: 4px;
-  display: flex; align-items: center;
+  background: rgba(0,0,0,.35); border: none; cursor: pointer;
+  color: white; padding: 0; border-radius: 8px;
+  min-width: 40px; min-height: 40px;
+  display: flex; align-items: center; justify-content: center;
   &:hover { background: rgba(255,0,0,.4); }
 `;
 
@@ -673,8 +680,8 @@ export default function DashboardFotos() {
         <DropIcon>
           <CloudUpload size={26} />
         </DropIcon>
-        <DropTitle>Fotos hierher ziehen</DropTitle>
-        <DropSub>JPG, PNG, WebP — max. 10 MB pro Bild</DropSub>
+        <DropTitle>Fotos hochladen</DropTitle>
+        <DropSub>Am Handy direkt aus der Galerie oder mit der Kamera, am Rechner auch per Ziehen. JPG, PNG, WebP — max. 10 MB pro Bild</DropSub>
         <BrowseBtn>
           <Upload size={15} /> Fotos auswählen
           <input
@@ -746,7 +753,7 @@ export default function DashboardFotos() {
               </SyncBadge>
               {standort && (
                 <BeitragKnopf type="button" data-testid="foto-beitrag-oeffnen"
-                  onClick={() => { setBeitragFoto(photo); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* jsdom */ } }}>
+                  onClick={() => setBeitragFoto(photo)}>
                   <Megaphone size={12} /> Beitrag daraus
                 </BeitragKnopf>
               )}

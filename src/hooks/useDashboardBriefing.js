@@ -226,10 +226,15 @@ export function useDashboardBriefing() {
       };
     }
     if (critical > 0) {
+      /* Mobil-Check 19.11.2026: „Bis dahin läuft nicht alles wie
+         vorgesehen" sagte nicht, WAS. Am Handy steht die Aufgabe selbst
+         erst weit unten — also hier benennen (Titel aus der Engine). */
+      const dringend = engineAufgaben.find((e) => Number(e.priority ?? 0) >= 80);
+      const was = typeof dringend?.title === 'string' ? dringend.title.trim() : '';
       return {
         level: 'critical',
         headline: critical === 1 ? 'Eine Sache braucht dich' : `${critical} Sachen brauchen dich`,
-        detail: 'Bis dahin läuft nicht alles wie vorgesehen.',
+        detail: was ? `${was} — Details und nächster Schritt stehen direkt darunter.` : 'Details und nächster Schritt stehen direkt darunter.',
       };
     }
     if (warning > 0) {

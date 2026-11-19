@@ -28,13 +28,14 @@ const PageSub = styled.p`
 `;
 
 const Grid = styled.div`
-  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-  @media(max-width: 700px) { grid-template-columns: 1fr; }
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;
+  @media(max-width: 700px) { grid-template-columns: minmax(0, 1fr); }
 `;
 
 const Card = styled.div`
   background: var(--color-white); border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); padding: 24px;
+  border-radius: var(--radius-card); padding: 24px; min-width: 0; overflow-wrap: anywhere;
+  @media(max-width: 420px) { padding: 18px 14px; }
   animation: ${fadeUp} .4s ease ${({ $d }) => $d || '0s'} both;
 `;
 
@@ -56,7 +57,7 @@ const LinkBox = styled.div`
 `;
 
 const LinkInput = styled.input`
-  flex: 1; padding: 10px 14px;
+  flex: 1; min-width: 0; padding: 10px 14px;
   font-family: var(--font-body); font-size: .82rem;
   color: var(--color-text);
   background: var(--color-bg);

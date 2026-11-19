@@ -250,9 +250,13 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
     /* Die Begründung nennt den schwächsten Faktor, nicht alle.
        Wer fünf Baustellen gleichzeitig genannt bekommt, fängt keine
        davon an. */
+    /* Mobil-Check 19.11.2026: Gleiche Logik wie die Score-Karte
+       (WerkrufScore · benenneSchwaeche) — groesster Rueckstand in
+       Punkten. Vorher stand oben „Antworten", unten „fotos". */
     const weakest = [...factors]
       .filter((f) => f.max > 0)
-      .sort((a, b) => (a.points / a.max) - (b.points / b.max))[0];
+      .sort((a, b) => ((b.max - b.points) - (a.max - a.points))
+        || ((a.points / a.max) - (b.points / b.max)))[0];
 
     const headline =
       level === 'good' ? 'Dein Profil ist gut aufgestellt'
@@ -260,7 +264,7 @@ export function useHealthScore({ stats, locations, replyCounts, loading }) {
                         : 'Dein Profil lässt Anfragen liegen';
 
     const summary = weakest && weakest.points < weakest.max
-      ? `Am meisten holst du raus bei: ${weakest.label.toLowerCase()}. ${weakest.verdict}`
+      ? `Die meisten Punkte holst du derzeit bei: ${weakest.label}. ${weakest.verdict}`
       : 'Alle Punkte, die sich beeinflussen lassen, sind erledigt.';
 
     return {

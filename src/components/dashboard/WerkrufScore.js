@@ -150,7 +150,7 @@ export function ordneEin(factors, reviewsTotal = null) {
   let satz;
   if (vollNamen.length > 0 && luecken.length > 0) {
     satz = `${grossErstes(verbinde(vollNamen))} ${voll.length === 1 ? 'sind' : 'sind'} vollständig. `
-         + `Für einen höheren Score fehlen aktuell vor allem ${verbinde(luecken)}.`;
+         + `Noch ohne Punkte: ${verbinde(luecken)}.`;
   } else if (luecken.length > 0) {
     satz = `Für einige Bereiche liegen noch keine Daten vor — darunter ${verbinde(luecken)}.`;
   } else {
@@ -180,13 +180,13 @@ function benenneSchwaeche(factors, anteil, reviewsTotal) {
   const name = (e) => FAKTOR_NAMEN[e.f.id] ?? e.f.label ?? e.f.id;
 
   if (offen.length === 1) {
-    return `Am meisten Luft ist momentan bei ${name(offen[0])}.`;
+    return `Die meisten Punkte holst du derzeit bei ${name(offen[0])}.`;
   }
 
   /* Bei exakt gleicher Lücke keinen Sieger erzwingen — das wäre eine
      erfundene Aussage. */
   return offen[0].luecke > offen[1].luecke
-    ? `Am meisten Luft ist momentan bei ${name(offen[0])}.`
+    ? `Die meisten Punkte holst du derzeit bei ${name(offen[0])}.`
     : 'Bei mehreren Bereichen gibt es noch Luft nach oben.';
 }
 
