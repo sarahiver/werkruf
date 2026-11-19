@@ -65,11 +65,13 @@ describe('Nutzenbloecke', () => {
 });
 
 describe('Feature-Truth', () => {
-  it('W1 — „Mehr Bewertungen": Link und QR-Code existieren im Dashboard; Versand bleibt beim Betrieb', () => {
+  it('W1 — „Mehr Bewertungen": Link, QR-Code und SMS existieren im Dashboard; wen und wann entscheidet der Betrieb', () => {
     const karte = gruppen[0].karten.find((k) => k.title === 'Mehr Bewertungen bekommen');
-    expect(karte.body).toMatch(/Den Link verschickst du selbst/);
+    expect(karte.body).toMatch(/Du entscheidest, wen du fragst und wann/);
+    expect(karte.body).not.toMatch(/automatisch/i);
     const seite = lies('src/pages/dashboard/DashboardKundenGewinnung.js');
     expect(seite).toMatch(/QRCodeSVG/);
+    expect(seite).toMatch(/SmsBewertungsanfrage/);              // SMS-Anfrage ist eingebaut (WP14)
     expect(seite).toMatch(/<ProGate feature="Mehr Bewertungen">/);
   });
   it('W2 — Sofortmeldung bei schlechter Bewertung und Wochenmail existieren', () => {

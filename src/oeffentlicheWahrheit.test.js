@@ -58,6 +58,12 @@ const OEFFENTLICH = [
   'src/components/FAQ.js',
   'src/components/AbschlussCTA.js',
   'src/components/Footer.js',
+  'src/components/WerDahinter.js',
+  /* 19.11.2026: Was beim Teilen eines Links erscheint (Titel,
+     Beschreibung, Vorschaubild), ist genauso öffentliche Aussage —
+     dort standen noch „3× mehr Anfragen" und „Mehr Aufträge". */
+  'public/index.html',
+  'public/og-image.svg',
 ];
 
 /* Kommentare müssen raus, bevor hier Textmuster geprüft werden: Die
@@ -258,5 +264,38 @@ describe('der Kopf kennt den Anmeldezustand', () => {
     /* Vorher gab es im Kopf gar keinen — der einzige Einstieg war der
        Hero-CTA. */
     expect(kopf()).toMatch(/isAuthenticated\s*\?\s*'\/dashboard'\s*:\s*'\/signup'/);
+  });
+});
+
+describe('Vorschau beim Teilen und Startseite (19.11.2026)', () => {
+  it('Titel, Beschreibung und Vorschaubild versprechen keine Aufträge, Sichtbarkeit oder Gratis-Check', () => {
+    const kopf = lies('public/index.html');
+    const bild = lies('public/og-image.svg');
+    for (const t of [kopf, bild]) {
+      expect(t).not.toMatch(/Mehr Aufträge/i);
+      expect(t).not.toMatch(/Sichtbarkeit steigern|MEHR SICHTBARKEIT/i);
+      expect(t).not.toMatch(/3\s*×/);
+      expect(t).not.toMatch(/0\s*€\s*<\/text>|für den Check/i);
+    }
+    expect(kopf).toMatch(/<meta property="og:image"\s+content="https:\/\/werkruf\.com\/og-image\.png"/);
+    expect(fs.existsSync(path.join(wurzel, 'public/og-image.png'))).toBe(true);
+  });
+
+  it('SMS-Bewertungsanfrage ist gebaut und wird jetzt auch genannt', () => {
+    expect(lies('src/components/dashboard/SmsBewertungsanfrage.js')).toMatch(/review-request/);
+    expect(konfigHandwerk()).toMatch(/SMS/);
+  });
+
+  it('kein „Den Rest macht WERKRUF" — WERKRUF bereitet vor, der Betrieb gibt frei', () => {
+    const text = oeffentlicherText() + konfigHandwerk();
+    expect(text).not.toMatch(/Den Rest macht/i);
+    expect(text).not.toMatch(/Den Rest kannst du vergessen/i);
+  });
+
+  it('„Wer dahintersteht" nimmt Name und Kontakt aus derselben Quelle wie das Impressum', () => {
+    const w = ohneKommentare(lies('src/components/WerDahinter.js'));
+    expect(w).toMatch(/from '\.\.\/config\/anbieter'/);
+    expect(w).not.toMatch(/info@werkruf\.com|\+49 176/);   // nichts doppelt hart codiert
+    expect(ohneKommentare(lies('src/pages/HomePage.js'))).toMatch(/<WerDahinter \/>/);
   });
 });
