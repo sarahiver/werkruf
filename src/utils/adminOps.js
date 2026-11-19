@@ -34,7 +34,7 @@
 
 import { hasPaidAccess, isFoundingPartner, wantsOperationalMail, accessTier, ACCESS_TIER_LABEL } from './subscription.js';
 import { istPausiert } from './betriebsferien.js';
-import { AKQUISE_STATUS, ANTWORT_KLASSEN, pruefeLeadEingabe } from './akquise.js';
+import { AKQUISE_STATUS, ANTWORT_KLASSEN, pruefeLeadEingabe, FILTER_NACHFASSEN_FAELLIG } from './akquise.js';
 import { bereiteImportVor, MAX_ZEILEN } from './akquiseImport.js';
 import { pruefeZeitraum, STANDARD_ZEITRAUM, ZEITRAEUME } from './analyseBericht.js';
 
@@ -486,7 +486,8 @@ function pruefeParameter(aktion, roh) {
   }
   if (aktion === 'acquisition_list') {
     const status = roh?.status === undefined || roh?.status === null || roh?.status === '' ? 'alle' : roh.status;
-    if (status !== 'alle' && !AKQUISE_STATUS.includes(status)) return { fehler: `Status nicht erlaubt: ${String(status)}` };
+    /* WP17.2: zusaetzlich der reine Listenfilter „Nachfassen faellig" — kein setzbarer Status */
+    if (status !== 'alle' && status !== FILTER_NACHFASSEN_FAELLIG && !AKQUISE_STATUS.includes(status)) return { fehler: `Status nicht erlaubt: ${String(status)}` };
     werte.status = status;
     const suche = typeof roh?.suche === 'string' ? roh.suche.trim() : '';
     if (suche.length > 200) return { fehler: 'Suchbegriff zu lang' };
