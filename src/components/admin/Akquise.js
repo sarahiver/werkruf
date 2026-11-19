@@ -5,6 +5,7 @@ import { formatAdminDate } from '../../utils/adminOps';
 import {
   AKQUISE_STATUS, AKQUISE_STATUS_TEXT, EREIGNIS_TEXT, SPERR_TEXT, VERSAND_GRUND_TEXT, KPI_DEFINITION,
   NACHFASS_GRUND_TEXT, ANTWORT_KLASSEN, ANTWORT_TEXT, ANTWORT_WIRKUNG, ANTWORT_VORLAGE_POSITIV, akquiseQuoten, BEFUND_TYPEN,
+  NACHFASS_WARTE_WERKTAGE, FILTER_NACHFASSEN_FAELLIG, fmtFaelligAb,
 } from '../../utils/akquise';
 import { BereichKopf, Kpi, KpiReihe, Flaeche, FlaecheKopf, Knopf, Chip, Leer } from './adminUi';
 import AkquiseImport from './AkquiseImport';
@@ -324,8 +325,10 @@ export default function Akquise({ rufeAdminOps }) {
 
       <KpiReihe data-testid="akquise-kpi">
         {[['leads', 'Leads'], ['angeschrieben', 'Angeschrieben'], ['zugestellt', 'Zugestellt'], ['oeffnungErkannt', 'Öffnung erkannt'],
-          ['antworten', 'Antworten'], ['interesse', 'Positive Antworten / Interesse'], ['foundingPartner', 'Founding Partner']].map(([k, label]) => (
-          <Kpi key={k} wert={kpi[k] ?? '—'} label={label} titel={KPI_DEFINITION[k]} ton={(k === 'interesse' || k === 'antworten') && kpi[k] > 0 ? 'gut' : null} testid={`akquise-kpi-${k}`} />
+          ['antworten', 'Antworten'], ['interesse', 'Positive Antworten / Interesse'], ['foundingPartner', 'Founding Partner'],
+          ['nachfassenFaellig', 'Nachfassen fällig']].map(([k, label]) => (
+          <Kpi key={k} wert={kpi[k] ?? '—'} label={label} titel={KPI_DEFINITION[k]}
+            ton={((k === 'interesse' || k === 'antworten') && kpi[k] > 0 && 'gut') || (k === 'nachfassenFaellig' && kpi[k] > 0 && 'akzent') || null} testid={`akquise-kpi-${k}`} />
         ))}
       </KpiReihe>
       <Quoten data-testid="akquise-quoten">
@@ -389,8 +392,14 @@ export default function Akquise({ rufeAdminOps }) {
             <Eingabe placeholder="Betrieb, Ansprechpartner oder E-Mail" value={suche} onChange={(e) => setSuche(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') setSucheAktiv(e.target.value.trim()); }} aria-label="Suche" />
             <Feld value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); }} aria-label="Statusfilter" data-testid="akquise-filter">
               <option value="alle">Alle Status</option>
+              <option value={FILTER_NACHFASSEN_FAELLIG}>Nachfassen fällig{kpi.nachfassenFaellig ? ` (${kpi.nachfassenFaellig})` : ''}</option>
               {AKQUISE_STATUS.map((s) => <option key={s} value={s}>{AKQUISE_STATUS_TEXT[s]}</option>)}
             </Feld>
+            {kpi.nachfassenFaellig > 0 && statusFilter !== FILTER_NACHFASSEN_FAELLIG && (
+              <Knopf type="button" className="ghost" onClick={() => setStatusFilter(FILTER_NACHFASSEN_FAELLIG)} data-testid="akquise-faellig-knopf">
+                <Send size={13} /> {kpi.nachfassenFaellig} zum Nachfassen
+              </Knopf>
+            )}
             {importFilter && (
               <Chip $ton="info" data-testid="akquise-importfilter">Nur dieser Import
                 <button type="button" onClick={() => setImportFilter(null)} aria-label="Importfilter entfernen" style={{ background: 'none', border: 0, cursor: 'pointer', padding: 0, marginLeft: 4, color: 'inherit' }}><X size={12} /></button>
@@ -400,13 +409,14 @@ export default function Akquise({ rufeAdminOps }) {
 
           <div data-kompakt={offen ? 'true' : 'false'}>
             <ListenKopf aria-hidden="true"><span>Betrieb</span><span>Kontakt</span><span>Status</span><span>Letzter Versand</span><span>Signale</span><span /></ListenKopf>
-            {!laedt && leads.length === 0 && !fehler && <Leer>{importFilter ? 'Keine Leads aus diesem Import.' : 'Noch keine Akquise-Leads. „Lead anlegen" oder „CSV importieren" startet.'}</Leer>}
+            {!laedt && leads.length === 0 && !fehler && <Leer>{importFilter ? 'Keine Leads aus diesem Import.' : statusFilter === FILTER_NACHFASSEN_FAELLIG ? `Gerade ist niemand fällig. Nachfassen wird ${NACHFASS_WARTE_WERKTAGE} Werktage nach Mail 1 fällig, wenn keine Antwort erfasst ist.` : 'Noch keine Akquise-Leads. „Lead anlegen" oder „CSV importieren" startet.'}</Leer>}
             <Zeilen>
               {leads.map((l) => (
                 <Zeile key={l.id} data-testid="akquise-lead" data-offen={offen === l.id} onClick={() => oeffne(l.id)}>
                   <Name className="spalte-name"><strong>{l.companyName}</strong><span>{[l.city, l.trade].filter(Boolean).join(' · ')}</span></Name>
                   <div className="spalte-status">
                     <Chip $ton={l.blockReason ? 'schlecht' : STATUS_TON[l.acquisitionStatus]} data-testid="akquise-status">{AKQUISE_STATUS_TEXT[l.acquisitionStatus] || l.acquisitionStatus || '—'}</Chip>
+                    {l.followupFaellig && <Chip $ton="info" data-testid="akquise-faellig" style={{ marginTop: 4 }}>Nachfassen fällig</Chip>}
                   </div>
                   {l.blockReason && <Warn className="spalte-sperre" data-testid="akquise-gesperrt" style={{ fontSize: '.72rem', margin: 0 }}><AlertTriangle size={12} /> {SPERR_TEXT[l.blockReason] || 'Lead ist für weiteren Mailversand gesperrt.'}</Warn>}
                   <Kontakt className="spalte-kontakt">{l.contactPerson || '—'}<span>{l.email}</span></Kontakt>
@@ -488,8 +498,16 @@ export default function Akquise({ rufeAdminOps }) {
                         {nach && <Info data-testid="akquise-nachfass-info">Nachgefasst {nach.status === 'queued' ? '(eingereiht)' : fmtZ(nach.sentAt || lead.followupSentAt)} — nur einmal möglich.</Info>}
                         {!nach && erst && !vorschau && (lead.followupGrund ? (
                           lead.followupGrund !== 'keine_erstmail' && <Info data-testid="akquise-nachfass-grund">Nachfassen: {NACHFASS_GRUND_TEXT[lead.followupGrund] || lead.followupGrund}</Info>
+                        ) : !lead.followupFaellig && lead.followupAb ? (
+                          <>
+                            <Info data-testid="akquise-nachfass-ab">Nachfassen ab {fmtFaelligAb(lead.followupAb)} ({NACHFASS_WARTE_WERKTAGE} Werktage nach Mail 1). Bis dahin der Mail Zeit lassen.</Info>
+                            <Knopf type="button" className="ghost" onClick={() => zeigeVorschau('nachfass')} disabled={laeuft} data-testid="akquise-nachfassen" style={{ marginTop: 8 }}><Send size={13} /> Trotzdem jetzt nachfassen</Knopf>
+                          </>
                         ) : (
-                          <Knopf type="button" onClick={() => zeigeVorschau('nachfass')} disabled={laeuft} data-testid="akquise-nachfassen" style={{ marginTop: 8 }}><Send size={13} /> Nachfassen</Knopf>
+                          <>
+                            {lead.followupFaellig && <Info data-testid="akquise-nachfass-faellig">Nachfassen ist fällig (seit {fmtFaelligAb(lead.followupAb)}).</Info>}
+                            <Knopf type="button" onClick={() => zeigeVorschau('nachfass')} disabled={laeuft} data-testid="akquise-nachfassen" style={{ marginTop: 8 }}><Send size={13} /> Nachfassen</Knopf>
+                          </>
                         ))}
 
                         {vorschau && (

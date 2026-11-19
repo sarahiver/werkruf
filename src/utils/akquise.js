@@ -82,6 +82,22 @@ export const NACHFASS_GRUND_TEXT = Object.freeze({
   keine_erstmail: 'Erst nach versendeter Erstmail (neue Vorlage) möglich.',
 });
 
+/* WP17.2 — Wann Nachfassen fällig ist. Die Datenbank rechnet das Datum
+   (acquisition_followup_ab: 5 Werktage Mo–Fr nach Mail 1, Kalender
+   Europe/Berlin, ohne Feiertage); hier nur Konstante + Anzeige.
+   Nur Erinnerung — gesendet wird ausschließlich per Klick. */
+export const NACHFASS_WARTE_WERKTAGE = 5;
+export const FILTER_NACHFASSEN_FAELLIG = 'nachfassen_faellig';
+
+const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+/** '2026-11-26' → 'Do, 26.11.' (reines Datum, keine Zeitzonen-Verschiebung). */
+export function fmtFaelligAb(datum) {
+  const m = typeof datum === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(datum) : null;
+  if (!m) return null;
+  const tag = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+  return `${WOCHENTAGE[tag]}, ${m[3]}.${m[2]}.`;
+}
+
 /* ── E-Mail ── */
 export const EMAIL_MUSTER = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -462,4 +478,5 @@ export const KPI_DEFINITION = Object.freeze({
   antwortenPositiv: 'Leads mit Antwort „positiv"',
   interesse: 'Leads mit Vertriebsstatus interesse',
   foundingPartner: 'Leads mit Vertriebsstatus founding_partner',
+  nachfassenFaellig: 'Mail 1 vor mindestens 5 Werktagen gesendet, keine Antwort erfasst, noch nicht nachgefasst, nicht gesperrt — nur Erinnerung, gesendet wird per Klick',
 });
