@@ -6,9 +6,12 @@
  * der Name stand nur im Impressum. Ein Einzelanbieter wirkt nicht
  * kleiner, wenn er sich zeigt, sondern erreichbarer.
  *
- * Nur Tatsachen: Name, Ort, direkter Kontakt (aus config/anbieter.js,
+ * Nur Tatsachen: Name, Ort, E-Mail (aus config/anbieter.js,
  * derselben Quelle wie das Impressum). Keine erfundenen Kundenzahlen,
  * Zitate oder Gründungsgeschichten.
+ *
+ * Die Telefonnummer steht bewusst NUR im Impressum (Entscheidung
+ * Iver, 19.11.2026), nicht hier.
  *
  * Nur fuer die Handwerks-Marke; andere Branchen (Gastro/Beauty) sind
  * nicht live und bekommen den Abschnitt nicht.
@@ -16,9 +19,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Link } from 'react-router-dom';
-import { Mail, Phone } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { useIndustry } from '../context/IndustryContext';
-import { ANBIETER, telefonHref } from '../config/anbieter';
+import { ANBIETER } from '../config/anbieter';
 
 const Section = styled.section`
   background: var(--color-white);
@@ -81,7 +84,6 @@ export default function WerDahinter() {
         </Text>
         <Kontakt>
           <a href={`mailto:${a.email}`}><Mail size={17} /> {a.email}</a>
-          <a href={telefonHref(a.telefon)}><Phone size={17} /> {a.telefon}</a>
         </Kontakt>
         <Klein>Anbieter und Anschrift: <Link to="/impressum">Impressum</Link></Klein>
       </Inner>

@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Link } from 'react-router-dom';
-import { ANBIETER, vollerName, telefonHref } from '../config/anbieter';
+import { ANBIETER, vollerName } from '../config/anbieter';
 import { messId, leseConsent, oeffneConsentEinstellungen } from '../utils/analytics';
 
 const Wrap = styled.div`
@@ -131,7 +131,6 @@ export default function Datenschutz() {
           <P style={{ margin: 0 }}>
             {vollerName(a)} — {a.angebot}<br />
             {a.strasse}, {a.plz} {a.ort}<br />
-            Telefon: <A href={telefonHref(a.telefon)}>{a.telefon}</A><br />
             E-Mail: <A href={`mailto:${a.email}`}>{a.email}</A>
           </P>
         </InfoBox>
