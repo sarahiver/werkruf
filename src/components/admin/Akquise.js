@@ -4,7 +4,7 @@ import { Send, RefreshCw, Plus, Mail, AlertTriangle, Upload, X, ArrowLeft, Check
 import { formatAdminDate } from '../../utils/adminOps';
 import {
   AKQUISE_STATUS, AKQUISE_STATUS_TEXT, EREIGNIS_TEXT, SPERR_TEXT, VERSAND_GRUND_TEXT, KPI_DEFINITION,
-  NACHFASS_GRUND_TEXT, ANTWORT_KLASSEN, ANTWORT_TEXT, ANTWORT_WIRKUNG, ANTWORT_VORLAGE_POSITIV, akquiseQuoten,
+  NACHFASS_GRUND_TEXT, ANTWORT_KLASSEN, ANTWORT_TEXT, ANTWORT_WIRKUNG, ANTWORT_VORLAGE_POSITIV, akquiseQuoten, BEFUND_TYPEN,
 } from '../../utils/akquise';
 import { BereichKopf, Kpi, KpiReihe, Flaeche, FlaecheKopf, Knopf, Chip, Leer } from './adminUi';
 import AkquiseImport from './AkquiseImport';
@@ -133,7 +133,7 @@ const KnopfReihe = styled.div`display: flex; gap: 8px; flex-wrap: wrap; margin-t
 
 const fmtZ = (d) => formatAdminDate(d, true);
 const fmtP = (v) => (v === null || v === undefined ? '—' : `${String(v).replace('.', ',')} %`);
-const LEER_LEAD = { company_name: '', contact_person: '', email: '', trade: '', city: '', website: '', google_profile_url: '', personalized_sentence: '', google_profile_finding: '', note: '' };
+const LEER_LEAD = { company_name: '', contact_person: '', email: '', trade: '', city: '', website: '', google_profile_url: '', personalized_sentence: '', google_profile_finding: '', finding_type: '', note: '' };
 const STATUS_TON = { interesse: 'gut', founding_partner: 'gut', angeschrieben: 'info', zurueckgestellt: 'warn', kein_interesse: 'neutral', neu: 'neutral', vorbereitet: 'neutral' };
 
 function neuerIdempotenzKey() {
@@ -206,7 +206,7 @@ export default function Akquise({ rufeAdminOps }) {
     setBearbeiten({
       company_name: l.companyName || '', contact_person: l.contactPerson || '', email: l.email || '', trade: l.trade || '', city: l.city || '',
       website: l.website || '', google_profile_url: l.googleProfileUrl || '', personalized_sentence: l.personalizedSentence || '',
-      google_profile_finding: l.googleProfileFinding || '', note: l.note || '',
+      google_profile_finding: l.googleProfileFinding || '', finding_type: l.findingType || '', note: l.note || '',
     });
   }, [rufeAdminOps]);
 
@@ -304,6 +304,7 @@ export default function Akquise({ rufeAdminOps }) {
   const kpi = daten?.kpi || {};
   const quoten = akquiseQuoten(kpi);
   const varianten = daten?.varianten || {};
+  const befundTypen = daten?.befundTypen || {};
   const testmodus = daten?.deliveryMode === 'test';
   const offenerLead = leads.find((l) => l.id === offen) || null;
 
@@ -335,13 +336,29 @@ export default function Akquise({ rufeAdminOps }) {
       {['A', 'B'].some((v) => varianten[v]) && (
         <div style={{ overflowX: 'auto' }}>
           <AbTabelle data-testid="akquise-ab">
-            <caption>Betreff-Test (Mail 1): A „Ihre Google-Bewertungen" · B „Kurze Frage zu … bei Google"</caption>
+            <caption>Betreff-Test (Mail 1): A „Deine Google-Bewertungen" bzw. „Dein Google-Profil" · B „Kurze Frage zu deinem Google-Profil"</caption>
             <thead><tr><th>Variante</th><th>Angeschr.</th><th>Zugest.</th><th>Öffnung</th><th>Antworten</th><th>Positiv</th></tr></thead>
             <tbody>
               {['A', 'B'].map((v) => {
                 const x = varianten[v] || {};
                 return (
                   <tr key={v}><td><strong>{v}</strong></td><td>{x.angeschrieben ?? 0}</td><td>{x.zugestellt ?? 0}</td><td>{x.oeffnungErkannt ?? 0}</td><td>{x.antworten ?? 0}</td><td>{x.antwortenPositiv ?? 0}</td></tr>
+                );
+              })}
+            </tbody>
+          </AbTabelle>
+        </div>
+      )}
+      {Object.keys(befundTypen).length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <AbTabelle data-testid="akquise-typen">
+            <caption>Nach Befund-Typ (Mail 1)</caption>
+            <thead><tr><th>Befund-Typ</th><th>Angeschr.</th><th>Zugest.</th><th>Antworten</th><th>Positiv</th></tr></thead>
+            <tbody>
+              {Object.entries(BEFUND_TYPEN).filter(([k]) => befundTypen[k]).map(([k, t]) => {
+                const x = befundTypen[k];
+                return (
+                  <tr key={k}><td>{t.nr} · {t.label}</td><td>{x.angeschrieben ?? 0}</td><td>{x.zugestellt ?? 0}</td><td>{x.antworten ?? 0}</td><td>{x.antwortenPositiv ?? 0}</td></tr>
                 );
               })}
             </tbody>
@@ -463,6 +480,7 @@ export default function Akquise({ rufeAdminOps }) {
                         ) : !vorschau && (
                           <>
                             {!lead.googleProfileFinding && <Warn data-testid="akquise-befund-fehlt"><AlertTriangle size={13} /> {VERSAND_GRUND_TEXT.befund_fehlt}</Warn>}
+                            {lead.googleProfileFinding && !lead.findingType && <Warn data-testid="akquise-befund-typ-fehlt"><AlertTriangle size={13} /> {VERSAND_GRUND_TEXT.befund_typ_fehlt}</Warn>}
                             <Knopf type="button" className="ghost" onClick={() => zeigeVorschau('erstkontakt')} disabled={laeuft} data-testid="akquise-vorschau" style={{ marginTop: 6 }}><Mail size={13} /> Mail 1 – Vorschau</Knopf>
                           </>
                         )}
@@ -587,11 +605,20 @@ function LeadForm({ werte, setze, teil = 'alles' }) {
       )}
       {personal && (
         <>
-          <label className="breit">Google-Befund * (Pflicht für Mail 1 — ein Satz, selbst geprüft)
-            <textarea {...f('google_profile_finding')} data-testid="lead-befund" maxLength={600}
-              placeholder="z. B. Elektrotechnik Mack hat bei Google 23 gute Bewertungen, auf die letzten fünf gibt es aber keine Antwort." />
+          <label className="breit">Befund-Typ * (bestimmt, wie Mail 1 weitergeht)
+            <select {...f('finding_type')} data-testid="lead-befund-typ">
+              <option value="">— bitte wählen —</option>
+              {Object.entries(BEFUND_TYPEN).map(([k, t]) => <option key={k} value={k}>{t.nr} · {t.label}</option>)}
+            </select>
           </label>
-          <Info className="breit" style={{ margin: '-2px 0 4px' }}>Nur, was du selbst im Google-Profil gesehen hast. WERKRUF erfindet oder ergänzt beim Senden nichts. Beispiele: letzte Bewertung von August 2026 · keine Öffnungszeiten hinterlegt · auf die 2-Sterne-Bewertung vom September keine Antwort.</Info>
+          {BEFUND_TYPEN[werte.finding_type] && (
+            <Info className="breit" style={{ margin: '-2px 0 4px' }} data-testid="lead-befund-typ-hinweis">{BEFUND_TYPEN[werte.finding_type].hinweis}</Info>
+          )}
+          <label className="breit">Google-Befund * (Pflicht für Mail 1 — ein normaler Satz, selbst geprüft)
+            <textarea {...f('google_profile_finding')} data-testid="lead-befund" maxLength={600}
+              placeholder={`z. B. ${BEFUND_TYPEN[werte.finding_type]?.beispiel || 'Auf die letzten fünf Bewertungen gibt es keine Antwort.'}`} />
+          </label>
+          <Info className="breit" style={{ margin: '-2px 0 4px' }}>Steht in der Mail nach „Dabei ist mir aufgefallen:“. Nur, was du selbst im Google-Profil gesehen hast — WERKRUF erfindet oder ergänzt nichts.</Info>
           <label className="breit">Personalisierter Satz (nur alte Founding-Partner-Mail)<textarea {...f('personalized_sentence')} data-testid="lead-satz" style={{ minHeight: 44 }} /></label>
           <label className="breit">Notiz<textarea {...f('note')} /></label>
         </>

@@ -23,6 +23,8 @@ export const IMPORT_SPALTEN = Object.freeze([
   /* WP17: recherchierter Google-Befund fuer Mail 1 — optional; fehlt er,
      wird der Lead importiert, ist aber nicht versandbereit. */
   'google_profile_finding',
+  /* WP17.1: Befund-Typ — Schluessel, Nummer 1–5 oder Bezeichnung */
+  'finding_type',
 ]);
 /* Workflow-Spalten einer externen Liste: werden gelesen und ignoriert,
    nie in Lead-Felder uebernommen. */
@@ -137,7 +139,7 @@ export function bereiteImportVor(zeilen) {
     const i = Number.isInteger(z?.i) && z.i > 0 ? z.i : idx + 1;
     const roh = z && typeof z.roh === 'object' && z.roh !== null ? z.roh : (z && typeof z === 'object' ? z : {});
     const eingabe = {};
-    for (const f of ['company_name', 'contact_person', 'email', 'phone', 'trade', 'city', 'website', 'google_profile_url', 'personalized_sentence', 'google_profile_finding', 'note']) {
+    for (const f of ['company_name', 'contact_person', 'email', 'phone', 'trade', 'city', 'website', 'google_profile_url', 'personalized_sentence', 'google_profile_finding', 'finding_type', 'note']) {
       const v = roh[f];
       if (v === undefined || v === null) continue;
       const s = String(v).trim();

@@ -288,3 +288,31 @@ Untergrenze — keine erkannte Öffnung heißt nicht „nicht gelesen".
 - `src/akquiseAntwortZuerst.test.js` — Mailtexte, Allowlist, CSV, Quelltext
 - `src/akquise.test.js` — Admin-UI (Mail 1, Nachfassen, Antwort, Quoten, A/B)
 - `supabase/tests/akquise_antwort_zuerst.test.sql` — Sperren, A/B, Nachfass, Antworten, Funnel, Import (mit Wirkung)
+
+## WP17.1 — Du-Form, „Moin", Befund-Typen (19.11.2026)
+
+Ein Befund wie „80 Bewertungen mit 5,0 Sternen" ist ein Lob — die Mail darf dann nicht so
+weitergehen, als sei es ein Problem. Jeder Befund hat deshalb einen **Befund-Typ**
+(`leads.finding_type`, Pflicht für Mail 1, CSV-Spalte `finding_type`: Nummer 1–5,
+Schlüssel oder Bezeichnung):
+
+| Nr | Schlüssel | Betreff A |
+|---|---|---|
+| 1 | `starkes_profil` — nur, wenn trotzdem eine Lücke sichtbar ist | Deine Google-Bewertungen |
+| 2 | `unbeantwortet` | Deine Google-Bewertungen |
+| 3 | `kritisch_offen` | Deine Google-Bewertungen |
+| 4 | `wenige_bewertungen` | Deine Google-Bewertungen |
+| 5 | `profil_luecke` | Dein Google-Profil |
+
+Betreff B für alle: „Kurze Frage zu deinem Google-Profil".
+
+Mail 1: „Moin {Vorname}," (bei „Herr/Frau" oder ohne Namen „Moin,") → „ich bin gerade über
+dein Google-Profil gestolpert. Dabei ist mir aufgefallen: {Befund}" → Brücke je Typ →
+„Ich bin Iver aus Hamburg und baue gerade WERKRUF …" + **ein Satz, was das Werkzeug
+macht** (keine Agentur-Leistung) → Einladung: kostenlos nutzen gegen ehrliches Feedback →
+„Ein kurzes ‚Ja' reicht". Texte: `src/utils/akquise.js` `BEFUND_TYPEN`; jede
+Werkzeug-Aussage ist in `src/akquiseAntwortZuerst.test.js` (M9) gegen den Code geprüft.
+
+Nachfass: „Hast du Lust, WERKRUF kostenlos auszuprobieren?" + Zitat des beim Versand
+gespeicherten Mail-1-Texts (`outreach_messages.text_snapshot`). Auswertung je Typ:
+`acquisition_overview.befundTypen` (Typ zum Versandzeitpunkt).

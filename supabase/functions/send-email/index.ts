@@ -863,9 +863,9 @@ function render(template: EmailTemplate, payload: Record<string, unknown>, toNam
        per payload.subject) und wird hier nicht neu erfunden. */
     case 'outreach_erstkontakt': {
       const r = renderErstkontakt({
-        companyName: String(payload.companyName ?? ''),
         contactPerson: toName ?? String(payload.contactPerson ?? ''),
         finding: String(payload.finding ?? ''),
+        findingType: String(payload.findingType ?? ''),
         variante: String(payload.variante ?? ''),
       }) as RenderedEmail;
       const subject = typeof payload.subject === 'string' && payload.subject.trim() ? payload.subject : r.subject;

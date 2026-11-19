@@ -64,7 +64,7 @@ import {
   baueAuditEintrag,
 } from '../../../src/utils/adminOps.js';
 // @ts-ignore: JavaScript-Modul ohne Typen (WP16)
-import { renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME } from '../../../src/utils/akquise.js';
+import { renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME, BEFUND_TYP_SCHLUESSEL } from '../../../src/utils/akquise.js';
 import { analyseUebersicht } from './analyse.ts';
 
 const corsHeaders = {
@@ -961,16 +961,13 @@ async function leseDetail(admin: SupabaseClient, leadId: string): Promise<Akquis
   return data as AkquiseDetail;
 }
 
-/* Erstmail fuer das Zitat in der Nachfass-Mail: aus den Snapshots der
-   gesendeten Nachricht (Betreff, Befund, Variante), nicht aus heutigen Feldern. */
+/* Erstmail fuer das Zitat in der Nachfass-Mail: der beim Versand
+   gespeicherte Text (WP17.1 text_snapshot) und Betreff — nie aus heutigen
+   Feldern neu gebaut. Aeltere Mails ohne Snapshot: Nachfass ohne Zitat. */
 function erstmailFuerZitat(detail: AkquiseDetail) {
-  const lead = detail?.lead ?? {};
   const erst = (detail?.messages ?? []).find((m) => m.template === 'outreach_erstkontakt' && m.status === 'sent');
   if (!erst) return null;
-  const r = renderErstkontakt({
-    companyName: lead.companyName, contactPerson: lead.contactPerson, finding: erst.finding, variante: erst.subjectVariant,
-  }) as { text: string };
-  return { subject: String(erst.subject ?? ''), text: r.text, sentAt: (erst.sentAt as string | null) ?? null };
+  return { subject: String(erst.subject ?? ''), text: typeof erst.text === 'string' ? erst.text : '', sentAt: (erst.sentAt as string | null) ?? null };
 }
 
 async function akquiseVorschau(admin: SupabaseClient, leadId: string, art = 'erstkontakt') {
@@ -992,13 +989,17 @@ async function akquiseVorschau(admin: SupabaseClient, leadId: string, art = 'ers
     return { ...basis, sendbar: true, grund: null, subject: r.subject, text: r.text, html: r.html };
   }
   const befund = (lead.googleProfileFinding as string | null) ?? null;
+  const typ = (lead.findingType as string | null) ?? null;
   if (!befundGueltig(befund)) {
     return { ...basis, sendbar: false, grund: 'befund_fehlt', subject: null, text: null, html: null, finding: befund };
   }
+  if (!typ || !BEFUND_TYP_SCHLUESSEL.includes(typ)) {
+    return { ...basis, sendbar: false, grund: 'befund_typ_fehlt', subject: null, text: null, html: null, finding: befund };
+  }
   const fest = (lead.subjectVariant as string | null) ?? null;
   const variante = fest ?? await naechsteVariante(admin);
-  const r = renderErstkontakt({ companyName: lead.companyName, contactPerson: lead.contactPerson, finding: befund, variante }) as { subject: string; text: string; html: string };
-  return { ...basis, sendbar: true, grund: null, subject: r.subject, text: r.text, html: r.html, finding: befund, subjectVariant: variante, varianteVorlaeufig: !fest };
+  const r = renderErstkontakt({ contactPerson: lead.contactPerson, finding: befund, findingType: typ, variante }) as { subject: string; text: string; html: string };
+  return { ...basis, sendbar: true, grund: null, subject: r.subject, text: r.text, html: r.html, finding: befund, findingType: typ, subjectVariant: variante, varianteVorlaeufig: !fest };
 }
 
 async function akquiseLeadAnlegen(admin: SupabaseClient, adminId: string, p: Record<string, unknown>) {
@@ -1069,18 +1070,23 @@ async function akquiseSenden(admin: SupabaseClient, adminId: string, p: Record<s
     await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { grund: 'befund_fehlt' } }));
     return { ok: false, code: 'befund_fehlt' };
   }
+  if (!lead.findingType || !BEFUND_TYP_SCHLUESSEL.includes(lead.findingType as string)) {
+    await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { grund: 'befund_typ_fehlt' } }));
+    return { ok: false, code: 'befund_typ_fehlt' };
+  }
   if (lead.blockReason) return versandErgebnis(admin, 'acquisition_send', adminId, leadId, { ok: false, reason: 'gesperrt', grund: lead.blockReason }, versandModus());
 
   const { data: variante, error: vFehler } = await admin.rpc('acquisition_assign_subject_variant', { p_lead_id: leadId });
   if (vFehler) throw vFehler;
   if (variante !== 'A' && variante !== 'B') return { ok: false, code: 'variante_fehlt' };
 
-  const r = renderErstkontakt({ companyName: lead.companyName, contactPerson: lead.contactPerson, finding: lead.googleProfileFinding, variante }) as { subject: string };
+  const r = renderErstkontakt({ contactPerson: lead.contactPerson, finding: lead.googleProfileFinding, findingType: lead.findingType, variante }) as { subject: string; text: string };
   const modus = versandModus();
   const { data, error } = await admin.rpc('acquisition_outreach_send', {
     p_admin_id: adminId, p_lead_id: leadId, p_idempotency_key: p.idempotencyKey, p_template: 'outreach_erstkontakt',
     p_subject: r.subject, p_delivery_mode: modus.mode,
-    p_payload: { companyName: lead.companyName, contactPerson: lead.contactPerson ?? null, finding: lead.googleProfileFinding, variante },
+    /* text: exakt diese Fassung wird als text_snapshot gespeichert (Zitat im Nachfass) */
+    p_payload: { companyName: lead.companyName, contactPerson: lead.contactPerson ?? null, finding: lead.googleProfileFinding, findingType: lead.findingType, variante, text: r.text },
   });
   if (error) {
     await auditiere(admin, leadAudit({ aktion: 'acquisition_send', adminId, leadId, erfolg: false, extra: { fehler: String(error.message).slice(0, 200) } }));

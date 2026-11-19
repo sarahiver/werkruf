@@ -13,7 +13,8 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  renderErstkontakt, renderNachfass, erstkontaktAbsaetze, betreffFuerVariante, anredeSie, befundGueltig,
+  renderErstkontakt, renderNachfass, erstkontaktAbsaetze, betreffFuerVariante, anredeMoin, befundGueltig,
+  BEFUND_TYPEN, BEFUND_TYP_SCHLUESSEL, normalisiereBefundTyp,
   ANTWORT_KLASSEN, ANTWORT_TEXT, ANTWORT_VORLAGE_POSITIV, akquiseQuoten, VERSAND_GRUND_TEXT, NACHFASS_GRUND_TEXT,
   SPERR_TEXT, pruefeLeadEingabe, ABSENDER_NAME, LEAD_FELDER,
 } from './utils/akquise';
@@ -30,84 +31,124 @@ const ADMIN = { id: '00000000-0000-4000-8000-00000000ad01', app_metadata: { role
 const NUTZER = { id: '00000000-0000-4000-8000-0000000000b1', app_metadata: {} };
 const LEAD_ID = '22222222-2222-4222-8222-222222222222';
 const BEFUND = 'Elektrotechnik Mack hat bei Google 23 gute Bewertungen, auf die letzten fünf gibt es aber keine Antwort.';
-const mail = (v = 'A', extra = {}) => renderErstkontakt({ companyName: 'Elektrotechnik Mack', contactPerson: 'Herr Mack', finding: BEFUND, variante: v, ...extra });
+const mail = (v = 'A', extra = {}) => renderErstkontakt({ contactPerson: 'Alexander Reiser', finding: BEFUND, findingType: 'unbeantwortet', variante: v, ...extra });
+const MIG171 = lies('../supabase/migrations/20261119090000_akquise_befund_typ.sql');
 
-describe('Mail 1', () => {
-  it('M1 — Wortlaut exakt nach Vorgabe, Befund wortgleich, Telefon aus den Anbieterangaben', () => {
+describe('Mail 1 (WP17.1: Du-Form, „Moin", Befund-Typen)', () => {
+  it('M1 — Wortlaut exakt nach Vorgabe (Typ 2), Befund wortgleich nach „aufgefallen:", Telefon aus den Anbieterangaben', () => {
     expect(mail().text).toBe([
-      'Guten Tag Herr Mack,',
-      BEFUND,
-      'Das sehen genau die Leute, die Sie empfohlen bekommen und vorher kurz nachschauen.',
-      'Ich bin Iver Bohnes aus Hamburg und entwickle ein kleines Werkzeug, das Handwerksbetrieben dabei hilft. Bevor ich Ihnen irgendetwas anbiete: Soll ich Ihnen kostenlos die drei Punkte schicken, die ich an Ihrem Google-Profil zuerst ändern würde?',
-      'Ein kurzes „Ja“ als Antwort reicht.',
-      `Viele Grüße\nIver Bohnes\nWERKRUF\n${ANBIETER.telefon}`,
-      'Wenn Sie keine weitere Nachricht möchten, antworten Sie einfach mit „Nein“.',
+      'Moin Alexander,',
+      `ich bin gerade über dein Google-Profil gestolpert. Dabei ist mir aufgefallen: ${BEFUND}`,
+      'Genau das lesen die Leute, die dich empfohlen bekommen und vorher kurz nachschauen. Eine kurze Antwort zeigt ihnen, dass sich jemand kümmert.',
+      'Ich bin Iver aus Hamburg und baue gerade WERKRUF, ein kleines Werkzeug für Handwerksbetriebe. WERKRUF schreibt dir zu jeder Bewertung auf Knopfdruck einen Antwortvorschlag. Du prüfst, änderst und gibst frei.',
+      'Ich suche gerade zehn Betriebe, die es kostenlos nutzen und mir ehrlich sagen, was noch fehlt. Hast du Lust? Ein kurzes „Ja“ reicht, dann schicke ich dir alles Weitere.',
+      `Beste Grüße aus Hamburg\nIver Bohnes\nWERKRUF · ${ANBIETER.telefon}`,
+      'Falls du keine weitere Nachricht willst, antworte einfach mit „Nein“.',
     ].join('\n\n'));
     expect(mail().senderName).toBe('Iver Bohnes');
     expect(ABSENDER_NAME).toBe('Iver Bohnes');
   });
-  it('M2 (Test 5) — kein Link, kein Button, kein Founding-Partner-Pitch, keine Features; HTML wie eine persoenliche Mail', () => {
-    for (const v of ['A', 'B']) {
-      const r = mail(v);
-      for (const t of [r.text, r.html, r.subject]) {
-        expect(t).not.toMatch(/https?:\/\/|www\.|werkruf\.com|<a\b|href=|<button|Founding|Partner|kostenlos testen|Präsentation|Wochenmail|Antwortvorschl|Health|Score/i);
+  it('M2 (Test 5) — kein Link, kein Button, kein „Founding Partner", keine Agentur-Leistung („soll ich dir … schicken")', () => {
+    for (const typ of BEFUND_TYP_SCHLUESSEL) {
+      for (const v of ['A', 'B']) {
+        const r = renderErstkontakt({ contactPerson: 'Max', finding: BEFUND, findingType: typ, variante: v });
+        for (const t of [r.text, r.html, r.subject]) {
+          expect(t).not.toMatch(/https?:\/\/|www\.|werkruf\.com|<a\b|href=|<button|Founding|Partner|Präsentation/i);
+          /* Werkzeug statt Dienstleistung: nichts, was Iver fuer den Betrieb erledigt */
+          expect(t).not.toMatch(/soll ich (dir|Ihnen)[^.?]*(schicken|schreiben|machen|erstellen|ergänzen)|ich (schreibe|erstelle|kümmere)/i);
+        }
+        expect(r.html).not.toMatch(/background|#0B2545|#F28C28|border-radius|<img|<table/i);
+        expect(r.text).toMatch(/Ein kurzes „Ja“ reicht/);
       }
-      expect(r.html).not.toMatch(/background|#0B2545|#F28C28|border-radius|<img|<table/i);
-      /* WERKRUF genau einmal (Signatur) — „nur in einem kurzen Satz" */
-      expect(r.text.match(/WERKRUF/g)).toHaveLength(1);
-      /* Eine einzige Handlung: antworten */
-      expect(r.text).toMatch(/Ein kurzes „Ja“ als Antwort reicht\./);
     }
   });
-  it('M3 — durchgehend Sie-Form', () => {
-    const t = mail().text;
-    expect(t).not.toMatch(/\b(du|dich|dir|dein|deine|euch|euer|eure|ihr)\b/);
-    expect(t).toMatch(/\bSie\b/); expect(t).toMatch(/\bIhnen\b/);
+  it('M3 — durchgehend Du-Form; kein Sie', () => {
+    for (const typ of BEFUND_TYP_SCHLUESSEL) {
+      const t = renderErstkontakt({ contactPerson: 'Max', finding: BEFUND, findingType: typ, variante: 'A' }).text.replace(BEFUND, '');
+      expect(t).not.toMatch(/\b(Sie|Ihnen|Ihr|Ihre|Ihrem|Ihren)\b/);
+      expect(t).toMatch(/\b(dich|dir|dein|du)\b/);
+    }
   });
-  it('M4 — Betreff A/B nach Vorgabe; unbekannte Variante wirft', () => {
-    expect(betreffFuerVariante('A', 'Elektrotechnik Mack')).toBe('Ihre Google-Bewertungen');
-    expect(betreffFuerVariante('B', 'Elektrotechnik Mack')).toBe('Kurze Frage zu Elektrotechnik Mack bei Google');
-    expect(mail('B').subject).toBe('Kurze Frage zu Elektrotechnik Mack bei Google');
-    expect(() => betreffFuerVariante('C', 'X')).toThrow();
-    expect(() => betreffFuerVariante(null, 'X')).toThrow();
+  it('M4 — Betreff: B einheitlich, A je Typ; unbekannte Variante/Typ wirft', () => {
+    expect(betreffFuerVariante('B', 'starkes_profil')).toBe('Kurze Frage zu deinem Google-Profil');
+    for (const k of ['starkes_profil', 'unbeantwortet', 'kritisch_offen', 'wenige_bewertungen']) expect(betreffFuerVariante('A', k)).toBe('Deine Google-Bewertungen');
+    expect(betreffFuerVariante('A', 'profil_luecke')).toBe('Dein Google-Profil');
+    expect(() => betreffFuerVariante('C', 'unbeantwortet')).toThrow();
+    expect(() => betreffFuerVariante('A', 'super')).toThrow();
   });
-  it('M5 (Test 1, Modulseite) — ohne Befund kein Rendern; WERKRUF erfindet keinen Befund', () => {
+  it('M5 (Test 1, Modulseite) — ohne Befund oder ohne Typ kein Rendern; Befund wird nie erzeugt', () => {
     for (const f of [null, undefined, '', '   ', 'kurz']) {
       expect(befundGueltig(f)).toBe(false);
-      expect(() => renderErstkontakt({ companyName: 'X', finding: f, variante: 'A' })).toThrow('Google-Befund fehlt');
+      expect(() => renderErstkontakt({ finding: f, findingType: 'unbeantwortet', variante: 'B' })).toThrow('Google-Befund fehlt');
     }
+    expect(() => renderErstkontakt({ finding: BEFUND, findingType: null, variante: 'B' })).toThrow('Befund-Typ fehlt');
     expect(befundGueltig('x'.repeat(601))).toBe(false);
-    /* Befund wird unveraendert uebernommen (nur getrimmt), nichts angehaengt */
-    expect(erstkontaktAbsaetze({ finding: `  ${BEFUND}  ` })[1]).toBe(BEFUND);
+    expect(erstkontaktAbsaetze({ finding: `  ${BEFUND}  `, findingType: 'unbeantwortet' })[1]).toBe(`ich bin gerade über dein Google-Profil gestolpert. Dabei ist mir aufgefallen: ${BEFUND}`);
   });
-  it('M6 — Anrede: Name, sonst neutral; Platzhalter „-" zaehlt nicht als Name; Escaping im HTML', () => {
-    expect(anredeSie('Herr Mack')).toBe('Guten Tag Herr Mack,');
-    expect(anredeSie('-')).toBe('Guten Tag,');
-    expect(anredeSie('')).toBe('Guten Tag,');
-    expect(anredeSie(null)).toBe('Guten Tag,');
-    const r = renderErstkontakt({ companyName: 'X', contactPerson: '<b>Max</b>', finding: 'Ihre letzte <script>Bewertung</script> ist von August 2026.', variante: 'A' });
+  it('M6 — Anrede „Moin Vorname,"; Herr/Frau oder kein Name → „Moin,"; Escaping im HTML', () => {
+    expect(anredeMoin('Alexander Reiser')).toBe('Moin Alexander,');
+    expect(anredeMoin('Ayşe')).toBe('Moin Ayşe,');
+    for (const n of ['Herr Mack', 'Frau Özdemir', 'Hr. Mack', 'Dr. Weber', '-', '', '   ', null]) expect(anredeMoin(n)).toBe('Moin,');
+    const r = renderErstkontakt({ contactPerson: '<b>Max</b>', finding: 'Ihre letzte <script>Bewertung</script> ist von August 2026.', findingType: 'wenige_bewertungen', variante: 'A' });
     expect(r.html).not.toMatch(/<script>|<b>Max/);
     expect(r.html).toMatch(/&lt;script&gt;/);
   });
-  it('M7 — ohne Telefon (null) keine leere Signaturzeile', () => {
-    const r = renderErstkontakt({ companyName: 'X', finding: BEFUND, variante: 'A', telefon: null });
-    expect(r.text).toMatch(/Viele Grüße\nIver Bohnes\nWERKRUF\n\nWenn Sie/);
+  it('M7 — ohne Telefon (null) nur „WERKRUF" in der Signatur', () => {
+    const r = renderErstkontakt({ finding: BEFUND, findingType: 'profil_luecke', variante: 'A', telefon: null });
+    expect(r.text).toMatch(/Beste Grüße aus Hamburg\nIver Bohnes\nWERKRUF\n\nFalls du/);
+  });
+  it('M8 — fünf Typen, jeweils eigene Bruecke und eigener Werkzeug-Satz; Typ 1 nennt die Lob-Seite nicht als Problem', () => {
+    expect(BEFUND_TYP_SCHLUESSEL).toEqual(['starkes_profil', 'unbeantwortet', 'kritisch_offen', 'wenige_bewertungen', 'profil_luecke']);
+    const bruecken = new Set(BEFUND_TYP_SCHLUESSEL.map((k) => BEFUND_TYPEN[k].bruecke));
+    const werkzeuge = new Set(BEFUND_TYP_SCHLUESSEL.map((k) => BEFUND_TYPEN[k].werkzeug));
+    expect(bruecken.size).toBe(5); expect(werkzeuge.size).toBe(5);
+    expect(BEFUND_TYPEN.starkes_profil.bruecke).toMatch(/schaut danach aber auch auf den Rest/);
+    expect(BEFUND_TYPEN.starkes_profil.bruecke).not.toMatch(/Bewertung/);
+  });
+  it('M9 — Feature-Truth: jeder Werkzeug-Satz hat sein Gegenstueck im Code', () => {
+    const W = Object.fromEntries(BEFUND_TYP_SCHLUESSEL.map((k) => [k, BEFUND_TYPEN[k].werkzeug]));
+    /* „taeglich pruefen": Engine-Lauf + Profil-Waechter */
+    expect(W.starkes_profil).toMatch(/prüft dein Profil täglich/);
+    expect(lies('utils/wochenstatus.js')).toMatch(/GEPRUEFT/);
+    /* Antwortvorschlag auf Knopfdruck, Freigabe */
+    expect(W.unbeantwortet).toMatch(/auf Knopfdruck einen Antwortvorschlag\. Du prüfst, änderst und gibst frei\./);
+    expect(lies('pages/dashboard/DashboardBewertungen.js')).toMatch(/Antwort vorschlagen/);
+    /* sofort melden bei schlechten Bewertungen */
+    expect(W.kritisch_offen).toMatch(/meldet dir schlechte Bewertungen sofort/);
+    expect(SE).toMatch(/critical_review_alert/);
+    /* Link, QR, SMS */
+    expect(W.wenige_bewertungen).toMatch(/per Link, QR-Code oder SMS/);
+    expect(lies('pages/dashboard/DashboardKundenGewinnung.js')).toMatch(/QRCodeSVG/);
+    expect(lies('components/dashboard/SmsBewertungsanfrage.js')).toMatch(/EINWILLIGUNG_HINWEIS/);
+    /* direkt eintragen → Google */
+    expect(W.profil_luecke).toMatch(/du trägst sie gleich dort ein – die Änderung geht direkt an Google\./);
+    expect(lies('../supabase/functions/google-business/index.ts')).toMatch(/updateMask/);
+    /* nirgends: automatisch antworten / veroeffentlichen / Ranking */
+    for (const t of Object.values(W)) expect(t).not.toMatch(/automatisch|Ranking|garantiert|Überwach/i);
+  });
+  it('M10 — Typ normalisieren: Schluessel, Nummer, Bezeichnung; sonst null', () => {
+    expect(normalisiereBefundTyp('2')).toBe('unbeantwortet');
+    expect(normalisiereBefundTyp(' Lücken im Profil ')).toBe('profil_luecke');
+    expect(normalisiereBefundTyp('STARKES_PROFIL')).toBe('starkes_profil');
+    for (const x of ['', '6', 'super', null, undefined]) expect(normalisiereBefundTyp(x)).toBeNull();
   });
 });
 
 describe('Nachfass-Mail', () => {
   const erst = mail('A');
-  const n = renderNachfass({ contactPerson: 'Herr Mack', subject: erst.subject, originalText: erst.text, originalSentAt: '2026-11-19T06:30:00Z' });
-  it('N1 — Wortlaut nach Vorgabe, gleicher Betreff wie Mail 1', () => {
-    expect(n.subject).toBe('Ihre Google-Bewertungen');
-    expect(n.text.startsWith('Guten Tag Herr Mack,\n\nkurz nachgehakt: Soll ich Ihnen die drei Punkte zu Ihrem Google-Profil schicken?\n\nEin „Ja“ reicht.\n\nViele Grüße\nIver Bohnes\n\n')).toBe(true);
+  const n = renderNachfass({ contactPerson: 'Alexander Reiser', subject: erst.subject, originalText: erst.text, originalSentAt: '2026-11-19T06:30:00Z' });
+  it('N1 — Wortlaut, gleicher Betreff wie Mail 1, Werkzeug statt Dienstleistung', () => {
+    expect(n.subject).toBe('Deine Google-Bewertungen');
+    expect(n.text.startsWith('Moin Alexander,\n\nkurz nachgehakt: Hast du Lust, WERKRUF kostenlos auszuprobieren? Ein „Ja“ reicht.\n\nBeste Grüße\nIver\n\n')).toBe(true);
     expect(n.senderName).toBe('Iver Bohnes');
   });
-  it('N2 — Erstmail als Zitat darunter (Brevo setzt keine In-Reply-To-Header)', () => {
-    expect(n.text).toMatch(/Am 19\.11\.2026 schrieb Iver Bohnes:\n> Guten Tag Herr Mack,/);
-    expect(n.text).toContain(`> ${BEFUND}`);
+  it('N2 — Erstmail (gespeicherter Text) als Zitat darunter; ohne Text kein Zitat', () => {
+    expect(n.text).toMatch(/Am 19\.11\.2026 schrieb Iver Bohnes:\n> Moin Alexander,/);
+    expect(n.text).toContain(`> ich bin gerade über dein Google-Profil gestolpert. Dabei ist mir aufgefallen: ${BEFUND}`);
     expect(n.html).toMatch(/<blockquote/);
     expect(n.text).not.toMatch(/https?:\/\//);
+    const ohne = renderNachfass({ contactPerson: 'Max', subject: 'X', originalText: '' });
+    expect(ohne.text).not.toMatch(/schrieb Iver Bohnes/);
     expect(() => renderNachfass({ subject: '', originalText: 'x' })).toThrow();
   });
 });
@@ -123,18 +164,17 @@ describe('Antworten, Quoten, Vorlage', () => {
       .toEqual({ zustellRate: 86.1, oeffnungsRate: 36.8, antwortRate: 0, positivRate: 0 });
     expect(akquiseQuoten({})).toEqual({ zustellRate: null, oeffnungsRate: null, antwortRate: null, positivRate: null });
   });
-  it('Q3 — Vorlage fuer ein „Ja": Platzhalter fuer drei Punkte, Founding-Partner-Angebot erst hier; ehrlicher Wortlaut', () => {
-    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/\{Punkt 1\}[\s\S]*\{Punkt 2\}[\s\S]*\{Punkt 3\}/);
-    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/Founding Partner dauerhaft kostenlos/);
-    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/schickt montags eine kurze Mail/);
-    /* Wochenmail kommt jeden Montag — „meldet sich nur, wenn …" waere falsch; kein „überwacht" */
-    expect(ANTWORT_VORLAGE_POSITIV).not.toMatch(/meldet sich nur|überwacht|Überwachung/);
-    /* nirgends automatisch verwendet */
+  it('Q3 — Vorlage fuer ein „Ja": Du-Form, Founding Partner erst hier, Anmeldung selbst; ehrlicher Wortlaut; nie automatisch', () => {
+    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/^Moin \{Vorname\},/);
+    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/einer von zehn Founding Partnern/);
+    expect(ANTWORT_VORLAGE_POSITIV).toMatch(/https:\/\/werkruf\.com\/signup/);
+    expect(ANTWORT_VORLAGE_POSITIV).not.toMatch(/meldet sich nur|überwacht|Überwachung|\bSie\b|\bIhnen\b/);
     expect(ohneKommentare(AO)).not.toMatch(/ANTWORT_VORLAGE_POSITIV/);
     expect(ohneKommentare(SE)).not.toMatch(/ANTWORT_VORLAGE_POSITIV/);
   });
   it('Q4 — Versand- und Nachfassgruende haben Text', () => {
-    for (const k of ['befund_fehlt', 'variante_fehlt', 'bereits_angeschrieben', 'nachfass_nicht_moeglich']) expect(VERSAND_GRUND_TEXT[k]).toBeTruthy();
+    for (const k of ['befund_fehlt', 'befund_typ_fehlt', 'variante_fehlt', 'bereits_angeschrieben', 'nachfass_nicht_moeglich']) expect(VERSAND_GRUND_TEXT[k]).toBeTruthy();
+    expect(MIG171).toContain("'befund_typ_fehlt'");
     for (const k of ['kein_lead', 'gesperrt', 'antwort_erfasst', 'bereits_nachgefasst', 'keine_erstmail']) expect(NACHFASS_GRUND_TEXT[k]).toBeTruthy();
     /* dieselben Codes wie in der Datenbank */
     for (const k of Object.keys(NACHFASS_GRUND_TEXT)) expect(MIG).toContain(`'${k}'`);
@@ -160,6 +200,12 @@ describe('Allowlist', () => {
     expect(pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_preview', parameter: { leadId: LEAD_ID, art: 'nachfass' } }).parameter).toEqual({ leadId: LEAD_ID, art: 'nachfass' });
     expect(pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_preview', parameter: { leadId: LEAD_ID, art: 'fp' } }).status).toBe(400);
   });
+  it('A4 — Lead-Feld finding_type: editierbar, normalisiert, unbekannt → Fehler', () => {
+    expect(LEAD_FELDER).toContain('finding_type');
+    expect(pruefeLeadEingabe({ finding_type: '5' }, { neu: false })).toEqual({ ok: true, werte: { finding_type: 'profil_luecke' } });
+    expect(pruefeLeadEingabe({ finding_type: '' }, { neu: false })).toEqual({ ok: true, werte: { finding_type: null } });
+    expect(pruefeLeadEingabe({ finding_type: 'irgendwas' }, { neu: false }).ok).toBe(false);
+  });
   it('A3 — Lead-Feld google_profile_finding: editierbar, max. 600 Zeichen', () => {
     expect(LEAD_FELDER).toContain('google_profile_finding');
     expect(pruefeLeadEingabe({ google_profile_finding: `  ${BEFUND} ` }, { neu: false })).toEqual({ ok: true, werte: { google_profile_finding: BEFUND } });
@@ -176,6 +222,13 @@ describe('CSV-Import', () => {
     expect(r.ok).toBe(true);
     const z = bereiteImportVor(r.zeilen);
     expect(z[0].werte).toEqual({ company_name: 'Mack', email: 'info@mack.de', google_profile_finding: BEFUND });
+  });
+  it('I1b — finding_type: Nummer, Schluessel oder Bezeichnung → Schluessel; unbekannter Typ → Zeilenfehler', () => {
+    const r = csvZuZeilen(`company_name,email,google_profile_finding,finding_type\nA,a@x.de,"${BEFUND}",2\nB,b@x.de,"${BEFUND}",Lücken im Profil\nC,c@x.de,"${BEFUND}",starkes_profil\nD,d@x.de,"${BEFUND}",super\nE,e@x.de,,\n`);
+    const z = bereiteImportVor(r.zeilen);
+    expect(z.map((x) => x.werte?.finding_type ?? null)).toEqual(['unbeantwortet', 'profil_luecke', 'starkes_profil', null, null]);
+    expect(z[3].fehler).toMatch(/Befund-Typ unbekannt: super/);
+    expect(z[4].fehler).toBeNull();
   });
   it('I2 (Test 14) — alte CSV ohne die Spalte: Import geht, Lead ohne Befund (nicht versandbereit)', () => {
     const r = csvZuZeilen('company_name,email,personalized_sentence\nAlt GmbH,alt@x.de,Satz\n');
@@ -198,6 +251,11 @@ describe('Server (Quelltext)', () => {
     const senden = ao.slice(ao.indexOf('async function akquiseSenden'), ao.indexOf('async function akquiseNachfassen'));
     expect(senden).toMatch(/if \(!befundGueltig\(lead\.googleProfileFinding\)\) \{[\s\S]*?return \{ ok: false, code: 'befund_fehlt' \};/);
     expect(senden.indexOf("rpc('acquisition_assign_subject_variant'")).toBeLessThan(senden.indexOf("rpc('acquisition_outreach_send'"));
+    expect(senden).toMatch(/if \(!lead\.findingType \|\| !BEFUND_TYP_SCHLUESSEL\.includes\(lead\.findingType as string\)\) \{[\s\S]*?return \{ ok: false, code: 'befund_typ_fehlt' \};/);
+    /* exakter Text von Mail 1 geht als Snapshot in die DB (Zitat im Nachfass) */
+    expect(senden).toMatch(/findingType: lead\.findingType, variante, text: r\.text \}/);
+    expect(MIG171).toMatch(/v_text := left\(nullif\(btrim\(coalesce\(p_payload ->> 'text', ''\)\), ''\), 6000\);/);
+    expect(MIG171).toMatch(/if v_lead\.finding_type is null then return jsonb_build_object\('ok', false, 'reason', 'befund_typ_fehlt'\); end if;/);
     expect(senden).toMatch(/p_template: 'outreach_erstkontakt'/);
     const sql = MIG.slice(MIG.indexOf('create or replace function public.acquisition_outreach_send'), MIG.indexOf('/* ═══ 13'));
     expect(sql).toMatch(/if v_befund is null then return jsonb_build_object\('ok', false, 'reason', 'befund_fehlt'\); end if;/);
