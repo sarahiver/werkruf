@@ -61,9 +61,9 @@ const Karte = styled.div`
   border: 1px solid rgba(255,255,255,.12);
 `;
 const Ueber = styled.p`
-  font-family: var(--font-body); font-size: .62rem; font-weight: 700;
+  font-family: var(--font-body); font-size: .72rem; font-weight: 700;
   letter-spacing: .1em; text-transform: uppercase;
-  color: rgba(255,255,255,.55); margin: 0 0 4px;
+  color: rgba(255,255,255,.7); margin: 0 0 4px;
 `;
 const Name = styled.p`
   font-family: var(--font-body); font-weight: 700; font-size: .9rem;

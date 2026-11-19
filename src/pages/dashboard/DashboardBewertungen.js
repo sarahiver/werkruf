@@ -41,7 +41,8 @@ const ReviewCard = styled(Card)`
 const ZeigtZeile = styled.p`
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   margin: 0 0 12px; font-family: var(--font-body); font-size: .82rem; color: var(--color-text-muted);
-  button { background: none; border: none; cursor: pointer; padding: 0;
+  /* Mobil: 40 px hohe Tippflaeche statt 16 px Textzeile. */
+  button { background: none; border: none; cursor: pointer; padding: 10px 0; min-height: 40px;
            font-family: inherit; font-size: inherit; font-weight: 700; color: var(--color-primary); text-decoration: underline; }
 `;
 

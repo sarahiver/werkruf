@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { Megaphone, Loader, Check, Sparkles, X } from 'lucide-react';
 import supabase from '../../supabaseClient';
@@ -30,10 +30,12 @@ const Titel = styled.h2`
   color: var(--color-primary); text-transform: var(--text-transform);
   svg { color: var(--color-accent); }
 `;
-const Schliessen = styled.button`background: none; border: 0; cursor: pointer; color: var(--color-text-muted); padding: 4px;`;
+const Schliessen = styled.button`background: none; border: 0; cursor: pointer; color: var(--color-text-muted); padding: 0; min-width: 44px; min-height: 44px; margin: -10px -12px 0 0; display: flex; align-items: center; justify-content: center;`;
 const Inhalt = styled.div`
   display: grid; grid-template-columns: 160px 1fr; gap: 18px; margin-top: 8px;
   @media (max-width: 640px) { grid-template-columns: 1fr; }
+  /* Handy: Foto klein, damit Text und Knopf ohne Scrollen sichtbar sind. */
+  @media (max-width: 640px) { & > img { max-width: 140px; } }
 `;
 const Vorschau = styled.img`width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--color-border);`;
 const Label = styled.label`display: block; font-family: var(--font-body); font-size: .78rem; color: var(--color-text-muted); margin: 0 0 4px;`;
@@ -93,6 +95,13 @@ export default function FotoBeitragDialog({ foto, location, onClose, rufe = rufe
   const [hinweis, setHinweis] = useState('');
   const [fehler, setFehler] = useState('');
   const [ergebnis, setErgebnis] = useState(null);
+  const karte = useRef(null);
+
+  /* Mobil-Check: Der Dialog steht ueber der Galerie. Vorher sprang die
+     Seite ganz nach oben (zum Upload), der Dialog lag ausser Sicht. */
+  useEffect(() => {
+    try { karte.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* jsdom */ }
+  }, [foto?.id]);
 
   const pruefung = pruefeBeitragstext(text);
   const zeichen = [...text].length;
@@ -119,7 +128,7 @@ export default function FotoBeitragDialog({ foto, location, onClose, rufe = rufe
   };
 
   return (
-    <Card data-testid="foto-beitrag">
+    <Card data-testid="foto-beitrag" ref={karte} style={{ scrollMarginTop: 72 }}>
       <Kopf>
         <Titel><Megaphone size={18} /> Beitrag aus diesem Foto</Titel>
         <Schliessen type="button" onClick={onClose} aria-label="Schließen"><X size={18} /></Schliessen>

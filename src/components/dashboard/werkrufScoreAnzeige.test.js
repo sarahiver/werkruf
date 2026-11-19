@@ -156,7 +156,7 @@ describe('Anzeige', () => {
   it('bleibt bei niedriger Datenlage sichtbar und erklärt sie', () => {
     render(<WerkrufScore score={score} />);
     expect(screen.getByText('15')).toBeInTheDocument();
-    expect(screen.getByText(/Für einen höheren Score fehlen/)).toBeInTheDocument();
+    expect(screen.getByText(/Noch ohne Punkte/)).toBeInTheDocument();
   });
 });
 

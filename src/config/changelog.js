@@ -22,6 +22,12 @@ export const CHANGELOG = Object.freeze([
     monat: 'November 2026',
     eintraege: [
       {
+        kategorie: 'verbessert',
+        titel: 'Dashboard auf dem Handy',
+        text: 'Größere Knöpfe, Fotos am Handy löschbar, nichts läuft mehr seitlich aus dem Bild. Die Übersicht nennt direkt, was ansteht, und die Hilfe ist im Menü.',
+        hilfe: null,
+      },
+      {
         kategorie: 'neu',
         titel: 'Beitrag aus einem Foto',
         text: 'Aus einem hochgeladenen Foto einen Google-Beitrag machen: WERKRUF schlägt einen kurzen Text vor, du prüfst, änderst und veröffentlichst ihn mit dem Foto.',
