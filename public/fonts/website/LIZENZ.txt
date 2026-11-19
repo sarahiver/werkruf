@@ -1,0 +1,4 @@
+Schriften fuer die Kunden-Websites (src/utils/website.js), selbst gehostet.
+Quelle: Fontsource (npm @fontsource/*), Teilmenge "latin".
+Bitter, Source Sans 3, Archivo, Barlow, Barlow Condensed —
+alle unter der SIL Open Font License 1.1 (https://openfontlicense.org).

@@ -39,6 +39,7 @@ import DashboardSupport        from './pages/dashboard/DashboardSupport';
 import DashboardBewertungen    from './pages/dashboard/DashboardBewertungen';
 import DashboardGoogleBusiness from './pages/dashboard/DashboardGoogleBusiness';
 import DashboardFotos          from './pages/dashboard/DashboardFotos';
+import DashboardWebsite        from './pages/dashboard/DashboardWebsite';
 import DashboardKundenGewinnung from './pages/dashboard/DashboardKundenGewinnung';
 import ProGate                 from './components/dashboard/ProGate';
 import Impressum            from './pages/Impressum';
@@ -183,6 +184,7 @@ function App() {
                 <ProGate feature="Bewertungen"><DashboardBewertungen /></ProGate>
               } />
               <Route path="fotos" element={<DashboardFotos />} />
+              <Route path="website" element={<DashboardWebsite />} />
               <Route path="kunden-gewinnung" element={<DashboardKundenGewinnung />} />
               {/* "Entwicklung"/Reporting am 21.10.2026 aus dem Produkt
                   genommen — siehe NAV_ITEMS in DashboardLayout. Wer die

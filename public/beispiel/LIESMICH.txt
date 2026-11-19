@@ -1,0 +1,5 @@
+Platzhalter fuer den Beispiel-Betrieb (werkruf.com/seite/beispiel).
+Bitte durch lizenzfreie Fotos ersetzen (gleiche Dateinamen 1.jpg … 8.jpg,
+quer, mind. 1800 px breit, ohne erkennbare Personen/Kennzeichen):
+1 = Titelbild (Arbeit am Objekt), 2 = Ueber-uns-Bild (hoch geschnitten),
+3–8 = Galerie.
