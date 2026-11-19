@@ -165,6 +165,10 @@ describe('Allowlist (adminOps.js)', () => {
     const list = pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_list', parameter: { limit: 9999, status: '', suche: ' x ' } });
     expect(list.parameter).toEqual({ status: 'alle', suche: 'x', limit: 500 });
     expect(pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_list', parameter: { status: 'opened' } }).status).toBe(400);
+    /* WP17.2: Listenfilter erlaubt — aber nie als setzbarer Status */
+    const faellig = pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_list', parameter: { status: 'nachfassen_faellig' } });
+    expect(faellig.parameter).toEqual({ status: 'nachfassen_faellig', suche: '', limit: 100 });
+    expect(pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_set_status', parameter: { leadId: LEAD_ID, status: 'nachfassen_faellig' } }).status).toBe(400);
   });
   it('T13 — Audit fuer Leads: entity_type leads, keine Nutzer-ID', () => {
     const e = baueAuditEintrag({ aktion: 'acquisition_lead_create', adminId: ADMIN.id, userId: null, erfolg: true, ergebnis: { x: 1 }, entityType: 'leads', entityId: LEAD_ID });
@@ -595,6 +599,18 @@ describe('Akquise-Bauteil', () => {
     expect(screen.queryByTestId('akquise-faellig-knopf')).toBeNull();
     /* Anzeigen versendet nichts */
     expect(calls.filter((c) => ['acquisition_send', 'acquisition_followup', 'acquisition_preview'].includes(c.action))).toHaveLength(0);
+  });
+
+  it('WP17.2 — jeder Wert des Statusfilters besteht die echte Allowlist (pruefeAnfrage)', async () => {
+    const { ops } = mockOps({ leads: [FAELLIG], kpiExtra: { nachfassenFaellig: 1 } });
+    render(<Akquise rufeAdminOps={ops} />);
+    await screen.findByText('Faellig GmbH');
+    const werte = [...screen.getByTestId('akquise-filter').querySelectorAll('option')].map((o) => o.value);
+    expect(werte).toContain('nachfassen_faellig');
+    for (const status of werte) {
+      const r = pruefeAnfrage({ authUser: ADMIN, aktion: 'acquisition_list', parameter: { status } });
+      expect([status, r.fehler ?? 'ok']).toEqual([status, 'ok']);
+    }
   });
 
   it('WP17.2 — Liste: Chip nur bei fälligen Leads; kein Knopf, wenn niemand fällig ist', async () => {
