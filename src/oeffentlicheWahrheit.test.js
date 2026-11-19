@@ -297,5 +297,7 @@ describe('Vorschau beim Teilen und Startseite (19.11.2026)', () => {
     expect(w).toMatch(/from '\.\.\/config\/anbieter'/);
     expect(w).not.toMatch(/info@werkruf\.com|\+49 176/);   // nichts doppelt hart codiert
     expect(ohneKommentare(lies('src/pages/HomePage.js'))).toMatch(/<WerDahinter \/>/);
+    /* Telefonnummer nur im Impressum (Entscheidung 19.11.2026) */
+    expect(w).not.toMatch(/telefon|Phone/);
   });
 });
