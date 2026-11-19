@@ -191,7 +191,10 @@ begin
 
   /* Pause gilt Account-weit — unabhaengig vom gewaehlten Standort */
   assert (pg_temp.entscheidung(v_a, v_mo, 'weekly_email') ->> 'send')::boolean = false, 'Multi: Standort 1';
-  update public.google_locations set selected_at = case when id = v_zwei then now() else null end where user_id = v_a;
+  /* Erst abwaehlen, dann waehlen — wie der Fix 20260929090000; ein einzelnes
+     UPDATE verletzt je nach Zeilenreihenfolge den Unique-Index. */
+  update public.google_locations set selected_at = null where user_id = v_a and id <> v_zwei;
+  update public.google_locations set selected_at = now() where id = v_zwei;
   assert (pg_temp.entscheidung(v_a, v_mo, 'weekly_email') ->> 'send')::boolean = false, 'Multi: Standort 2 nicht pausiert';
   /* Nachbar-Account unberuehrt */
   assert not public.is_account_paused(v_b), 'Multi: Nachbar pausiert';

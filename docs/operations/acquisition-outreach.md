@@ -331,3 +331,11 @@ Antwort erfasst, noch nicht nachgefasst und der Lead nicht gesperrt ist.
   „Nachfassen ist fällig".
 - Frühes Nachfassen sperrt die Datenbank bewusst nicht — das bleibt eine Entscheidung des
   Admins. Gesendet wird weiterhin nur nach Vorschau und Bestätigung.
+
+## Stundenlimit entfernt (19.11.2026)
+
+`acquisition_outreach_send()` (Mail 1 und Nachfassen) lehnt nicht mehr ab 20 Nachrichten
+pro Stunde ab (Migration `20261120100000_akquise_ohne_stundenlimit.sql`). Weiter wirksam:
+Vorschau → Bestätigung je Lead, Idempotenz-Schlüssel, „läuft bereits"-Sperre, Befund +
+Typ Pflicht, Sperren. Der alte FP-Pfad `acquisition_outreach_begin()` (Rate-Schutz 20/h)
+ist unverändert und wird nicht mehr genutzt.
