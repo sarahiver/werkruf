@@ -74,7 +74,7 @@ export default function WerDahinter() {
         <Eyebrow>Wer dahintersteht</Eyebrow>
         <Titel>Gebaut in Hamburg — von jemandem, den du erreichst.</Titel>
         <Text>
-          Ich bin {a.name} und entwickle {a.angebot} selbst, in {a.ort}. Kein Konzern, kein
+          Ich bin Iver und entwickle {a.angebot} selbst, in {a.ort}. Kein Konzern, kein
           Callcenter: Wenn du eine Frage hast oder etwas nicht so funktioniert, wie es soll,
           landest du direkt bei mir.
         </Text>
