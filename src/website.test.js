@@ -3,6 +3,7 @@
  * Geprueft wird die Wirkung (was auf der Seite steht / was abgewiesen wird).
  */
 import {
+  beispielModell, heuteStatus, gewerkSymbol, WEBSITE_STILE,
   slugAus, slugGueltig, pruefeImpressum, pruefeWebsiteEingabe, baueModell, renderSeite, startWerte,
   pruefeWebsiteTexte, kurzName, oeffnungszeitenAus, eigenesBild, WEBSITE_FARBEN,
 } from './utils/website';
@@ -126,14 +127,16 @@ describe('Vorlage', () => {
 
   it('baut Startseite mit Name, Gewerk, Ort, Telefon und gewählter Farbe', () => {
     expect(start.status).toBe(200);
-    expect(start.html).toContain('<h1>Elektro Krause – Elektriker in Hamburg</h1>');
+    expect(start.html).toContain('<h1>Elektro Krause</h1>');
+    expect(start.html).toContain('<span>Elektriker in Hamburg</span>');
+    expect(start.html).toContain('<title>Elektro Krause – Elektriker in Hamburg</title>');
     expect(start.html).toContain('href="tel:040123456"');
     expect(start.html).toContain(WEBSITE_FARBEN.waldgruen.primaer);
     expect(start.html).toContain('mailto:anfrage@krause.de');
     expect(start.html).toContain('<link rel="canonical" href="https://werkruf.com/seite/elektro-krause/">');
   });
   it('nutzt das gewählte Titelbild und lässt ausgeblendete Fotos weg', () => {
-    expect(start.html).toContain('w_1600,c_limit,f_auto,q_auto/v1/werkruf/profiles/' + UID + '/b.jpg');
+    expect(start.html).toContain('w_1800,h_1000,c_fill,g_auto,e_improve,f_auto,q_auto/v1/werkruf/profiles/' + UID + '/b.jpg');
     expect(start.html).not.toContain('/c.jpg');
   });
   it('zeigt Bewertungen ungefiltert mit gekürzten Namen und Hinweis', () => {
@@ -189,4 +192,50 @@ describe('KI-Textvorschlag', () => {
     expect(pruefeWebsiteTexte(JSON.stringify({ slogan: 'Ab 99 €', ueber: '', leistungen: [] }), []).ok).toBe(false);
     expect(pruefeWebsiteTexte('```json\n{"slogan":"Gut gemacht.","ueber":"","leistungen":[]}\n```', []).ok).toBe(true);
   });
+});
+
+describe('Stile, Beispiel und Öffnungsstatus', () => {
+  const perioden = LOCATION.google_profile.regularHours.periods;
+  /* 2026-11-23 ist ein Montag; Berlin = UTC+1 */
+  const um = (utc) => new Date(`2026-11-23T${utc}:00Z`);
+  it('sagt korrekt, ob heute geöffnet ist (Berliner Zeit)', () => {
+    expect(heuteStatus(perioden, um('09:00'))).toEqual({ offen: true, text: 'Jetzt geöffnet bis 17:00' });
+    expect(heuteStatus(perioden, um('06:30'))).toEqual({ offen: false, text: 'Heute ab 08:00 geöffnet' });
+    expect(heuteStatus(perioden, um('17:30'))).toEqual({ offen: false, text: 'Heute geschlossen' });
+    expect(heuteStatus([], um('09:00'))).toBeNull();
+  });
+  it('rendert jeden Stil mit eigener, selbst gehosteter Schrift', () => {
+    const schrift = { meister: 'bitter-latin-700', modern: 'archivo-latin-700', kraeftig: 'barlow-condensed-latin-800' };
+    for (const stil of Object.keys(WEBSITE_STILE)) {
+      const { html } = renderSeite(beispielModell({ stil }), '/', { basis: '/seite/beispiel' });
+      expect(html).toContain(`/fonts/website/${schrift[stil]}-normal.woff2`);
+      expect(html).not.toMatch(/fonts\.googleapis|fonts\.gstatic/);
+    }
+  });
+  it('kennzeichnet den Beispiel-Betrieb als erfunden und lässt ihn nicht indexieren', () => {
+    const { html } = renderSeite(beispielModell(), '/');
+    expect(html).toContain('Dieser Betrieb ist erfunden');
+    expect(html).toContain('noindex,nofollow');
+  });
+  it('reserviert die Adresse „beispiel" für den Beispiel-Betrieb', () => {
+    expect(slugGueltig('beispiel')).toBe(false);
+  });
+  it('wählt das Gewerk-Symbol nach Kategorie', () => {
+    expect(gewerkSymbol('Elektriker')).toContain('M13 2');
+    expect(gewerkSymbol('Dachdecker')).toContain('M3 12');
+    expect(gewerkSymbol('Unbekannt')).toContain('M14.7');
+  });
+  it('übernimmt nur bekannte Stile', () => {
+    expect(pruefeWebsiteEingabe({ stil: 'kraeftig' }, { userId: UID }).werte.stil).toBe('kraeftig');
+    expect(pruefeWebsiteEingabe({ stil: 'barock' }, { userId: UID }).werte.stil).toBe('meister');
+  });
+});
+
+it('hält bei jeder Farbe 4,5:1 für weiße Schrift auf Primär- und Akzentfarbe', () => {
+  const L = (h) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const kontrast = (h) => 1.05 / (L(h) + 0.05);
+  for (const f of Object.values(WEBSITE_FARBEN)) {
+    expect(kontrast(f.primaer)).toBeGreaterThanOrEqual(4.5);
+    expect(kontrast(f.akzent)).toBeGreaterThanOrEqual(4.5);
+  }
 });

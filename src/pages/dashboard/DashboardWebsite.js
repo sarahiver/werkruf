@@ -5,7 +5,7 @@ import ProGate from '../../components/dashboard/ProGate';
 import supabase from '../../supabaseClient';
 import { bestimmeZielstandort, uploadToCloudinary } from './DashboardFotos';
 import {
-  WEBSITE_FARBEN, GRENZEN, RECHTSFORMEN, IMPRESSUM_FELDER, WEBSITE_GRUND_TEXT, pruefeImpressum,
+  WEBSITE_FARBEN, WEBSITE_STILE, GRENZEN, RECHTSFORMEN, IMPRESSUM_FELDER, WEBSITE_GRUND_TEXT, pruefeImpressum,
 } from '../../utils/website';
 
 /*
@@ -71,6 +71,13 @@ const FarbKnopf = styled.button`
   font-family: var(--font-body); font-size: .78rem; color: var(--color-text);
   i { display: flex; width: 44px; height: 22px; border-radius: 6px; overflow: hidden; }
   i b { flex: 2; } i s { flex: 1; text-decoration: none; }
+`;
+const Stile = styled.div`display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;`;
+const StilKnopf = styled.button`
+  text-align: left; padding: 12px; border-radius: 10px; cursor: pointer; background: #fff; min-height: 44px;
+  border: 2px solid ${(p) => (p.$aktiv ? 'var(--color-accent)' : 'var(--color-border)')};
+  font-family: var(--font-body); color: var(--color-text);
+  b { display: block; font-size: .92rem; } span { font-size: .78rem; color: var(--color-text-muted); }
 `;
 const Fotos = styled.div`display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;`;
 const FotoKachel = styled.button`
@@ -276,6 +283,17 @@ export default function DashboardWebsite({ api = rufe, standortLaden = bestimmeZ
               <div>
                 <Karte>
                   <KTitel><span className="n">1</span> Aussehen</KTitel>
+                  <Label as="div" style={{ marginTop: 0 }}>Stil</Label>
+                  <Stile role="radiogroup" aria-label="Stil">
+                    {Object.entries(WEBSITE_STILE).map(([key, st]) => (
+                      <StilKnopf key={key} type="button" role="radio" aria-checked={werte.stil === key} $aktiv={werte.stil === key} onClick={() => setze('stil', key)} data-testid={`stil-${key}`}>
+                        <b>{st.label}</b><span>{st.beschreibung}</span>
+                      </StilKnopf>
+                    ))}
+                  </Stile>
+                  <Hinweis>
+                    <a href={`/seite/beispiel?stil=${werte.stil || 'meister'}&farbe=${werte.farbe || 'marine'}`} target="_blank" rel="noopener noreferrer">Beispiel-Betrieb in diesem Stil ansehen <ExternalLink size={11} /></a>
+                  </Hinweis>
                   <Label as="div">Farbe</Label>
                   <Farben role="radiogroup" aria-label="Farbe">
                     {Object.entries(WEBSITE_FARBEN).map(([key, f]) => (

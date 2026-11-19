@@ -80,3 +80,10 @@ it('zeigt einen Ladefehler statt einer leeren Seite und lädt auf Wunsch neu', a
   fireEvent.click(screen.getByText('Erneut versuchen'));
   expect(await screen.findByTestId('website-status')).toBeInTheDocument();
 });
+
+it('speichert den gewählten Stil', async () => {
+  const api = aufbau({ ...werte(IMPRESSUM_OK), stil: 'meister' });
+  fireEvent.click(await screen.findByTestId('stil-kraeftig'));
+  fireEvent.click(screen.getByTestId('website-speichern'));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('speichern', expect.objectContaining({ werte: expect.objectContaining({ stil: 'kraeftig' }) })));
+});

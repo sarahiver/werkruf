@@ -23,7 +23,7 @@ function sende(res, status, html, cache) {
   res.setHeader('Cache-Control', cache);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src https://res.cloudinary.com; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' https://res.cloudinary.com; font-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
   res.end(html);
 }
 
@@ -38,7 +38,11 @@ module.exports = async function handler(req, res) {
 
   let daten;
   try {
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/website/seite?slug=${encodeURIComponent(slug)}&pfad=${encodeURIComponent(`/${rest}`)}`, {
+    /* Nur der Beispiel-Betrieb kennt ?stil= und ?farbe= (zum Vergleichen). */
+    const extra = slug === 'beispiel'
+      ? ['stil', 'farbe'].filter((k) => /^[a-z]{3,20}$/.test(q.get(k) || '')).map((k) => `&${k}=${q.get(k)}`).join('')
+      : '';
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/website/seite?slug=${encodeURIComponent(slug)}&pfad=${encodeURIComponent(`/${rest}`)}${extra}`, {
       headers: { Accept: 'application/json' },
     });
     if (!r.ok) throw new Error(`status_${r.status}`);

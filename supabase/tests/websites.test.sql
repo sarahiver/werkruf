@@ -68,3 +68,20 @@ begin
   assert not pg_catalog.has_table_privilege('anon', 'public.websites', 'SELECT'), 'W5: anon darf lesen';
   assert (select relrowsecurity from pg_class where oid = 'public.websites'::regclass), 'W5: RLS aus';
 end $$;
+
+/* W6 — Stil nur aus der festen Auswahl */
+begin;
+select test.basis();
+do $$
+declare v_a uuid := test.id('user_a'); ok boolean;
+begin
+  insert into public.websites (user_id, location_id, slug) values (v_a, test.id('standort_werkruf'), 'stil-test');
+  assert (select stil from public.websites where slug = 'stil-test') = 'meister', 'W6: Standardstil nicht meister';
+  update public.websites set stil = 'kraeftig' where slug = 'stil-test';
+  begin
+    update public.websites set stil = 'bunt' where slug = 'stil-test';
+    ok := false;
+  exception when check_violation then ok := true; end;
+  assert ok, 'W6: unbekannter Stil angenommen';
+end $$;
+rollback;

@@ -26,7 +26,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import {
-  baueModell, renderSeite, startWerte, pruefeWebsiteEingabe, pruefeImpressum, slugAus, slugGueltig,
+  baueModell, renderSeite, startWerte, beispielModell, pruefeWebsiteEingabe, pruefeImpressum, slugAus, slugGueltig,
   websiteTextSystem, websiteTextAnfrage, pruefeWebsiteTexte, gewerkAus, adresseAus, einzugsgebietAus,
   VORSCHLAEGE_PRO_TAG,
 } from '../../../src/utils/website.js';
@@ -183,7 +183,7 @@ async function freieAdresse(wunsch: string, ort: string, eigeneId: string | null
 function werteAus(w: Zeile | null, location: Zeile): Zeile {
   if (!w) return startWerte({ location, profil: location.google_profile || {} });
   return {
-    farbe: w.farbe, slogan: w.slogan, ueber_text: w.ueber_text, leistungen: w.leistungen ?? [],
+    farbe: w.farbe, stil: w.stil ?? 'meister', slogan: w.slogan, ueber_text: w.ueber_text, leistungen: w.leistungen ?? [],
     kontakt_email: w.kontakt_email ?? '', logo_url: w.logo_url, titelbild_id: w.titelbild_id,
     fotos_aus: w.fotos_aus ?? [], bewertungen_zeigen: w.bewertungen_zeigen, impressum: w.impressum ?? {},
   };
@@ -227,7 +227,7 @@ async function speichern(request: Request): Promise<Response> {
 
   const vorhanden = await websiteVon(location.id, user.id);
   const zeile = {
-    farbe: v.farbe, slogan: v.slogan, ueber_text: v.ueber_text, leistungen: v.leistungen,
+    farbe: v.farbe, stil: v.stil, slogan: v.slogan, ueber_text: v.ueber_text, leistungen: v.leistungen,
     kontakt_email: v.kontakt_email || null, logo_url: v.logo_url, titelbild_id: v.titelbild_id,
     fotos_aus: v.fotos_aus, bewertungen_zeigen: v.bewertungen_zeigen, impressum: v.impressum,
     updated_at: new Date().toISOString(),
@@ -331,6 +331,12 @@ async function seite(request: Request, url: URL): Promise<Response> {
   const pfad = (url.searchParams.get('pfad') || '/').slice(0, 100);
   const basis = `/seite/${slug}`;
   const nichtDa = () => json(request, { status: 404, html: null }, 200, 'public, max-age=60');
+  /* Beispiel-Betrieb: erfunden, ohne Datenbank, fuer Vorschau und Vertrieb. */
+  if (slug === 'beispiel') {
+    const modell = beispielModell({ stil: url.searchParams.get('stil') || undefined, farbe: url.searchParams.get('farbe') || undefined });
+    const r = renderSeite(modell, pfad, { basis });
+    return json(request, { status: r.status, html: r.html }, 200, 'public, max-age=300');
+  }
   if (!slugGueltig(slug)) return nichtDa();
 
   const { data: w, error } = await admin().from('websites').select('*')
