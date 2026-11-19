@@ -19,6 +19,7 @@ import {
   AKQUISE_STATUS, AKQUISE_STATUS_TEXT, EREIGNIS_TEXT, SPERR_EREIGNISSE, normalisiereEmail, pruefeLeadEingabe,
   FP_MAIL_BETREFF, fpMailAbsaetze, renderFpMail, escapeHtml, istGueltigerToken, KPI_DEFINITION, VERSAND_GRUND_TEXT,
   renderErstkontakt,
+  fmtFaelligAb, NACHFASS_WARTE_WERKTAGE,
 } from './utils/akquise';
 import { ADMIN_AKTIONEN, pruefeAnfrage, baueAuditEintrag } from './utils/adminOps';
 import { ereignisArt, EREIGNISSE } from './utils/zustellEreignisse';
@@ -345,13 +346,13 @@ describe('Akquise-Bauteil', () => {
         sender: { name: 'Iver Bohnes', email: 'info@werkruf.com' }, replyTo: 'info@werkruf.com', deliveryMode: 'production', testRecipient: null, blockReason: null }
       : { ok: true, art, sendbar: false, grund: lead.googleProfileFinding ? 'befund_typ_fehlt' : 'befund_fehlt', to: lead.email, subject: null, text: null, deliveryMode: 'production' });
 
-  function mockOps({ deliveryMode = 'production', leads = [LEAD, NEU, OHNE, GESPERRT, OHNE_TYP], sendErgebnis, varianten, befundTypen } = {}) {
+  function mockOps({ deliveryMode = 'production', leads = [LEAD, NEU, OHNE, GESPERRT, OHNE_TYP], sendErgebnis, varianten, befundTypen, kpiExtra } = {}) {
     const calls = [];
     const ops = jest.fn(async (action, params = {}) => {
       calls.push({ action, params });
       const lead = leads.find((l) => l.id === params.leadId) || LEAD;
       switch (action) {
-        case 'acquisition_list': return { leads, kpi: { leads: 4, angeschrieben: 20, zugestellt: 18, oeffnungErkannt: 6, antworten: 3, antwortenPositiv: 1, interesse: 1, foundingPartner: 0, gesperrt: 1 }, varianten: varianten || {}, befundTypen: befundTypen || {}, deliveryMode };
+        case 'acquisition_list': return { leads, kpi: { leads: 4, angeschrieben: 20, zugestellt: 18, oeffnungErkannt: 6, antworten: 3, antwortenPositiv: 1, interesse: 1, foundingPartner: 0, gesperrt: 1, ...(kpiExtra || {}) }, varianten: varianten || {}, befundTypen: befundTypen || {}, deliveryMode };
         case 'acquisition_lead_detail': return DETAIL(lead);
         case 'acquisition_preview': {
           const v = VORSCHAU(lead, params.art);
@@ -575,5 +576,67 @@ describe('Akquise-Bauteil', () => {
     const c = calls.find((c) => c.action === 'acquisition_lead_create');
     expect(c.params.lead).toMatchObject({ company_name: 'Neu GmbH', email: 'neu@firma.de', google_profile_finding: BEFUND });
     expect(Object.keys(c.params.lead)).not.toContain('acquisition_status');
+  });
+
+  /* ═══ WP17.2 — Nachfassen fällig (nur Erinnerung) ═══ */
+  const FAELLIG = { ...LEAD, id: '88888888-8888-4888-8888-888888888888', companyName: 'Faellig GmbH', email: 'f@faellig.de', followupAb: '2026-11-17', followupFaellig: true };
+  const WARTET = { ...LEAD, id: '99999999-9999-4999-8999-999999999999', companyName: 'Wartet GmbH', email: 'w@wartet.de', followupAb: '2026-11-26', followupFaellig: false };
+
+  it('WP17.2 — Filter „Nachfassen fällig" fragt den Server mit status nachfassen_faellig; KPI + Knopf mit Anzahl', async () => {
+    const { ops, calls } = mockOps({ leads: [FAELLIG, WARTET, NEU], kpiExtra: { nachfassenFaellig: 1 } });
+    render(<Akquise rufeAdminOps={ops} />);
+    await screen.findByText('Faellig GmbH');
+    expect(screen.getByTestId('akquise-kpi-nachfassenFaellig')).toHaveTextContent('1');
+    expect(screen.getByTestId('akquise-kpi-nachfassenFaellig')).toHaveTextContent('Nachfassen fällig');
+    expect(screen.getByRole('option', { name: 'Nachfassen fällig (1)' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('akquise-faellig-knopf'));
+    await waitFor(() => expect(calls.filter((c) => c.action === 'acquisition_list').pop().params.status).toBe('nachfassen_faellig'));
+    expect(screen.getByTestId('akquise-filter')).toHaveValue('nachfassen_faellig');
+    expect(screen.queryByTestId('akquise-faellig-knopf')).toBeNull();
+    /* Anzeigen versendet nichts */
+    expect(calls.filter((c) => ['acquisition_send', 'acquisition_followup', 'acquisition_preview'].includes(c.action))).toHaveLength(0);
+  });
+
+  it('WP17.2 — Liste: Chip nur bei fälligen Leads; kein Knopf, wenn niemand fällig ist', async () => {
+    const { ops } = mockOps({ leads: [FAELLIG, WARTET, NEU], kpiExtra: { nachfassenFaellig: 0 } });
+    render(<Akquise rufeAdminOps={ops} />);
+    await screen.findByText('Faellig GmbH');
+    expect(screen.getAllByTestId('akquise-faellig')).toHaveLength(1);
+    expect(screen.getAllByTestId('akquise-lead')[0]).toHaveTextContent('Nachfassen fällig');
+    expect(screen.queryByTestId('akquise-faellig-knopf')).toBeNull();
+  });
+
+  it('WP17.2 — Detail: vor Ablauf „Nachfassen ab Do, 26.11." + „Trotzdem jetzt nachfassen"; fällig: Hinweis + normaler Knopf', async () => {
+    const { ops, calls } = mockOps({ leads: [FAELLIG, WARTET] });
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Wartet GmbH'));
+    expect(await screen.findByTestId('akquise-nachfass-ab')).toHaveTextContent('Nachfassen ab Do, 26.11. (5 Werktage nach Mail 1)');
+    expect(screen.getByTestId('akquise-nachfassen')).toHaveTextContent('Trotzdem jetzt nachfassen');
+    expect(screen.queryByTestId('akquise-nachfass-faellig')).toBeNull();
+    fireEvent.click(screen.getByText('Faellig GmbH'));
+    expect(await screen.findByTestId('akquise-nachfass-faellig')).toHaveTextContent('Nachfassen ist fällig (seit Di, 17.11.)');
+    expect(screen.getByTestId('akquise-nachfassen')).toHaveTextContent(/^\s*Nachfassen$/);
+    expect(screen.queryByTestId('akquise-nachfass-ab')).toBeNull();
+    /* Früh nachfassen bleibt ein bewusster Klick → Vorschau, nicht Versand */
+    fireEvent.click(screen.getByText('Wartet GmbH'));
+    fireEvent.click(await screen.findByText(/Trotzdem jetzt nachfassen/));
+    await screen.findByTestId('akquise-vorschau-inhalt');
+    expect(calls.filter((c) => c.action === 'acquisition_followup')).toHaveLength(0);
+  });
+
+  it('WP17.2 — fmtFaelligAb: reines Datum, Wochentag ohne Zeitzonenverschiebung', () => {
+    expect(fmtFaelligAb('2026-11-26')).toBe('Do, 26.11.');
+    expect(fmtFaelligAb('2026-11-30')).toBe('Mo, 30.11.');
+    expect(fmtFaelligAb('2027-01-01')).toBe('Fr, 01.01.');
+    expect(fmtFaelligAb(null)).toBeNull();
+    expect(fmtFaelligAb('quatsch')).toBeNull();
+  });
+
+  it('WP17.2 — Migration: nur Anzeige, keine Versandlogik, kein Cron; 5 Werktage', () => {
+    const M = lies('../supabase/migrations/20261120090000_akquise_nachfassen_faellig.sql');
+    const code = M.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '');
+    expect(code).not.toMatch(/enqueue_email|insert into public\.outreach_messages|cron\.schedule|update public\.leads/i);
+    expect(code).toMatch(/acquisition_werktage_spaeter\(\(min\(m\.sent_at\) at time zone 'Europe\/Berlin'\)::date, 5\)/);
+    expect(NACHFASS_WARTE_WERKTAGE).toBe(5);
   });
 });

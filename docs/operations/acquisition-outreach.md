@@ -316,3 +316,18 @@ Werkzeug-Aussage ist in `src/akquiseAntwortZuerst.test.js` (M9) gegen den Code g
 Nachfass: „Hast du Lust, WERKRUF kostenlos auszuprobieren?" + Zitat des beim Versand
 gespeicherten Mail-1-Texts (`outreach_messages.text_snapshot`). Auswertung je Typ:
 `acquisition_overview.befundTypen` (Typ zum Versandzeitpunkt).
+
+## WP17.2 — „Nachfassen fällig" (19.11.2026)
+
+Nur Erinnerung, kein Automatismus. Nachfassen ist **5 Werktage** (Mo–Fr, Kalender
+Europe/Berlin, ohne Feiertage) nach dem Versand der ersten Mail 1 fällig — sofern keine
+Antwort erfasst, noch nicht nachgefasst und der Lead nicht gesperrt ist.
+
+- Datenbank: `acquisition_werktage_spaeter(date, int)`, `acquisition_followup_ab(lead)`,
+  `acquisition_followup_faellig(lead)`; Übersicht mit Filter `nachfassen_faellig`
+  (älteste zuerst), KPI `nachfassenFaellig`, je Zeile `followupAb`/`followupFaellig`.
+- Admin: Kachel „Nachfassen fällig", Knopf „N zum Nachfassen" und Filteroption, Chip in
+  der Liste; im Lead „Nachfassen ab Do, 26.11." mit „Trotzdem jetzt nachfassen" bzw.
+  „Nachfassen ist fällig".
+- Frühes Nachfassen sperrt die Datenbank bewusst nicht — das bleibt eine Entscheidung des
+  Admins. Gesendet wird weiterhin nur nach Vorschau und Bestätigung.
