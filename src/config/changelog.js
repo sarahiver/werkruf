@@ -22,6 +22,12 @@ export const CHANGELOG = Object.freeze([
     monat: 'November 2026',
     eintraege: [
       {
+        kategorie: 'neu',
+        titel: 'Deine Website aus dem Google-Profil',
+        text: 'Eine fertige Website für deinen Betrieb: Name, Telefon, Öffnungszeiten, Fotos und Bewertungen kommen aus deinem Google-Profil und bleiben aktuell. Du wählst Farbe, Logo und Titelbild, prüfst die Texte und füllst das Impressum aus.',
+        hilfe: null,
+      },
+      {
         kategorie: 'verbessert',
         titel: 'Dashboard auf dem Handy',
         text: 'Größere Knöpfe, Fotos am Handy löschbar, nichts läuft mehr seitlich aus dem Bild. Die Übersicht nennt direkt, was ansteht, und die Hilfe ist im Menü.',

@@ -10,6 +10,14 @@
       "destination": "https://kueoozsfkevmncucrdjd.supabase.co/functions/v1/google-business/p/fp/:token"
     },
     {
+      "source": "/seite/:slug",
+      "destination": "/api/website?slug=:slug&pfad="
+    },
+    {
+      "source": "/seite/:slug/:pfad*",
+      "destination": "/api/website?slug=:slug&pfad=:pfad*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

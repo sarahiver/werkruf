@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components';
 import {
   LayoutDashboard, Star, Image,
-  Settings, LogOut, Menu, X, Users, MapPin, MessageCircle, HelpCircle
+  Settings, LogOut, Menu, X, Users, MapPin, MessageCircle, HelpCircle, Globe
 } from 'lucide-react';
 import { isFoundingPartner, hasPaidAccess } from '../../utils/subscription';
 import { sichererRueckkehrpfad } from '../../utils/checkoutRegeln';
@@ -242,6 +242,7 @@ const NAV_ITEMS = [
   { to: '/dashboard/bewertungen',      icon: Star,            label: 'Bewertungen'        },
   { to: '/dashboard/fotos',            icon: Image,           label: 'Fotos'              },
   { to: '/dashboard/kunden-gewinnung', icon: Users,           label: 'Mehr Bewertungen'   },
+  { to: '/dashboard/website',          icon: Globe,           label: 'Deine Website', badge: 'Neu' },
   /* "Entwicklung" am 21.10.2026 entfernt. Dahinter stand nur noch der
      Profil-Befund als PDF — erzeugt aus dem geschaetzten Funnel-Score,
      ohne eine einzige echte Google-Zahl, hinter der Pro-Schranke. Das

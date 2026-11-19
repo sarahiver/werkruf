@@ -15,7 +15,7 @@ const pulse  = keyframes`0%,100%{opacity:1}50%{opacity:.4}`;
    API Secret stays server-side in Edge Function.
    Client gets a short-lived signature per upload.
 ───────────────────────────────────────────── */
-async function uploadToCloudinary(file, supabaseClient) {
+export async function uploadToCloudinary(file, supabaseClient) {
   // Step 1: Get signed params from Edge Function (API secret never leaves server)
   const { data: signData, error: signError } = await supabaseClient.functions.invoke(
     'cloudinary-sign-upload'

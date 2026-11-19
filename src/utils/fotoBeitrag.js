@@ -79,6 +79,14 @@ const VERBOTEN = [
   { muster: /\bgarantie|\bgarantiert|\bder beste\b|\bdie beste\b|\bdas beste\b|\bnummer 1\b/i, grund: 'versprechen' },
 ];
 
+/** Erster Verstoss gegen die Textregeln (Link, Telefon, Preis, Hashtag,
+    Emoji, Versprechen) oder null. Geteilt mit der Website (website.js). */
+export function verbotenerInhalt(text) {
+  const t = String(text || '');
+  for (const v of VERBOTEN) if (v.muster.test(t)) return v.grund;
+  return null;
+}
+
 /**
  * Antwort des Modells pruefen. Liefert den bereinigten Vorschlag oder
  * einen Grund — dann bekommt der Nutzer keinen Text, sondern die
@@ -91,7 +99,8 @@ export function pruefeKiVorschlag(roh) {
   if (!t) return { ok: false, grund: 'leer' };
   if (t.toUpperCase() === UNKLAR || t.toUpperCase().startsWith(`${UNKLAR}`)) return { ok: false, grund: 'unklar' };
   if ([...t].length > VORSCHLAG_MAX_ZEICHEN + 100) return { ok: false, grund: 'zu_lang' };
-  for (const v of VERBOTEN) if (v.muster.test(t)) return { ok: false, grund: v.grund };
+  const v = verbotenerInhalt(t);
+  if (v) return { ok: false, grund: v };
   const p = pruefeBeitragstext(t);
   if (!p.ok) return { ok: false, grund: p.grund };
   return { ok: true, text: p.text };

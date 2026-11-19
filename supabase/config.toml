@@ -28,6 +28,13 @@ project_id = "kueoozsfkevmncucrdjd"
 # X-Worker-Secret auf den Worker-Routen.
 verify_jwt = false
 
+[functions.website]
+# Website aus dem Google-Profil. /website/seite ist oeffentlich (Vercel
+# holt dort die Seite fuer werkruf.com/seite/<slug>, ohne Header).
+# Schutz: requireUser() + requireZugang() auf allen anderen Routen;
+# /seite liefert nur veroeffentlichte Websites von Konten mit Zugang.
+verify_jwt = false
+
 [functions.send-email]
 # Aufruf von pg_cron. Schutz: X-Worker-Secret.
 verify_jwt = false

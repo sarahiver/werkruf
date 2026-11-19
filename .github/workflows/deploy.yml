@@ -2,6 +2,11 @@ name: Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      nur_function:
+        description: 'Nur diese eine Function deployen (z. B. website). Leer = alle. Fuer Tests von einem Feature-Branch: so bleiben alle anderen Functions unberuehrt.'
+        required: false
+        default: ''
   push:
     branches: [main]
 
@@ -162,13 +167,27 @@ jobs:
           version: 2.120.0
 
       - name: Functions deployen
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         # Deployt alle Ordner unter supabase/functions. Die CLI ueber-
         # springt unveraenderte Functions ("No change found").
         # Achtung: config.toml darf keine Abschnitte fuer Functions
         # enthalten, deren Ordner fehlt — daran bricht der Deploy ab.
-        run: supabase functions deploy --project-ref kueoozsfkevmncucrdjd
+        #
+        # nur_function (manueller Start): deployt genau eine Function.
+        # Gedacht fuer Feature-Branches — ein Deploy ALLER Functions vom
+        # Branch wuerde die anderen auf den Stand des Branches setzen,
+        # auch wenn main inzwischen weiter ist.
+        env:
+          NUR_FUNCTION: ${{ github.event.inputs.nur_function }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -n "$NUR_FUNCTION" ]; then
+            if ! printf '%s' "$NUR_FUNCTION" | grep -Eq '^[a-z0-9-]+$' || [ ! -f "supabase/functions/$NUR_FUNCTION/index.ts" ]; then
+              echo "Unbekannte Function: $NUR_FUNCTION"; exit 1
+            fi
+            supabase functions deploy "$NUR_FUNCTION" --project-ref kueoozsfkevmncucrdjd
+          else
+            supabase functions deploy --project-ref kueoozsfkevmncucrdjd
+          fi
 
 # Migrationen werden BEWUSST nicht automatisch eingespielt.
 # Ein fehlerhafter Push wuerde sonst das Schema der Produktivdatenbank
