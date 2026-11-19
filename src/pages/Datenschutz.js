@@ -363,7 +363,7 @@ export default function Datenschutz() {
       </Section>
 
       <Section>
-        <H2>10. Antwortentwürfe für Bewertungen (Anthropic)</H2>
+        <H2>10. Textvorschläge für Antworten und Beiträge (Anthropic)</H2>
         <P>
           Auf Ihren Wunsch erstellt WERKRUF Entwürfe für Antworten auf Google-Bewertungen. Dafür
           übermitteln wir Sternbewertung, Bewertungstext und den angezeigten Namen der bewertenden
@@ -373,6 +373,13 @@ export default function Datenschutz() {
           ausgeschlossen. Grundlage der Übermittlung in die USA sind Standardvertragsklauseln
           (<Ext href="https://www.anthropic.com/legal/data-processing-addendum">anthropic.com/legal/data-processing-addendum</Ext>).
           Für die Bewertungen selbst sind wir Auftragsverarbeiter des Betriebs (Abschnitt 17).
+        </P>
+        <P>
+          Ebenso auf Ihren Wunsch schlägt WERKRUF einen Text für einen Google-Beitrag zu einem
+          Foto vor, das Sie über WERKRUF hochgeladen haben. Dafür erhält Anthropic das Foto (als
+          Link), Ihren Betriebsnamen, die Kategorie Ihres Profils und Ihre optionale Notiz zum
+          Foto — sonst nichts. Veröffentlicht wird nur der Text, den Sie freigeben. Bitte laden Sie
+          keine Fotos hoch, auf denen Personen, Kennzeichen oder Hausnummern zu erkennen sind.
         </P>
       </Section>
 

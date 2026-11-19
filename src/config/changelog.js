@@ -23,6 +23,18 @@ export const CHANGELOG = Object.freeze([
     eintraege: [
       {
         kategorie: 'neu',
+        titel: 'Beitrag aus einem Foto',
+        text: 'Aus einem hochgeladenen Foto einen Google-Beitrag machen: WERKRUF schlägt einen kurzen Text vor, du prüfst, änderst und veröffentlichst ihn mit dem Foto.',
+        hilfe: 'fotos-und-profildaten',
+      },
+      {
+        kategorie: 'neu',
+        titel: 'Bewertungslink per WhatsApp teilen',
+        text: 'Ein Tipp öffnet WhatsApp mit fertigem Text und deinem Bewertungslink. Kontakt wählen, abschicken — WERKRUF sieht davon nichts.',
+        hilfe: 'mehr-bewertungen',
+      },
+      {
+        kategorie: 'neu',
         titel: 'Hilfe-Bereich und Changelog',
         text: 'Kurze Anleitungen zu allen Funktionen — von der Google-Verbindung bis zur Kündigung. Und diese Seite.',
         hilfe: null,

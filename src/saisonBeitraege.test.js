@@ -255,8 +255,11 @@ describe('T26–T35 — Provider Google Local Posts (Quelltext)', () => {
   it('T26/T27 — v4 localPosts.create unter dem Standort-Parent, Body nur languageCode/summary/topicType STANDARD', () => {
     expect(cl).toMatch(/GBP_LEGACY_API, `\$\{parent\}\/localPosts`/);
     expect(cl).toMatch(/method: 'POST'/);
-    expect(cl).toMatch(/body: \{ languageCode, summary, topicType: 'STANDARD' \}/);
-    expect(cl).not.toMatch(/callToAction|media|event|offer|schedule|recurr|OFFER|EVENT|ALERT/);
+    expect(cl).toMatch(/body: \{ languageCode, summary, topicType: 'STANDARD', \.\.\.media \}/);
+    /* Foto-Beitrag (19.11.2026): genau ein PHOTO, nur wenn fotoUrl gesetzt — Saison-Beitraege rufen ohne Foto auf. */
+    expect(cl).toMatch(/const media = fotoUrl \? \{ media: \[\{ mediaFormat: 'PHOTO', sourceUrl: fotoUrl \}\] \} : \{\};/);
+    expect(cl).not.toMatch(/callToAction|event|offer|schedule|recurr|OFFER|EVENT|ALERT|VIDEO/);
+    expect(h).toMatch(/client\.createLocalPost\(location\.account_resource_name, location\.location_resource_name, summary, 'de'\);/);
     expect(gb).toMatch(/GBP_LEGACY_API = 'https:\/\/mybusiness\.googleapis\.com\/v4'/);
   });
   it('T28 — Parent aus eigener DB-Zeile (accounts/…/locations/…), normalisiert; nie aus dem Request', () => {

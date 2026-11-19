@@ -263,6 +263,7 @@ export const HILFE_ARTIKEL = Object.freeze([
         titel: 'Bewertungslink',
         absaetze: [
           'Im Dashboard unter „Mehr Bewertungen" findest du deinen persönlichen Link, der direkt zum Google-Bewertungsformular deines Betriebs führt — auch als kurze Adresse. Den Link verschickst du selbst: per E-Mail, Messenger, auf der Rechnung.',
+          '„Per WhatsApp teilen" öffnet WhatsApp mit einem fertigen Text samt Link. Du wählst den Kontakt und schickst selbst ab — WERKRUF sieht weder den Kontakt noch die Nachricht.',
         ],
       },
       {
@@ -342,6 +343,18 @@ export const HILFE_ARTIKEL = Object.freeze([
         titel: 'Saison-Beiträge',
         absaetze: [
           'Zu Anlässen wie Weihnachten, Jahreswechsel, Ostern oder dem Sommer bereitet WERKRUF einen kurzen Beitrag für dein Profil vor. Du prüfst und änderst den Text; erst dein Klick sendet ihn an Google. Ungefragt postet WERKRUF nie.',
+        ],
+      },
+      {
+        titel: 'Beitrag aus einem Foto',
+        schritte: [
+          'Unter „Fotos" bei einem über WERKRUF hochgeladenen Bild auf „Beitrag daraus" tippen.',
+          'Optional kurz notieren, was zu sehen ist (z. B. „Neue Wärmepumpe im Einfamilienhaus").',
+          '„Vorschlag schreiben lassen" — oder den Text gleich selbst schreiben.',
+          'Text prüfen und anpassen, dann „Mit Foto auf Google veröffentlichen".',
+        ],
+        absaetze: [
+          'Der Vorschlag beschreibt nur, was auf dem Foto erkennbar ist und was du notiert hast — keine Preise, Orte oder Versprechen. Veröffentlicht wird genau dein Text, erst nach deinem Klick. Achte darauf, dass auf dem Foto keine Personen, Kennzeichen oder Hausnummern zu erkennen sind. Pro Tag sind bis zu 20 Vorschläge möglich.',
         ],
       },
     ],
