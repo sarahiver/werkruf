@@ -1,7 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { KpiReihe, Flaeche, FlaecheKopf, Knopf, Leer, ResponsiveTabelle, Chip } from './adminUi';
-import { ZEITRAEUME, STANDARD_ZEITRAUM } from '../../utils/analyseBericht';
+import { ZEITRAEUME, STANDARD_ZEITRAUM, vergleichText, berichtInhalt } from '../../utils/analyseBericht';
+
+/* PDF-Erzeugung erst beim Klick laden (haelt @react-pdf aus dem Bundle).
+   Als Prop austauschbar, damit Tests kein PDF rendern muessen. */
+const standardErzeuger = async (inhalt) => (await import('./AnalyseBerichtPDF')).erzeugeAnalyseBericht(inhalt);
+function speichereBlob(blob, dateiname) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = dateiname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /*
  * Admin · Analyse (Paket B)
@@ -52,18 +63,14 @@ const Wert = styled.p`font-family: var(--font-display); font-weight: 800; font-s
 const Label = styled.p`font-family: var(--font-body); font-size: .72rem; color: var(--color-text-muted); margin: 3px 0 0;`;
 const Delta = styled.p`font-family: var(--font-body); font-size: .72rem; margin: 4px 0 0; color: var(--color-text);`;
 
+/* Vergleichstext aus analyseBericht.js (gleich im PDF): Prozent nur ab
+   ausreichender Menge, Position in Plaetzen. */
 function KpiKarte({ kpi }) {
-  const v = kpi.veraenderung;
-  let richtung = null;
-  if (v != null && v !== 0) {
-    const besser = kpi.kleinerIstBesser ? v < 0 : v > 0;
-    richtung = `${v > 0 ? '▲' : '▼'} ${fmt1.format(Math.abs(v))} % ${besser ? 'besser' : 'schlechter'}`;
-  }
   return (
     <Karte data-testid="analyse-kpi" title={`Vorperiode: ${formatiere(kpi.vorher, kpi.format)}`}>
       <Wert>{formatiere(kpi.wert, kpi.format)}</Wert>
       <Label>{kpi.label}</Label>
-      <Delta>{richtung ?? (v === 0 ? 'unverändert' : 'kein Vergleich')}</Delta>
+      <Delta>{vergleichText(kpi)}</Delta>
     </Karte>
   );
 }
@@ -195,11 +202,25 @@ function Rangliste({ zeilen, spalten, testid, leer = 'Keine Daten im Zeitraum.' 
   );
 }
 
-export default function Analyse({ rufeAdminOps }) {
+export default function Analyse({ rufeAdminOps, erzeugePdf = standardErzeuger, speichere = speichereBlob }) {
   const [zeitraum, setZeitraum] = useState(STANDARD_ZEITRAUM);
   const [daten, setDaten] = useState(null);
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState('');
+  const [pdfLaeuft, setPdfLaeuft] = useState(false);
+
+  /* Bericht genau aus den angezeigten Daten (gewaehlter Zeitraum) —
+     kein zweiter Abruf, keine abweichenden Zahlen. */
+  const herunterladen = async () => {
+    if (!daten || pdfLaeuft) return;
+    setPdfLaeuft(true); setFehler('');
+    try {
+      const inhalt = berichtInhalt(daten);
+      speichere(await erzeugePdf(inhalt), inhalt.dateiname);
+    } catch (err) {
+      setFehler(`Bericht konnte nicht erstellt werden${err?.message ? ` (${err.message})` : ''}.`);
+    } finally { setPdfLaeuft(false); }
+  };
 
   const lade = useCallback(async (z) => {
     setLaeuft(true); setFehler('');
@@ -224,6 +245,10 @@ export default function Analyse({ rufeAdminOps }) {
           </Wahl>
         ))}
         <Knopf className="ghost" type="button" onClick={() => lade(zeitraum)} disabled={laeuft}>{laeuft ? 'Lädt …' : 'Aktualisieren'}</Knopf>
+        <Knopf className="ghost" type="button" onClick={herunterladen} disabled={!daten || laeuft || pdfLaeuft} data-testid="analyse-bericht"
+          title={`Ausführlicher Bericht für die gewählten ${zeitraum} Tage (PDF)`}>
+          {pdfLaeuft ? 'Erstellt …' : `Bericht ${zeitraum} Tage (PDF)`}
+        </Knopf>
       </Leiste>
       {z && (
         <Hinweis>
