@@ -136,7 +136,12 @@ export async function analyseUebersicht(
         .lt('created_at', bis)
         .limit(5000);
       if (error) throw Object.assign(new Error('profile'), { code: 'db_profile' });
-      const ids = (profile ?? []).map((x: { id: string }) => x.id);
+      /* Admin-Konten zaehlen nicht als Kunden (interne_konten(), Rolle admin). */
+      const { data: internRoh, error: eIntern } = await admin.rpc('interne_konten');
+      if (eIntern) throw Object.assign(new Error('intern'), { code: 'db_intern' });
+      const intern = new Set(((internRoh ?? []) as unknown[]).map((x) => String(typeof x === 'string' ? x : (x as { interne_konten?: string })?.interne_konten ?? '')));
+      const kunden = (profile ?? []).filter((x: { id: string }) => !intern.has(x.id));
+      const ids = kunden.map((x: { id: string }) => x.id);
       let verbundene = new Set<string>();
       if (ids.length) {
         const { data: konten, error: e2 } = await admin
@@ -144,7 +149,7 @@ export async function analyseUebersicht(
         if (e2) throw Object.assign(new Error('google'), { code: 'db_google' });
         verbundene = new Set((konten ?? []).map((k: { user_id: string }) => k.user_id));
       }
-      return { status: 'ok', daten: produktFunnel(profile ?? [], verbundene) };
+      return { status: 'ok', daten: produktFunnel(kunden, verbundene) };
     } catch (err) {
       log('analyse_produkt_fehler', { code: fehlerCode(err) });
       return { status: 'fehler', code: fehlerCode(err) };
