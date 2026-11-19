@@ -104,7 +104,7 @@ export async function analyseUebersicht(
       const prop = String(env.GA4_PROPERTY_ID).trim();
       const roh = await holeAlle(ga4Anfragen(z), (body) =>
         postJson(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, token, body, 'ga4'));
-      return { status: 'ok', daten: werteGa4Aus(roh) };
+      return { status: 'ok', daten: werteGa4Aus(roh, z) };
     } catch (err) {
       log('analyse_ga4_fehler', { code: fehlerCode(err) });
       return { status: 'fehler', code: fehlerCode(err) };
@@ -118,7 +118,7 @@ export async function analyseUebersicht(
       const site = encodeURIComponent(String(env.GSC_SITE_URL).trim());
       const roh = await holeAlle(gscAnfragen(z), (body) =>
         postJson(`https://www.googleapis.com/webmasters/v3/sites/${site}/searchAnalytics/query`, token, body, 'gsc'));
-      return { status: 'ok', daten: werteGscAus(roh) };
+      return { status: 'ok', daten: werteGscAus(roh, z) };
     } catch (err) {
       log('analyse_gsc_fehler', { code: fehlerCode(err) });
       return { status: 'fehler', code: fehlerCode(err) };

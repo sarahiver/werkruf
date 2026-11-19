@@ -15,6 +15,7 @@ import path from 'path';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import {
   zeitraeume, ga4Anfragen, gscAnfragen, werteGa4Aus, werteGscAus, produktFunnel, veraenderung,
+  vergleichText, kennzahl, fuelleTage, seitenAnzeigen, berichtInhalt, MIN_VERGLEICH,
   fehlendeKonfiguration, leseServiceAccount, kuerzeUrl, pruefeZeitraum, FUNNEL_SCHRITTE, GOOGLE_SCOPES, berlinMitternachtUtc,
 } from './utils/analyseBericht';
 import { ADMIN_AKTIONEN, pruefeAnfrage } from './utils/adminOps';
@@ -94,10 +95,10 @@ describe('Auswertung', () => {
   it('W1 — GA4-KPIs je Zeitraum, Veraenderung in %, Vorperiode 0 → kein Vergleich', () => {
     const r = werteGa4Aus(GA4_ROH);
     expect(r.kpis).toEqual([
-      { label: 'Nutzer', wert: 120, vorher: 100, veraenderung: 20, format: 'zahl' },
-      { label: 'Sitzungen', wert: 150, vorher: 160, veraenderung: -6.2, format: 'zahl' },
-      { label: 'Seitenaufrufe', wert: 400, vorher: 0, veraenderung: null, format: 'zahl' },
-      { label: 'Interaktionsrate', wert: 0.62, vorher: 0.5, veraenderung: 24, format: 'prozent' },
+      { label: 'Nutzer', wert: 120, vorher: 100, veraenderung: 20, format: 'zahl', vergleich: 'ok' },
+      { label: 'Sitzungen', wert: 150, vorher: 160, veraenderung: -6.2, format: 'zahl', vergleich: 'ok' },
+      { label: 'Seitenaufrufe', wert: 400, vorher: 0, veraenderung: null, format: 'zahl', vergleich: 'keine_vorperiode' },
+      { label: 'Interaktionsrate', wert: 0.62, vorher: 0.5, veraenderung: 24, format: 'prozent', vergleich: 'ok' },
     ]);
   });
   it('W2 — Verlauf als ISO-Datum, Funnel in fester Reihenfolge, fehlende Schritte = 0', () => {
@@ -122,7 +123,9 @@ describe('Auswertung', () => {
       verlauf: { rows: [{ keys: ['2026-11-01'], clicks: 2, impressions: 30 }] },
     });
     expect(r.kpis[0]).toMatchObject({ label: 'Klicks', wert: 30, veraenderung: 50 });
-    expect(r.kpis[3]).toMatchObject({ label: 'Ø Position', wert: 8.2, veraenderung: -18, kleinerIstBesser: true });
+    /* Position: Vergleich in Plaetzen (10 → 8,2 = 1,8 Plaetze besser), nicht in % */
+    expect(r.kpis[3]).toMatchObject({ label: 'Ø Position', wert: 8.2, veraenderung: null, differenz: -1.8, kleinerIstBesser: true, vergleich: 'ok' });
+    expect(vergleichText(r.kpis[3])).toBe('1,8 Plätze besser');
     expect(r.anfragen[0].anfrage).toBe('google profil handwerker');
     expect(r.seiten[0].seite).toBe('/pricing');
     expect(r.verlauf).toEqual([{ datum: '2026-11-01', klicks: 2, impressionen: 30 }]);
@@ -208,6 +211,61 @@ describe('admin-ops', () => {
   });
 });
 
+/* ───────── Vergleich, Seiten, Tage, Bericht (19.11.2026) ───────── */
+describe('Ehrlicher Vergleich und Bericht', () => {
+  it('N1 — kleine Mengen: kein Prozentvergleich („2 statt 4 Klicks" ist Zufall)', () => {
+    const k = kennzahl({ label: 'Klicks', wert: 2, vorher: 4 });
+    expect(k).toMatchObject({ vergleich: 'zu_wenig', veraenderung: null });
+    expect(vergleichText(k)).toBe('zu wenig Daten für Vergleich');
+    expect(kennzahl({ label: 'Klicks', wert: MIN_VERGLEICH, vorher: MIN_VERGLEICH * 2 }).veraenderung).toBe(-50);
+    /* Quote mit kleiner Grundgesamtheit: auch kein Vergleich */
+    expect(kennzahl({ label: 'Klickrate', wert: 0.067, vorher: 0.143, format: 'anteil', basisJetzt: 30, basisVorher: 14 }).vergleich).toBe('zu_wenig');
+  });
+  it('N2 — Screenshot-Fall: Position 2,5 → 23,5 heisst „21 Plätze schlechter", nicht „855 %"', () => {
+    const r = werteGscAus({
+      summen: { rows: [{ clicks: 2, impressions: 30, ctr: 0.067, position: 23.5 }] },
+      summenVorher: { rows: [{ clicks: 4, impressions: 28, ctr: 0.143, position: 2.5 }] },
+    });
+    const pos = r.kpis[3];
+    expect(pos).toMatchObject({ differenz: 21, veraenderung: null });
+    expect(vergleichText(pos)).toBe('21 Plätze schlechter');
+    expect(vergleichText(r.kpis[0])).toBe('zu wenig Daten für Vergleich');           // Klicks 2 vs 4
+    expect(vergleichText(r.kpis[1])).toBe('▲ 7,1 % besser');                          // Impressionen 30 vs 28
+    expect(r.kpis.map((k) => vergleichText(k)).join(' ')).not.toMatch(/855/);
+  });
+  it('N3 — Seiten: Host nur, wenn es mehrere gibt (sonst zweimal „/")', () => {
+    const zwei = seitenAnzeigen([{ url: 'https://werkruf.com/' }, { url: 'https://www.werkruf.com/' }]);
+    expect(zwei.map((z) => z.seite)).toEqual(['werkruf.com/', 'www.werkruf.com/']);
+    const einer = seitenAnzeigen([{ url: 'https://werkruf.com/' }, { url: 'https://werkruf.com/hilfe?x=1' }]);
+    expect(einer.map((z) => z.seite)).toEqual(['/', '/hilfe']);
+  });
+  it('N4 — Tage ohne Daten werden mit 0 aufgefüllt (Verlauf über den ganzen Zeitraum)', () => {
+    const z = zeitraeume(7, '2026-11-19');
+    const r = werteGa4Aus({ verlauf: { rows: [{ dimensionValues: [{ value: '20261114' }], metricValues: [{ value: '2' }, { value: '3' }] }] } }, z);
+    expect(r.verlauf).toHaveLength(7);
+    expect(r.verlauf[0]).toEqual({ datum: '2026-11-12', nutzer: 0, sitzungen: 0 });
+    expect(r.verlauf.find((p) => p.datum === '2026-11-14')).toEqual({ datum: '2026-11-14', nutzer: 2, sitzungen: 3 });
+    expect(fuelleTage([], '2026-11-01', '2026-11-03', ['klicks'])).toEqual([
+      { datum: '2026-11-01', klicks: 0 }, { datum: '2026-11-02', klicks: 0 }, { datum: '2026-11-03', klicks: 0 }]);
+  });
+  it('N5 — Bericht: drei Abschnitte, Zeitraum im Dateinamen, nicht eingerichtete Quelle mit Grund, kein ▲/▼ (Helvetica)', () => {
+    const daten = {
+      zeitraum: zeitraeume(28, '2026-11-19'),
+      produkt: { status: 'ok', daten: produktFunnel([{ id: 'a' }], new Set()) },
+      ga4: { status: 'ok', daten: werteGa4Aus(GA4_ROH, zeitraeume(28, '2026-11-19')) },
+      gsc: { status: 'nicht_konfiguriert', fehlt: ['GSC_SITE_URL'] },
+    };
+    const b = berichtInhalt(daten, new Date('2026-11-19T10:00:00Z'));
+    expect(b.dateiname).toBe('werkruf-analyse-28-tage-2026-10-22_2026-11-18.pdf');
+    expect(b.abschnitte.map((a) => a.titel)).toEqual(['Produkt-Funnel (Datenbank)', 'Website (GA4)', 'Google-Suche (Search Console)']);
+    expect(b.abschnitte[2].grund).toMatch(/GSC_SITE_URL/);
+    const ga = b.abschnitte[1];
+    expect(ga.tabellen.find((t) => t.titel === 'Je Tag').zeilen).toHaveLength(28);
+    expect(ga.tabellen.find((t) => t.titel === 'Kennzahlen').zeilen[0]).toEqual(['Nutzer', '120', '100', '+20 % (besser)']);
+    expect(JSON.stringify(b)).not.toMatch(/[▲▼−]/);
+  });
+});
+
 /* ───────── Oberflaeche ───────── */
 const ANTWORT = {
   zeitraum: zeitraeume(28, '2026-11-12'),
@@ -245,6 +303,18 @@ describe('Analyse (UI)', () => {
     expect(screen.getByTestId('analyse-ga4-verlauf').querySelector('svg')).toHaveAttribute('aria-label', 'Nutzer je Tag');
     expect(screen.getByTestId('analyse-ga4-seiten')).toHaveTextContent('/pricing');
     expect(screen.getByTestId('analyse-ga4-kanaele')).toHaveTextContent('Organic Search');
+  });
+  it('U7 — „Bericht (PDF)": aus den angezeigten Daten des gewählten Zeitraums, ein Klick = ein PDF, kein neuer Abruf', async () => {
+    const erzeugePdf = jest.fn(async () => new Blob(['%PDF']));
+    const speichere = jest.fn();
+    await act(async () => { render(<Analyse rufeAdminOps={ops} erzeugePdf={erzeugePdf} speichere={speichere} />); });
+    const knopf = screen.getByTestId('analyse-bericht');
+    expect(knopf).toHaveTextContent('Bericht 28 Tage (PDF)');
+    await act(async () => { fireEvent.click(knopf); });
+    expect(erzeugePdf).toHaveBeenCalledTimes(1);
+    expect(erzeugePdf.mock.calls[0][0].dateiname).toMatch(/^werkruf-analyse-28-tage-/);
+    expect(speichere).toHaveBeenCalledWith(expect.any(Blob), erzeugePdf.mock.calls[0][0].dateiname);
+    expect(ops).toHaveBeenCalledTimes(1);
   });
   it('U5 — nicht eingerichtete Quelle zeigt den fehlenden Secret-Namen, keine Fantasiezahlen', async () => {
     await zeig();

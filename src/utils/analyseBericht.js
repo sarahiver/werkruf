@@ -133,6 +133,49 @@ export function veraenderung(jetzt, vorher) {
   return Math.round(((jetzt - vorher) / vorher) * 1000) / 10;
 }
 
+/* Unter dieser Menge (in BEIDEN Zeitraeumen) ist ein Prozentvergleich
+   Zufall: 2 statt 4 Klicks waeren „50 % schlechter". Basis ist die
+   Menge, aus der die Kennzahl entsteht — bei Zaehlwerten der Wert
+   selbst, bei Quoten und Position die Grundgesamtheit (Sitzungen bzw.
+   Impressionen). */
+export const MIN_VERGLEICH = 20;
+
+/**
+ * Kennzahl mit ehrlichem Vergleich.
+ *   vergleich: 'ok' | 'keine_vorperiode' | 'zu_wenig'
+ *   veraenderung: % (nur bei 'ok' und nicht bei Position)
+ *   differenz: absolute Differenz (Position: Plaetze, + = schlechter)
+ */
+export function kennzahl({ label, wert, vorher, format = 'zahl', basisJetzt = wert, basisVorher = vorher, kleinerIstBesser = false }) {
+  const k = { label, wert, vorher, format };
+  if (kleinerIstBesser) k.kleinerIstBesser = true;
+  let vergleich = 'ok';
+  if (!Number.isFinite(vorher) || vorher === 0 || !Number.isFinite(basisVorher) || basisVorher === 0) vergleich = 'keine_vorperiode';
+  else if (Math.min(basisJetzt, basisVorher) < MIN_VERGLEICH) vergleich = 'zu_wenig';
+  k.vergleich = vergleich;
+  if (format === 'position') {
+    k.veraenderung = null;
+    k.differenz = vergleich === 'ok' ? Math.round((wert - vorher) * 10) / 10 : null;
+  } else {
+    k.veraenderung = vergleich === 'ok' ? veraenderung(wert, vorher) : null;
+  }
+  return k;
+}
+
+/* Tage ohne Daten liefern GA4 und Search Console gar nicht — fuer
+   Verlauf und Tagestabelle jeden Tag des Zeitraums mit 0 auffuellen. */
+export function fuelleTage(punkte, start, end, felder) {
+  if (!start || !end) return punkte;
+  const nachDatum = new Map((punkte || []).map((p) => [p.datum, p]));
+  const aus = [];
+  for (let d = start; d <= end; d = plusTage(d, 1)) {
+    const p = nachDatum.get(d);
+    aus.push(p || Object.fromEntries([['datum', d], ...felder.map((f) => [f, 0])]));
+    if (aus.length > 400) break;
+  }
+  return aus;
+}
+
 /* GA4 runReport → Zeilen { dims[], mets[] }. Bei zwei dateRanges haengt
    GA4 die Dimension dateRange an; wir trennen danach. */
 function ga4Zeilen(antwort) {
@@ -142,13 +185,17 @@ function ga4Zeilen(antwort) {
   }));
 }
 
-export function werteGa4Aus(a) {
+export function werteGa4Aus(a, z = null) {
   /* Summen: mit zwei Zeitraeumen kommen zwei Zeilen (date_range_0/1). */
   const summenZeilen = ga4Zeilen(a.summen);
   const nachRange = (name) => summenZeilen.find((z) => z.dims.includes(name))?.mets ?? [0, 0, 0, 0];
   const jetzt = summenZeilen.length === 1 && !summenZeilen[0].dims.length ? summenZeilen[0].mets : nachRange('date_range_0');
   const vorher = nachRange('date_range_1');
-  const kpi = (i, label, format = 'zahl') => ({ label, wert: jetzt[i], vorher: vorher[i], veraenderung: veraenderung(jetzt[i], vorher[i]), format });
+  /* Interaktionsrate: Basis sind die Sitzungen (Index 1). */
+  const kpi = (i, label, format = 'zahl') => kennzahl({
+    label, wert: jetzt[i], vorher: vorher[i], format,
+    basisJetzt: format === 'prozent' ? jetzt[1] : jetzt[i], basisVorher: format === 'prozent' ? vorher[1] : vorher[i],
+  });
 
   const funnelRoh = new Map(ga4Zeilen(a.funnel).map((z) => [z.dims[0], { anzahl: z.mets[0], nutzer: z.mets[1] }]));
 
@@ -159,10 +206,10 @@ export function werteGa4Aus(a) {
       kpi(2, 'Seitenaufrufe'),
       kpi(3, 'Interaktionsrate', 'prozent'),
     ],
-    verlauf: ga4Zeilen(a.verlauf).map((z) => ({
-      datum: `${z.dims[0].slice(0, 4)}-${z.dims[0].slice(4, 6)}-${z.dims[0].slice(6, 8)}`,
-      nutzer: z.mets[0], sitzungen: z.mets[1],
-    })),
+    verlauf: fuelleTage(ga4Zeilen(a.verlauf).map((r) => ({
+      datum: `${r.dims[0].slice(0, 4)}-${r.dims[0].slice(4, 6)}-${r.dims[0].slice(6, 8)}`,
+      nutzer: r.mets[0], sitzungen: r.mets[1],
+    })), z?.aktuell?.start, z?.aktuell?.end, ['nutzer', 'sitzungen']),
     seiten: ga4Zeilen(a.seiten).map((z) => ({ pfad: z.dims[0], aufrufe: z.mets[0], nutzer: z.mets[1] })),
     kanaele: ga4Zeilen(a.kanaele).map((z) => ({ kanal: z.dims[0], sitzungen: z.mets[0], nutzer: z.mets[1] })),
     geraete: ga4Zeilen(a.geraete).map((z) => ({ geraet: z.dims[0], nutzer: z.mets[0] })),
@@ -170,14 +217,20 @@ export function werteGa4Aus(a) {
   };
 }
 
-export function werteGscAus(a) {
+export function werteGscAus(a, z = null) {
   const summe = (antwort) => {
     const r = antwort?.rows?.[0] ?? {};
     return { klicks: zahl(r.clicks), impressionen: zahl(r.impressions), ctr: zahl(r.ctr), position: zahl(r.position) };
   };
   const jetzt = summe(a.summen);
   const vorher = summe(a.summenVorher);
-  const kpi = (k, label, format) => ({ label, wert: jetzt[k], vorher: vorher[k], veraenderung: veraenderung(jetzt[k], vorher[k]), format });
+  /* Klickrate und Position: Basis sind die Impressionen. */
+  const kpi = (k, label, format, extra = {}) => kennzahl({
+    label, wert: jetzt[k], vorher: vorher[k], format,
+    basisJetzt: k === 'ctr' || k === 'position' ? jetzt.impressionen : jetzt[k],
+    basisVorher: k === 'ctr' || k === 'position' ? vorher.impressionen : vorher[k],
+    ...extra,
+  });
   const zeilen = (antwort, feld) => (antwort?.rows ?? []).map((r) => ({
     [feld]: r.keys?.[0] ?? '', klicks: zahl(r.clicks), impressionen: zahl(r.impressions), ctr: zahl(r.ctr), position: zahl(r.position),
   }));
@@ -186,13 +239,23 @@ export function werteGscAus(a) {
       kpi('klicks', 'Klicks', 'zahl'),
       kpi('impressionen', 'Impressionen', 'zahl'),
       kpi('ctr', 'Klickrate', 'anteil'),
-      /* Position: kleiner ist besser — die UI wertet die Richtung um. */
-      { ...kpi('position', 'Ø Position', 'position'), kleinerIstBesser: true },
+      /* Position: kleiner ist besser; Vergleich in Plaetzen, nicht in %. */
+      kpi('position', 'Ø Position', 'position', { kleinerIstBesser: true }),
     ],
-    verlauf: zeilen(a.verlauf, 'datum').map((z) => ({ datum: z.datum, klicks: z.klicks, impressionen: z.impressionen })),
+    verlauf: fuelleTage(zeilen(a.verlauf, 'datum').map((r) => ({ datum: r.datum, klicks: r.klicks, impressionen: r.impressionen })),
+      z?.gsc?.start, z?.gsc?.end, ['klicks', 'impressionen']),
     anfragen: zeilen(a.anfragen, 'anfrage'),
-    seiten: zeilen(a.seiten, 'seite').map((z) => ({ ...z, seite: kuerzeUrl(z.seite) })),
+    seiten: seitenAnzeigen(zeilen(a.seiten, 'url')),
   };
+}
+
+/* Seiten-Spalte: nur der Pfad — ausser die Liste enthaelt mehrere
+   Hosts (z. B. werkruf.com und www.werkruf.com). Dann steht der Host
+   davor, sonst saehe man zweimal „/". */
+export function seitenAnzeigen(zeilen) {
+  const host = (u) => { try { return new URL(u).host; } catch { return ''; } };
+  const hosts = new Set(zeilen.map((r) => host(r.url)).filter(Boolean));
+  return zeilen.map((r) => ({ ...r, seite: hosts.size > 1 && host(r.url) ? `${host(r.url)}${kuerzeUrl(r.url)}` : kuerzeUrl(r.url) }));
 }
 
 export function kuerzeUrl(url) {
@@ -244,3 +307,112 @@ export function leseServiceAccount(json) {
 }
 
 export const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly';
+
+/* ── Bericht zum Herunterladen (PDF) ──
+   Reine Aufbereitung der Antwort von analytics_overview in Abschnitte
+   mit Tabellen. Das PDF (components/admin/AnalyseBerichtPDF.js) setzt
+   nur noch Text — gerechnet und formuliert wird hier (Jest).
+   Keine Zahl wird geschaetzt: fehlt eine Quelle, steht der Grund da. */
+const zf = new Intl.NumberFormat('de-DE');
+const zf1 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+const zfv = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
+const deDatum = (iso) => { const [y, m, d] = String(iso).split('-'); return `${d}.${m}.${y}`; };
+
+export function formatiereWert(wert, format) {
+  if (wert == null || Number.isNaN(wert)) return '—';
+  if (format === 'prozent' || format === 'anteil') return `${zf1.format(wert * 100)} %`;
+  if (format === 'position') return zf1.format(wert);
+  return zf.format(Math.round(wert));
+}
+
+/* Vergleichstext — dieselbe Logik fuer Admin-Ansicht und PDF. */
+export function vergleichText(k, { pfeil = true } = {}) {
+  if (k.vergleich === 'keine_vorperiode') return 'kein Vergleich';
+  if (k.vergleich === 'zu_wenig') return 'zu wenig Daten für Vergleich';
+  if (k.format === 'position') {
+    if (k.differenz == null) return 'kein Vergleich';
+    if (k.differenz === 0) return 'unverändert';
+    const besser = k.differenz < 0;
+    return `${zfv.format(Math.abs(k.differenz))} Plätze ${besser ? 'besser' : 'schlechter'}`;
+  }
+  const v = k.veraenderung;
+  if (v == null) return 'kein Vergleich';
+  if (v === 0) return 'unverändert';
+  const besser = k.kleinerIstBesser ? v < 0 : v > 0;
+  /* Im PDF ohne Pfeil: die Standardschrift Helvetica hat kein ▲/▼. */
+  const vz = v > 0 ? '+' : '-';
+  return pfeil
+    ? `${v > 0 ? '▲' : '▼'} ${zfv.format(Math.abs(v))} % ${besser ? 'besser' : 'schlechter'}`
+    : `${vz}${zfv.format(Math.abs(v))} % (${besser ? 'besser' : 'schlechter'})`;
+}
+
+function quelleGrund(q) {
+  if (!q) return 'Keine Daten geladen.';
+  if (q.status === 'nicht_konfiguriert') return `Noch nicht eingerichtet (fehlt: ${q.fehlt.join(', ')}).`;
+  if (q.status === 'fehler') return `Konnte nicht geladen werden (Code ${q.code}).`;
+  return null;
+}
+const kpiTabelle = (kpis) => ({
+  kopf: ['Kennzahl', 'Zeitraum', 'Vorperiode', 'Vergleich'],
+  zeilen: kpis.map((k) => [k.label, formatiereWert(k.wert, k.format), k.vergleich === 'keine_vorperiode' ? '—' : formatiereWert(k.vorher, k.format), vergleichText(k, { pfeil: false })]),
+  rechts: [1, 2],
+});
+const quote = (a, b) => (b ? `${Math.round((a / b) * 100)} %` : '—');
+
+/**
+ * @param {object} daten  Antwort von analytics_overview
+ * @param {Date} [erstellt]
+ * @returns {{ titel:string, untertitel:string, dateiname:string, abschnitte:Array<{titel:string, hinweis?:string, grund?:string, tabellen:Array<{titel?:string, kopf:string[], zeilen:string[][], rechts?:number[]}>}> }}
+ */
+export function berichtInhalt(daten, erstellt = new Date()) {
+  const z = daten?.zeitraum;
+  const ab = [];
+  const p = daten?.produkt?.status === 'ok' ? daten.produkt.daten : null;
+  ab.push({
+    titel: 'Produkt-Funnel (Datenbank)',
+    hinweis: 'Konten, die im Zeitraum angelegt wurden, und wie weit sie heute sind. Vollständig, unabhängig von der Cookie-Einwilligung.',
+    grund: p ? undefined : quelleGrund(daten?.produkt),
+    tabellen: p ? [{ kopf: ['Stufe', 'Anzahl', 'Anteil vorherige Stufe'], rechts: [1, 2],
+      zeilen: p.map((s, i) => [s.label, zf.format(s.anzahl), i ? quote(s.anzahl, p[i - 1].anzahl) : '']) }] : [],
+  });
+
+  const g = daten?.ga4?.status === 'ok' ? daten.ga4.daten : null;
+  ab.push({
+    titel: 'Website (GA4)',
+    hinweis: z ? `${deDatum(z.aktuell.start)}–${deDatum(z.aktuell.end)}, Vorperiode ${deDatum(z.vorher.start)}–${deDatum(z.vorher.end)}. Nur Besucher, die im Cookie-Banner zugestimmt haben — die echten Zahlen sind höher.` : undefined,
+    grund: g ? undefined : quelleGrund(daten?.ga4),
+    tabellen: g ? [
+      { titel: 'Kennzahlen', ...kpiTabelle(g.kpis) },
+      { titel: 'Funnel (GA4-Ereignisse)', kopf: ['Schritt', 'Anzahl', 'Nutzer', 'Anteil vorherige Stufe'], rechts: [1, 2, 3],
+        zeilen: g.funnel.map((f, i) => [f.label, zf.format(f.anzahl), zf.format(f.nutzer ?? 0), i ? quote(f.anzahl, g.funnel[i - 1].anzahl) : '']) },
+      { titel: 'Seiten', kopf: ['Seite', 'Aufrufe', 'Nutzer'], rechts: [1, 2], zeilen: g.seiten.map((r) => [r.pfad, zf.format(r.aufrufe), zf.format(r.nutzer)]) },
+      { titel: 'Herkunft', kopf: ['Kanal', 'Sitzungen', 'Nutzer'], rechts: [1, 2], zeilen: g.kanaele.map((r) => [r.kanal, zf.format(r.sitzungen), zf.format(r.nutzer)]) },
+      { titel: 'Geräte', kopf: ['Gerät', 'Nutzer'], rechts: [1], zeilen: (g.geraete || []).map((r) => [r.geraet, zf.format(r.nutzer)]) },
+      { titel: 'Je Tag', kopf: ['Datum', 'Nutzer', 'Sitzungen'], rechts: [1, 2], zeilen: g.verlauf.map((r) => [deDatum(r.datum), zf.format(r.nutzer), zf.format(r.sitzungen)]) },
+    ] : [],
+  });
+
+  const s = daten?.gsc?.status === 'ok' ? daten.gsc.daten : null;
+  ab.push({
+    titel: 'Google-Suche (Search Console)',
+    hinweis: z ? `${deDatum(z.gsc.start)}–${deDatum(z.gsc.end)}, Vorperiode ${deDatum(z.gscVorher.start)}–${deDatum(z.gscVorher.end)}. Die letzten 3 Tage fehlen, weil Google sie noch unvollständig liefert.` : undefined,
+    grund: s ? undefined : quelleGrund(daten?.gsc),
+    tabellen: s ? [
+      { titel: 'Kennzahlen', ...kpiTabelle(s.kpis) },
+      { titel: 'Suchanfragen', kopf: ['Suchanfrage', 'Klicks', 'Impr.', 'Klickrate', 'Pos.'], rechts: [1, 2, 3, 4],
+        zeilen: s.anfragen.map((r) => [r.anfrage, zf.format(r.klicks), zf.format(r.impressionen), formatiereWert(r.ctr, 'anteil'), zf1.format(r.position)]) },
+      { titel: 'Seiten', kopf: ['Seite', 'Klicks', 'Impr.', 'Klickrate', 'Pos.'], rechts: [1, 2, 3, 4],
+        zeilen: s.seiten.map((r) => [r.url || r.seite, zf.format(r.klicks), zf.format(r.impressionen), formatiereWert(r.ctr, 'anteil'), zf1.format(r.position)]) },
+      { titel: 'Je Tag', kopf: ['Datum', 'Klicks', 'Impressionen'], rechts: [1, 2], zeilen: s.verlauf.map((r) => [deDatum(r.datum), zf.format(r.klicks), zf.format(r.impressionen)]) },
+    ] : [],
+  });
+
+  const tage = z?.tage ?? '';
+  const stand = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'medium', timeStyle: 'short' }).format(erstellt);
+  return {
+    titel: `WERKRUF · Analyse ${tage} Tage`,
+    untertitel: z ? `Website ${deDatum(z.aktuell.start)}–${deDatum(z.aktuell.end)} · Google-Suche ${deDatum(z.gsc.start)}–${deDatum(z.gsc.end)} · erstellt ${stand}` : `erstellt ${stand}`,
+    dateiname: z ? `werkruf-analyse-${tage}-tage-${z.aktuell.start}_${z.aktuell.end}.pdf` : 'werkruf-analyse.pdf',
+    abschnitte: ab,
+  };
+}

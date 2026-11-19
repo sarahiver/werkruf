@@ -38,3 +38,11 @@ Zeiträume 7 / 28 / 90 Tage. Website: volle Tage bis gestern, Vergleich mit dem 
 5. Actions → Deploy (admin-ops).
 
 Fehlt etwas, zeigt der Bereich „Noch nicht eingerichtet" mit den **Namen** der fehlenden Secrets — nie Werte.
+
+## Vergleich, Seiten, Bericht (19.11.2026)
+
+- **Vergleich nur mit genug Daten:** Prozent erst, wenn die Grundmenge in beiden Zeiträumen mindestens 20 ist (`MIN_VERGLEICH`; Klickrate/Position: Impressionen, Interaktionsrate: Sitzungen). Sonst „zu wenig Daten für Vergleich".
+- **Ø Position** als Differenz in Plätzen („21 Plätze schlechter"), nicht in Prozent.
+- **Seiten (Search Console):** Host wird angezeigt, sobald mehr als einer vorkommt (z. B. `werkruf.com/` und `www.werkruf.com/`).
+- **Verlauf/Tagestabelle:** Tage ohne Daten werden mit 0 aufgefüllt.
+- **„Bericht N Tage (PDF)":** erzeugt im Browser ein PDF aus genau den angezeigten Daten (Kennzahlen mit Vorperiode, Funnel, Seiten, Herkunft, Geräte, Suchanfragen, Seiten mit voller URL, Werte je Tag). Kein zusätzlicher Abruf. Aufbereitung: `berichtInhalt()` in `src/utils/analyseBericht.js`, Satz: `src/components/admin/AnalyseBerichtPDF.js`.
