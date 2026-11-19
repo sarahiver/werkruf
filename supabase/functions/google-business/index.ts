@@ -42,6 +42,10 @@ import {
   offeneSaisons, saisonSubjektId, saison as saisonKatalog, baueBeitragsVorschlag, pruefeBeitragstext,
   BEITRAG_MAX_ZEICHEN,
 } from '../../../src/utils/saisonBeitraege.js';
+// @ts-ignore: JavaScript-Modul ohne Typen
+import {
+  bildFuerBeitrag, pruefeNotiz, fotoBeitragSystem, fotoBeitragAnfrage, pruefeKiVorschlag, VORSCHLAEGE_PRO_TAG,
+} from '../../../src/utils/fotoBeitrag.js';
 import { erzeugeToken, hashe, sichtPlausibelAus, zielErlaubt } from '../../../src/utils/actionToken.js';
 import { leseAccess } from '../../../src/utils/accessGate.js';
 import { pruefePause, heuteBerlin } from '../../../src/utils/betriebsferien.js';
@@ -1937,11 +1941,13 @@ class GbpApiClient {
      localPosts.reportInsights, 2023). topicType STANDARD, kein Event/
      Offer, kein CTA, kein Media in V1. Der parent kommt aus dem eigenen
      Standort (loadOwnLocation), nie vom Client. */
-  createLocalPost(accountName: string, locationName: string, summary: string, languageCode = 'de'): Promise<GbpLocalPost> {
+  createLocalPost(accountName: string, locationName: string, summary: string, languageCode = 'de', fotoUrl: string | null = null): Promise<GbpLocalPost> {
     const parent = `${normalizeName(accountName, 'accounts')}/${normalizeName(locationName, 'locations')}`;
+    /* Foto-Beitrag: genau ein Foto, Quelle ist die eigene Cloudinary-Adresse (vom Handler geprueft). */
+    const media = fotoUrl ? { media: [{ mediaFormat: 'PHOTO', sourceUrl: fotoUrl }] } : {};
     return this.transport.request<GbpLocalPost>(
       GBP_LEGACY_API, `${parent}/localPosts`,
-      { operation: 'createLocalPost', method: 'POST', body: { languageCode, summary, topicType: 'STANDARD' } },
+      { operation: 'createLocalPost', method: 'POST', body: { languageCode, summary, topicType: 'STANDARD', ...media } },
     );
   }
 
@@ -6708,6 +6714,125 @@ async function handleSeasonalPostPublish(request: Request): Promise<Response> {
   });
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Foto → Google-Beitrag (19.11.2026)
+
+   preview: Foto (photoId aus business_photos des Nutzers, nie eine URL
+   vom Client) + optionale Notiz → Textvorschlag von Anthropic (Bild per
+   URL). Nur Vorschlag; Rate-Limit je Konto und Tag.
+   publish: Text (vom Nutzer geprueft) + dasselbe Foto → Google Local
+   Post STANDARD mit Foto. Sperre: je Foto ein aktiver Beitrag.
+   WERKRUF veroeffentlicht nie von selbst. Logs ohne Text und ohne URL.
+   ───────────────────────────────────────────────────────────── */
+const FOTO_MODELL = 'claude-haiku-4-5';
+
+async function ladeEigenesFoto(photoId: unknown, userId: string): Promise<{ id: string; url: string }> {
+  if (typeof photoId !== 'string' || !/^[0-9a-f-]{36}$/i.test(photoId)) throw new GbpError('bad_request', 'photoId fehlt');
+  const { data, error } = await adminClient().from('business_photos').select('id, cloudinary_url')
+    .eq('id', photoId).eq('profile_id', userId).maybeSingle();
+  if (error) throw new GbpError('internal_error', 'Foto nicht lesbar', { cause: error });
+  const url = data ? bildFuerBeitrag(data.cloudinary_url) : null;
+  if (!data || !url) throw new GbpError('not_found', 'foto_fehlt', { anzeigbar: true });
+  return { id: data.id as string, url };
+}
+
+async function handlePhotoPostPreview(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; photoId?: string; notiz?: string }>(request);
+  if (!body.locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const foto = await ladeEigenesFoto(body.photoId, user.id);
+  const notiz = pruefeNotiz(body.notiz) as { ok: boolean; grund?: string; text?: string };
+  if (!notiz.ok) return jsonResponse(request, { ok: false, reason: notiz.grund });
+
+  const key = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!key) return jsonResponse(request, { ok: false, reason: 'nicht_konfiguriert' });
+  try {
+    await enforceRateLimit(`foto-beitrag:${user.id}`, VORSCHLAEGE_PRO_TAG, '1 day');
+  } catch (err) {
+    if (err instanceof GbpError && err.code === 'rate_limited') return jsonResponse(request, { ok: false, reason: 'limit' });
+    throw err;
+  }
+
+  const gewerk = (location.primary_category ?? '').replace(/^gcid:/, '').replace(/_/g, ' ');
+  let antwort: Response;
+  try {
+    antwort = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: FOTO_MODELL, max_tokens: 500, temperature: 0.5,
+        system: fotoBeitragSystem(),
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'url', url: foto.url } },
+          { type: 'text', text: fotoBeitragAnfrage({ betrieb: (location.title ?? '').trim(), gewerk, notiz: notiz.text }) },
+        ] }],
+      }),
+    });
+  } catch (cause) {
+    console.warn(JSON.stringify({ scope: 'foto-beitrag', event: 'ki_nicht_erreichbar' }));
+    throw new GbpError('internal_error', 'Vorschlag nicht verfuegbar', { cause });
+  }
+  if (!antwort.ok) {
+    console.warn(JSON.stringify({ scope: 'foto-beitrag', event: 'ki_fehler', status: antwort.status }));
+    return jsonResponse(request, { ok: false, reason: 'nicht_verfuegbar' });
+  }
+  const daten = await antwort.json() as { content?: Array<{ type: string; text?: string }>; stop_reason?: string };
+  const roh = (daten.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+  const p = pruefeKiVorschlag(daten.stop_reason === 'max_tokens' ? '' : roh) as { ok: boolean; grund?: string; text?: string };
+  await writeAuditLog({ userId: user.id, action: 'photo_post.suggested', entityType: 'business_photo', entityId: foto.id,
+    metadata: { locationId: location.id, ok: p.ok, grund: p.ok ? null : p.grund, mitNotiz: Boolean(notiz.text) } });
+  if (!p.ok) return jsonResponse(request, { ok: false, reason: p.grund === 'unklar' ? 'unklar' : 'ungeeignet' });
+  return jsonResponse(request, { ok: true, vorschlag: p.text });
+}
+
+async function handlePhotoPostPublish(request: Request): Promise<Response> {
+  const user = await requireUser(request);
+  await requirePaidAccess(user.id);
+  const body = await readJsonBody<{ locationId?: string; photoId?: string; summary?: string; vorschlagGenutzt?: boolean }>(request);
+  if (!body.locationId) throw new GbpError('bad_request', 'locationId fehlt');
+  const location = await loadOwnLocation(body.locationId, user.id);
+  const foto = await ladeEigenesFoto(body.photoId, user.id);
+  const pruefung = pruefeBeitragstext(body.summary) as { ok: boolean; grund?: string; text?: string };
+  if (!pruefung.ok || !pruefung.text) throw new GbpError('bad_request', pruefung.grund ?? 'leer', { anzeigbar: true });
+  const summary = pruefung.text;
+
+  const admin = adminClient();
+  const { data: zeile, error: iErr } = await admin.from('photo_posts').insert({
+    user_id: user.id, location_id: location.id, photo_id: foto.id, summary_snapshot: summary,
+    vorschlag_genutzt: body.vorschlagGenutzt === true, status: 'publishing',
+  }).select('id').single();
+  if (iErr) {
+    if ((iErr as { code?: string }).code === '23505') throw new GbpError('bad_request', 'bereits', { anzeigbar: true, status: 409 });
+    throw new GbpError('internal_error', 'Veroeffentlichung nicht startbar', { cause: iErr });
+  }
+  const postId = zeile.id as string;
+  await writeAuditLog({ userId: user.id, action: 'photo_post.publish_started', entityType: 'photo_post', entityId: postId,
+    metadata: { locationId: location.id, zeichen: [...summary].length, vorschlagGenutzt: body.vorschlagGenutzt === true } });
+
+  let ergebnis: GbpLocalPost;
+  try {
+    ergebnis = await createGbpClient(user.id, location.account_id)
+      .createLocalPost(location.account_resource_name, location.location_resource_name, summary, 'de', foto.url);
+  } catch (err) {
+    const g = toGbpError(err);
+    await admin.from('photo_posts').update({ status: 'failed', error_code: g.code, finished_at: new Date().toISOString() }).eq('id', postId);
+    await writeAuditLog({ userId: user.id, action: 'photo_post.failed', entityType: 'photo_post', entityId: postId,
+      metadata: { locationId: location.id, errorCode: g.code } });
+    throw g;
+  }
+  const state = ergebnis.state ?? 'PROCESSING';
+  const rejected = state === 'REJECTED';
+  await admin.from('photo_posts').update({
+    status: rejected ? 'rejected' : 'published', google_post_name: ergebnis.name ?? null, google_state: state,
+    error_code: rejected ? 'google_rejected' : null, finished_at: new Date().toISOString(),
+  }).eq('id', postId);
+  await writeAuditLog({ userId: user.id, action: rejected ? 'photo_post.failed' : 'photo_post.published', entityType: 'photo_post', entityId: postId,
+    metadata: { locationId: location.id, googleState: state } });
+  return jsonResponse(request, { ok: !rejected, postId, status: rejected ? 'rejected' : 'published', googleState: state, live: state === 'LIVE', searchUrl: ergebnis.searchUrl ?? null });
+}
+
 async function handleHolidayHours(request: Request): Promise<Response> {
   const user = await requireUser(request);
   await requirePaidAccess(user.id);
@@ -9246,6 +9371,8 @@ const LOCATION_ROUTES: Record<string, { method: 'GET' | 'POST'; handler: (r: Req
   'holiday-hours': { method: 'POST', handler: handleHolidayHours },
   'seasonal-post-preview': { method: 'POST', handler: handleSeasonalPostPreview },   // WP15
   'seasonal-post':         { method: 'POST', handler: handleSeasonalPostPublish },   // WP15
+  'photo-post-preview':    { method: 'POST', handler: handlePhotoPostPreview },      // Foto → Beitrag (Vorschlag)
+  'photo-post':            { method: 'POST', handler: handlePhotoPostPublish },      // Foto → Beitrag (veroeffentlichen)
   select: { method: 'POST', handler: handleLocationSelect },
   'google-updated': { method: 'GET', handler: handleGoogleUpdated },
 };

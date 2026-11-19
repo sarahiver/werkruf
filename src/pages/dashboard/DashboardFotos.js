@@ -1,7 +1,8 @@
 import ProGate from '../../components/dashboard/ProGate';
 import React, { useState, useEffect, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { Upload, Image, Trash2, Loader, CheckCircle, AlertCircle, CloudUpload } from 'lucide-react';
+import { Upload, Image, Trash2, Loader, CheckCircle, AlertCircle, CloudUpload, Megaphone } from 'lucide-react';
+import FotoBeitragDialog from '../../components/dashboard/FotoBeitragDialog';
 import { useAuthContext } from '../../context/AuthContext';
 import supabase from '../../supabaseClient';
 
@@ -269,6 +270,14 @@ const SyncBadge = styled.div`
   display: flex; align-items: center; gap: 4px;
 `;
 
+/* Foto → Beitrag: Knopf unten auf der Karte, immer sichtbar (auch am Handy ohne Hover). */
+const BeitragKnopf = styled.button`
+  position: absolute; left: 8px; bottom: 8px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px;
+  background: rgba(255,255,255,.95); border: 1px solid var(--color-border); cursor: pointer;
+  font-family: var(--font-body); font-size: .72rem; font-weight: 700; color: var(--color-primary);
+  svg { color: var(--color-accent); }
+`;
 const PulseDot = styled.span`
   width: 5px; height: 5px; background: #FFD54F; border-radius: 50%;
   animation: ${pulse} 1.5s ease infinite;
@@ -389,6 +398,7 @@ export default function DashboardFotos() {
   const [googleFehler, setGoogleFehler] = useState('');
   const [loeschFrage, setLoeschFrage] = useState(null);   // media name, fuer das die Bestaetigung offen ist
   const [loescht, setLoescht]         = useState(null);   // media name, das gerade geloescht wird
+  const [beitragFoto, setBeitragFoto] = useState(null);   // business_photos-Zeile fuer „Beitrag daraus"
 
   const ladeGoogle = useCallback(async (ort) => {
     if (!ort) { setGoogle([]); setGoogleLaedt(false); return; }
@@ -704,6 +714,13 @@ export default function DashboardFotos() {
         <PhotoCount>{photos.length} Foto{photos.length !== 1 ? 's' : ''}</PhotoCount>
       </GalleryHeader>
 
+      {beitragFoto && standort && (
+        <FotoBeitragDialog foto={beitragFoto} location={standort} onClose={() => setBeitragFoto(null)} />
+      )}
+      {photos.length > 0 && standort && !beitragFoto && (
+        <Hinweis>Tipp: Aus jedem Foto kannst du einen Google-Beitrag machen — mit Textvorschlag, den du prüfst und freigibst.</Hinweis>
+      )}
+
       {loading ? (
         <EmptyState>
           <SpinnerIcon size={28} color="var(--color-text-muted)" style={{ margin: '0 auto 12px', display: 'block' }} />
@@ -727,6 +744,12 @@ export default function DashboardFotos() {
               <SyncBadge>
                 <PulseDot /> Kopie bei WERKRUF
               </SyncBadge>
+              {standort && (
+                <BeitragKnopf type="button" data-testid="foto-beitrag-oeffnen"
+                  onClick={() => { setBeitragFoto(photo); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* jsdom */ } }}>
+                  <Megaphone size={12} /> Beitrag daraus
+                </BeitragKnopf>
+              )}
               <PhotoOverlay>
                 <DeleteBtn
                   type="button"

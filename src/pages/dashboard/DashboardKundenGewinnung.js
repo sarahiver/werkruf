@@ -8,6 +8,7 @@ import { useBetriebsname } from '../../hooks/useBetriebsname';
 import { useAusgewaehlterStandort } from '../../hooks/useAusgewaehlterStandort';
 import SmsBewertungsanfrage from '../../components/dashboard/SmsBewertungsanfrage';
 import { bewertungsLink } from '../../utils/bewertungslink';
+import { whatsappBewertungsText, whatsappLink } from '../../utils/fotoBeitrag';
 
 const fadeUp = keyframes`from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}`;
 
@@ -310,13 +311,20 @@ export default function DashboardKundenGewinnung() {
             <ExternalLink size={15} /> Link testen
           </OpenBtn>
 
+          {/* Per WhatsApp teilen: oeffnet WhatsApp (App oder Web) mit
+              vorbereitetem Text. Kontakt waehlen und abschicken macht der
+              Betrieb selbst — nichts laeuft ueber WERKRUF. */}
           <div style={{ marginTop: 20, padding: '14px 16px',
             background: 'var(--color-bg)', borderRadius: 'var(--radius-card)',
-            borderLeft: '3px solid var(--color-accent)' }}>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: '.82rem',
-              color: 'var(--color-text)', lineHeight: 1.6 }}>
-              <strong>WhatsApp-Vorlage:</strong><br />
-              "Hallo [Name], vielen Dank für deinen Auftrag! Über eine kurze Bewertung würde ich mich sehr freuen: {reviewUrl}"
+            borderLeft: '3px solid var(--color-accent)' }} data-testid="whatsapp-teilen">
+            <OpenBtn href={whatsappLink(whatsappBewertungsText({ betrieb: companyName, link: reviewUrl }))}
+              target="_blank" rel="noopener noreferrer" data-testid="whatsapp-knopf" style={{ marginTop: 0 }}>
+              <Smartphone size={15} /> Per WhatsApp teilen
+            </OpenBtn>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: '.8rem',
+              color: 'var(--color-text-muted)', lineHeight: 1.55, margin: '10px 0 0', whiteSpace: 'pre-line' }}>
+              Öffnet WhatsApp mit diesem Text — du wählst den Kontakt und schickst selbst ab:{'\n'}
+              <span style={{ color: 'var(--color-text)' }}>{whatsappBewertungsText({ betrieb: companyName, link: reviewUrl })}</span>
             </p>
           </div>
         </Card>
