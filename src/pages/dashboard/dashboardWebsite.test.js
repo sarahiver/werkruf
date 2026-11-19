@@ -66,3 +66,17 @@ it('zeigt einen abgelehnten Vorschlag als Hinweis statt Text', async () => {
   fireEvent.click(await screen.findByTestId('website-vorschlag'));
   expect(await screen.findByTestId('website-meldung')).toHaveTextContent(/keine weiteren Vorschläge/);
 });
+
+/* Gegenprobe zum leeren Bildschirm vom 19.11.: Laden scheitert → Fehler sichtbar, erneut versuchen moeglich. */
+it('zeigt einen Ladefehler statt einer leeren Seite und lädt auf Wunsch neu', async () => {
+  let mal = 0;
+  const api = jest.fn(async () => {
+    mal += 1;
+    if (mal === 1) throw new Error('Die Website-Funktion ist gerade nicht erreichbar. Bitte versuch es gleich noch einmal.');
+    return { ok: true, website: { werte: werte(IMPRESSUM_OK), slug: null, status: 'entwurf', gespeichert: false }, fotos: [], vorschau: '' };
+  });
+  render(<DashboardWebsite api={api} standortLaden={() => Promise.resolve({ id: 'loc' })} hochladen={jest.fn()} />);
+  expect(await screen.findByTestId('website-ladefehler')).toHaveTextContent(/nicht erreichbar/);
+  fireEvent.click(screen.getByText('Erneut versuchen'));
+  expect(await screen.findByTestId('website-status')).toBeInTheDocument();
+});

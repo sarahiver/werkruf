@@ -115,11 +115,17 @@ const Leiste = styled.div`
 async function rufe(pfad, body) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Bitte melde dich neu an.');
-  const r = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/website/${pfad}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let r;
+  try {
+    r = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/website/${pfad}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    /* Kein Netz, Function nicht deployt oder CORS: der Browser liefert keine Antwort. */
+    throw new Error('Die Website-Funktion ist gerade nicht erreichbar. Bitte versuch es gleich noch einmal.');
+  }
   const d = await r.json().catch(() => null);
   if (r.status === 402 || d?.error?.code === 'kein_zugang') throw new Error(WEBSITE_GRUND_TEXT.kein_zugang);
   if (!r.ok && !(d && d.ok === false)) throw new Error('Das hat nicht geklappt. Bitte versuch es noch einmal.');
@@ -242,6 +248,14 @@ export default function DashboardWebsite({ api = rufe, standortLaden = bestimmeZ
 
         {standort === null && <Karte data-testid="website-kein-betrieb"><Unter>Wähle zuerst oben links einen Betrieb aus. Die Website gehört immer zu genau einem Betrieb.</Unter></Karte>}
         {laeuft === 'laden' && !werte && <Karte><Unter><Loader size={14} /> Wird geladen …</Unter></Karte>}
+        {/* Ladefehler: vorher stand hier nichts — die Meldung lag im Block,
+            der erst nach erfolgreichem Laden erscheint. */}
+        {!werte && standort && laeuft !== 'laden' && (
+          <Karte data-testid="website-ladefehler">
+            <Meldung $ok={false} role="alert" style={{ marginTop: 0 }}>{meldung?.text || 'Die Website-Einstellungen konnten nicht geladen werden.'}</Meldung>
+            <Zeile><Knopf type="button" className="ghost" onClick={() => { setMeldung(null); lade(standort); }}>Erneut versuchen</Knopf></Zeile>
+          </Karte>
+        )}
 
         {werte && (
           <>
