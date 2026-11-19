@@ -16,9 +16,11 @@
 
 \set ON_ERROR_STOP on
 
-create or replace function pg_temp.lead(p_firma text, p_email text, p_befund text default null) returns uuid language sql as $$
+/* WP17.1: mit Befund kommt standardmaessig ein Befund-Typ dazu. */
+create or replace function pg_temp.lead(p_firma text, p_email text, p_befund text default null, p_typ text default 'unbeantwortet') returns uuid language sql as $$
   select public.acquisition_lead_create('00000000-0000-4000-8000-00000000ad01',
-    jsonb_build_object('company_name', p_firma, 'email', p_email, 'contact_person', 'Max Muster', 'google_profile_finding', p_befund))
+    jsonb_build_object('company_name', p_firma, 'email', p_email, 'contact_person', 'Max Muster', 'google_profile_finding', p_befund,
+                       'finding_type', case when p_befund is null then null else p_typ end))
 $$;
 /* Mail 1 wie admin-ops: erst Variante vergeben, dann senden. Payload mit
    Angriffsfeldern — duerfen den Empfaenger nie bestimmen. */
@@ -28,7 +30,8 @@ begin
   v := public.acquisition_assign_subject_variant(p_lead);
   return public.acquisition_outreach_send('00000000-0000-4000-8000-00000000ad01', p_lead, p_key, 'outreach_erstkontakt',
     case v when 'A' then 'Ihre Google-Bewertungen' else 'Kurze Frage zu X bei Google' end, 'production',
-    jsonb_build_object('companyName', 'X', 'finding', 'egal', 'variante', v, 'email', 'hacker@evil.test', 'to', 'hacker@evil.test'));
+    jsonb_build_object('companyName', 'X', 'finding', 'egal', 'variante', v, 'text', 'Moin Max,' || chr(10) || chr(10) || 'Mail-1-Text',
+                       'email', 'hacker@evil.test', 'to', 'hacker@evil.test'));
 end $$;
 create or replace function pg_temp.nachfass(p_lead uuid, p_key text) returns jsonb language sql as $$
   select public.acquisition_outreach_send('00000000-0000-4000-8000-00000000ad01', p_lead, p_key, 'outreach_nachfass',
@@ -354,12 +357,13 @@ begin
 
   /* S13 — Import mit Befund */
   r := public.acquisition_import_rows('commit', 'csv', 'csv', 'imp-wp17-000001', jsonb_build_array(
-         jsonb_build_object('i', 2, 'werte', jsonb_build_object('company_name', 'Import Mit', 'email', 'mit@example.test', 'google_profile_finding', pg_temp.befund())),
+         jsonb_build_object('i', 2, 'werte', jsonb_build_object('company_name', 'Import Mit', 'email', 'mit@example.test', 'google_profile_finding', pg_temp.befund(), 'finding_type', 'profil_luecke')),
          jsonb_build_object('i', 3, 'werte', jsonb_build_object('company_name', 'Import Ohne', 'email', 'ohne-imp@example.test'))), null);
   assert (r -> 'counts' ->> 'new')::int = 2, format('S13: %s', r);
   select id into v_neu from public.leads where email = 'mit@example.test';
   select id into v_ohne from public.leads where email = 'ohne-imp@example.test';
   assert (select google_profile_finding from public.leads where id = v_neu) = pg_temp.befund(), 'S13: Befund nicht importiert';
+  assert (select finding_type from public.leads where id = v_neu) = 'profil_luecke', 'S13: Befund-Typ nicht importiert';
   assert (pg_temp.mail1(v_neu, 'key-h-0000000001') ->> 'ok')::boolean, 'S13: importierter Lead nicht versandbereit';
 
   /* S14 — Import ohne Befund: angelegt, aber nicht versandbereit */
@@ -382,5 +386,59 @@ begin
     assert not pg_catalog.has_function_privilege('anon', f, 'EXECUTE'), format('I: anon darf %s', f);
     assert pg_catalog.has_function_privilege('service_role', f, 'EXECUTE'), format('I: service_role darf %s nicht', f);
   end loop;
+end $$;
+rollback;
+
+/* ═══ T — WP17.1 Befund-Typ ═══ */
+begin;
+select test.basis();
+do $$
+declare v_ohne uuid; v uuid; v2 uuid; r jsonb; v_msg uuid; k jsonb; v_ok boolean;
+begin
+  /* T1 — Befund ohne Typ: keine Variante, kein Versand */
+  v_ohne := pg_temp.lead('Ohne Typ GmbH', 'ohnetyp@example.test', pg_temp.befund(), null);
+  assert public.acquisition_assign_subject_variant(v_ohne) is null, 'T1: Variante ohne Typ';
+  r := public.acquisition_outreach_send('00000000-0000-4000-8000-00000000ad01', v_ohne, 'key-t-0000000001', 'outreach_erstkontakt',
+                                        'Deine Google-Bewertungen', 'production', '{}'::jsonb);
+  assert r ->> 'reason' = 'befund_typ_fehlt', format('T1: %s', r);
+  assert (select count(*) from public.outreach_messages where lead_id = v_ohne) = 0, 'T1: Nachricht angelegt';
+  /* nachtragen → versandbereit */
+  perform public.acquisition_lead_update('00000000-0000-4000-8000-00000000ad01', v_ohne, '{"finding_type": "profil_luecke"}'::jsonb);
+  r := pg_temp.mail1(v_ohne, 'key-t-0000000002');
+  assert (r ->> 'ok')::boolean, format('T1: nach Nachtragen %s', r);
+
+  /* T2 — Snapshots: Typ und exakter Text der Erstmail; Nachfass erbt den Typ */
+  v_msg := (r ->> 'messageId')::uuid;
+  assert (select finding_type_snapshot from public.outreach_messages where id = v_msg) = 'profil_luecke', 'T2: Typ-Snapshot';
+  assert (select text_snapshot from public.outreach_messages where id = v_msg) = 'Moin Max,' || chr(10) || chr(10) || 'Mail-1-Text', 'T2: Text-Snapshot';
+  perform pg_temp.worker_ok((r ->> 'emailQueueId')::uuid, '<t1@mail>');
+  r := pg_temp.nachfass(v_ohne, 'key-t-0000000003');
+  assert (select finding_type_snapshot from public.outreach_messages where id = (r ->> 'messageId')::uuid) = 'profil_luecke', 'T2: Nachfass-Typ';
+  /* Detail liefert Typ und Text fuer das Zitat */
+  k := public.acquisition_lead_detail(v_ohne);
+  assert k -> 'lead' ->> 'findingType' = 'profil_luecke', 'T2: Detail Typ';
+  assert exists (select 1 from jsonb_array_elements(k -> 'messages') x where x ->> 'template' = 'outreach_erstkontakt' and x ->> 'text' like 'Moin Max,%'), 'T2: Detail Text';
+
+  /* T3 — Typ-Wechsel nach Versand aendert den Snapshot nicht */
+  perform public.acquisition_lead_update('00000000-0000-4000-8000-00000000ad01', v_ohne, '{"finding_type": "unbeantwortet"}'::jsonb);
+  assert (select finding_type_snapshot from public.outreach_messages where id = v_msg) = 'profil_luecke', 'T3: Snapshot geaendert';
+
+  /* T4 — ungueltiger Typ: Constraint */
+  v_ok := false;
+  begin update public.leads set finding_type = 'super' where id = v_ohne; exception when check_violation then v_ok := true; end;
+  assert v_ok, 'T4: ungueltiger Typ gespeichert';
+
+  /* T5 — Auswertung je Typ */
+  v := pg_temp.lead('Typ A', 'typa@example.test', pg_temp.befund(), 'starkes_profil');
+  v2 := pg_temp.lead('Typ B', 'typb@example.test', pg_temp.befund(), 'starkes_profil');
+  perform pg_temp.worker_ok((pg_temp.mail1(v, 'key-t-0000000004') ->> 'emailQueueId')::uuid, '<t2@mail>');
+  perform pg_temp.worker_ok((pg_temp.mail1(v2, 'key-t-0000000005') ->> 'emailQueueId')::uuid, '<t3@mail>');
+  perform public.record_delivery_event('<t2@mail>', 'delivered', now());
+  perform pg_temp.antwort(v, 'positiv');
+  k := public.acquisition_overview(null, null, 500, null) -> 'befundTypen';
+  assert (k -> 'starkes_profil' ->> 'angeschrieben')::int = 2 and (k -> 'starkes_profil' ->> 'zugestellt')::int = 1
+     and (k -> 'starkes_profil' ->> 'antworten')::int = 1 and (k -> 'starkes_profil' ->> 'antwortenPositiv')::int = 1, format('T5: %s', k);
+  assert (k -> 'profil_luecke' ->> 'angeschrieben')::int = 1, format('T5: profil_luecke %s', k);
+  assert (select x ->> 'findingType' from jsonb_array_elements(public.acquisition_overview(null, null, 500, null) -> 'leads') x where x ->> 'id' = v::text) = 'starkes_profil', 'T5: Zeile';
 end $$;
 rollback;

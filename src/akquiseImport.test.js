@@ -37,7 +37,7 @@ const MIG = lies('../supabase/migrations/20261115090000_akquise_import.sql');
 /* WP17: Vorlage hat die Spalte google_profile_finding. Alte Dateien ohne
    diese Spalte (KOPF_ALT) muessen unveraendert funktionieren. */
 const KOPF_ALT = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,import_status,imported_at,werkruf_lead_id';
-const KOPF = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,google_profile_finding,import_status,imported_at,werkruf_lead_id';
+const KOPF = 'company_name,contact_person,email,phone,trade,city,website,google_profile_url,personalized_sentence,note,source,google_profile_finding,finding_type,import_status,imported_at,werkruf_lead_id';
 
 /* ───────── CSV ───────── */
 describe('CSV-Parser', () => {
@@ -70,8 +70,8 @@ describe('CSV-Parser', () => {
     const r = csvZuZeilen(`${KOPF_ALT},geheim\nA,,a@b.de,,,,,,,,liste1,done,2026-01-01,abc,x\n`.replace('company_name', ' Company_Name '));
     expect(r.ok).toBe(true);
     expect(r.unbekannteSpalten).toEqual(['geheim']);
-    /* alte Datei ohne Befund-Spalte: alles ausser google_profile_finding */
-    expect(Object.keys(r.zeilen[0].roh)).toEqual(IMPORT_SPALTEN.filter((sp) => sp !== 'google_profile_finding'));
+    /* alte Datei ohne Befund-Spalten: alles ausser google_profile_finding / finding_type */
+    expect(Object.keys(r.zeilen[0].roh)).toEqual(IMPORT_SPALTEN.filter((sp) => sp !== 'google_profile_finding' && sp !== 'finding_type'));
     expect(r.zeilen[0].roh).not.toHaveProperty('werkruf_lead_id');
     expect(r.zeilen[0].roh).not.toHaveProperty('geheim');
   });

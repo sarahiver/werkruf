@@ -187,7 +187,7 @@ describe('admin-ops (Quelltext)', () => {
     expect(AO).toMatch(/admin\.rpc\('acquisition_lead_detail', \{ p_lead_id: leadId \}\)/);
     expect(senden).toMatch(/const detail = await leseDetail\(admin, leadId\);/);
     expect(senden).not.toMatch(/p\.(email|to|toEmail|address)\b/);
-    expect(senden).toMatch(/companyName: lead\.companyName, contactPerson: lead\.contactPerson \?\? null, finding: lead\.googleProfileFinding, variante/);
+    expect(senden).toMatch(/companyName: lead\.companyName, contactPerson: lead\.contactPerson \?\? null, finding: lead\.googleProfileFinding, findingType: lead\.findingType, variante/);
     expect(senden).not.toMatch(/p_payload: \{[^}]*email/);
     expect(senden).toMatch(/admin\.rpc\('acquisition_outreach_send', \{/);
     expect(senden).not.toMatch(/acquisition_outreach_begin/);       // alte FP-Mail nicht mehr fuer Erstkontakte
@@ -213,7 +213,7 @@ describe('admin-ops (Quelltext)', () => {
     expect(AO).toMatch(/const AKQUISE_ABSENDER = \{ name: ABSENDER_NAME, email: 'info@werkruf\.com' \};/);
   });
   it('T15 — Vorschau und Worker rendern mit derselben Funktion (akquise.js); alte FP-Vorlage bleibt zustellbar', () => {
-    expect(AO).toMatch(/import \{ renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
+    expect(AO).toMatch(/import \{ renderErstkontakt, renderNachfass, befundGueltig, ABSENDER_NAME, BEFUND_TYP_SCHLUESSEL \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
     expect(SE).toMatch(/import \{ renderFpMail, renderErstkontakt, renderNachfass \} from '\.\.\/\.\.\/\.\.\/src\/utils\/akquise\.js'/);
     expect(SE).toMatch(/case 'outreach_erstkontakt': \{[\s\S]*?renderErstkontakt\(\{/);
     expect(SE).toMatch(/case 'outreach_nachfass': \{[\s\S]*?renderNachfass\(\{/);
@@ -318,13 +318,14 @@ describe('Akquise-Bauteil', () => {
     acquisitionStatus: 'angeschrieben', leadStatus: 'new', lastOutreachAt: '2026-11-10T09:00:00Z',
     lastMessage: { id: 'm1', template: 'outreach_erstkontakt', status: 'sent', deliveryMode: 'production' },
     deliveredAt: '2026-11-10T09:01:00Z', firstOpenAt: '2026-11-10T09:30:00Z', followupSentAt: null, replyReceivedAt: null, blockReason: null,
-    googleProfileFinding: BEFUND, subjectVariant: 'A', followupGrund: null, replyClassification: null,
+    googleProfileFinding: BEFUND, findingType: 'unbeantwortet', subjectVariant: 'A', followupGrund: null, replyClassification: null,
   };
   const NEU = { ...LEAD, id: '44444444-4444-4444-8444-444444444444', companyName: 'Neu Elektro', email: 'info@neu-elektro.de', acquisitionStatus: 'neu',
     lastOutreachAt: null, lastMessage: null, deliveredAt: null, firstOpenAt: null, subjectVariant: null, followupGrund: 'keine_erstmail' };
-  const OHNE = { ...NEU, id: '55555555-5555-4555-8555-555555555555', companyName: 'Ohne Befund KG', email: 'a@ohne.de', googleProfileFinding: null };
+  const OHNE = { ...NEU, id: '55555555-5555-4555-8555-555555555555', companyName: 'Ohne Befund KG', email: 'a@ohne.de', googleProfileFinding: null, findingType: null };
+  const OHNE_TYP = { ...NEU, id: '77777777-7777-4777-8777-777777777777', companyName: 'Ohne Typ OHG', email: 'a@ohnetyp.de', findingType: null };
   const GESPERRT = { ...LEAD, id: '33333333-3333-4333-8333-333333333333', companyName: 'Bounce AG', email: 'x@bounce.de', blockReason: 'hard_bounce', acquisitionStatus: 'angeschrieben' };
-  const MSG_ERST = { id: 'm1', template: 'outreach_erstkontakt', subjectVariant: 'A', subject: 'Ihre Google-Bewertungen', finding: BEFUND, status: 'sent', deliveryMode: 'production', createdAt: '2026-11-10T09:00:00Z', sentAt: '2026-11-10T09:00:30Z' };
+  const MSG_ERST = { id: 'm1', template: 'outreach_erstkontakt', subjectVariant: 'A', subject: 'Deine Google-Bewertungen', finding: BEFUND, findingType: 'unbeantwortet', status: 'sent', deliveryMode: 'production', createdAt: '2026-11-10T09:00:00Z', sentAt: '2026-11-10T09:00:30Z' };
   const DETAIL = (lead) => ({
     lead: { ...lead, note: '' },
     messages: lead.lastMessage ? [MSG_ERST] : [],
@@ -334,23 +335,23 @@ describe('Akquise-Bauteil', () => {
     ] : [],
     deliveryMode: 'production',
   });
-  const MAIL1_TEXT = renderErstkontakt({ companyName: 'Neu Elektro', contactPerson: 'Jens Krause', finding: BEFUND, variante: 'B' }).text;
+  const MAIL1_TEXT = renderErstkontakt({ contactPerson: 'Jens Krause', finding: BEFUND, findingType: 'unbeantwortet', variante: 'B' }).text;
   const VORSCHAU = (lead, art) => (art === 'nachfass'
-    ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Ihre Google-Bewertungen', text: 'Guten Tag Jens Krause,\n\nkurz nachgehakt: …', html: '<p>x</p>',
+    ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Deine Google-Bewertungen', text: 'Moin Jens,\n\nkurz nachgehakt: …', html: '<p>x</p>',
       sender: { name: 'Iver Bohnes', email: 'info@werkruf.com' }, replyTo: 'info@werkruf.com', deliveryMode: 'production', testRecipient: null, blockReason: null }
-    : lead.googleProfileFinding
-      ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Kurze Frage zu Neu Elektro bei Google', subjectVariant: 'B', varianteVorlaeufig: true,
+    : lead.googleProfileFinding && lead.findingType
+      ? { ok: true, art, sendbar: true, to: lead.email, toName: lead.contactPerson, subject: 'Kurze Frage zu deinem Google-Profil', subjectVariant: 'B', varianteVorlaeufig: true,
         text: MAIL1_TEXT, html: '<p>x</p>', finding: BEFUND,
         sender: { name: 'Iver Bohnes', email: 'info@werkruf.com' }, replyTo: 'info@werkruf.com', deliveryMode: 'production', testRecipient: null, blockReason: null }
-      : { ok: true, art, sendbar: false, grund: 'befund_fehlt', to: lead.email, subject: null, text: null, deliveryMode: 'production' });
+      : { ok: true, art, sendbar: false, grund: lead.googleProfileFinding ? 'befund_typ_fehlt' : 'befund_fehlt', to: lead.email, subject: null, text: null, deliveryMode: 'production' });
 
-  function mockOps({ deliveryMode = 'production', leads = [LEAD, NEU, OHNE, GESPERRT], sendErgebnis, varianten } = {}) {
+  function mockOps({ deliveryMode = 'production', leads = [LEAD, NEU, OHNE, GESPERRT, OHNE_TYP], sendErgebnis, varianten, befundTypen } = {}) {
     const calls = [];
     const ops = jest.fn(async (action, params = {}) => {
       calls.push({ action, params });
       const lead = leads.find((l) => l.id === params.leadId) || LEAD;
       switch (action) {
-        case 'acquisition_list': return { leads, kpi: { leads: 4, angeschrieben: 20, zugestellt: 18, oeffnungErkannt: 6, antworten: 3, antwortenPositiv: 1, interesse: 1, foundingPartner: 0, gesperrt: 1 }, varianten: varianten || {}, deliveryMode };
+        case 'acquisition_list': return { leads, kpi: { leads: 4, angeschrieben: 20, zugestellt: 18, oeffnungErkannt: 6, antworten: 3, antwortenPositiv: 1, interesse: 1, foundingPartner: 0, gesperrt: 1 }, varianten: varianten || {}, befundTypen: befundTypen || {}, deliveryMode };
         case 'acquisition_lead_detail': return DETAIL(lead);
         case 'acquisition_preview': {
           const v = VORSCHAU(lead, params.art);
@@ -380,7 +381,7 @@ describe('Akquise-Bauteil', () => {
     expect(q).toHaveTextContent('Zustellung 90 %'); expect(q).toHaveTextContent('Öffnung erkannt 33,3 %');
     expect(q).toHaveTextContent('Antworten 16,7 %'); expect(q).toHaveTextContent('Interesse 5,6 %');
     expect(q).toHaveTextContent('nicht erkannt heißt nicht „nicht gelesen"');
-    expect(screen.getAllByTestId('akquise-lead')).toHaveLength(4);
+    expect(screen.getAllByTestId('akquise-lead')).toHaveLength(5);
     const signale = screen.getAllByTestId('akquise-signale')[0];
     expect(within(signale).getByLabelText(/^Zugestellt /)).toHaveAttribute('data-ja', 'true');
     expect(within(signale).getByLabelText(/^Öffnung erkannt \(kein Lesebeweis\) /)).toHaveAttribute('data-ja', 'true');
@@ -411,10 +412,11 @@ describe('Akquise-Bauteil', () => {
     expect(calls.find((c) => c.action === 'acquisition_preview').params).toEqual({ leadId: NEU.id, art: 'erstkontakt' });
     expect(inhalt).toHaveTextContent('reiner Text, kein Link, kein Button');
     expect(inhalt).toHaveTextContent('Von: Iver Bohnes <info@werkruf.com> · Antworten an info@werkruf.com');
-    expect(screen.getByTestId('akquise-vorschau-betreff')).toHaveTextContent('Betreff: Kurze Frage zu Neu Elektro bei Google (Variante B, wird beim Senden fest vergeben)');
+    expect(screen.getByTestId('akquise-vorschau-betreff')).toHaveTextContent('Betreff: Kurze Frage zu deinem Google-Profil (Variante B, wird beim Senden fest vergeben)');
     const text = screen.getByTestId('akquise-vorschau-text').textContent;
     expect(text).toContain(BEFUND);
     expect(text).not.toMatch(/https?:\/\/|Founding Partner|Präsentation/);
+    expect(text).toMatch(/^Moin Jens,/);
     expect(inhalt).not.toHaveTextContent('Präsentationslink');
     fireEvent.click(screen.getByTestId('akquise-senden'));
     expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);   // erst Bestaetigung
@@ -445,7 +447,7 @@ describe('Akquise-Bauteil', () => {
     const { ops, calls } = mockOps();
     render(<Akquise rufeAdminOps={ops} />);
     fireEvent.click(await screen.findByText('Krause GmbH'));
-    expect(await screen.findByTestId('akquise-erstmail-info')).toHaveTextContent('Betreff-Variante A: „Ihre Google-Bewertungen"');
+    expect(await screen.findByTestId('akquise-erstmail-info')).toHaveTextContent('Betreff-Variante A: „Deine Google-Bewertungen"');
     expect(screen.queryByTestId('akquise-vorschau')).toBeNull();               // keine zweite Erstmail
     fireEvent.click(screen.getByTestId('akquise-nachfassen'));
     await screen.findByTestId('akquise-vorschau-inhalt');
@@ -487,8 +489,35 @@ describe('Akquise-Bauteil', () => {
       { leadId: LEAD_ID, klasse: 'positiv' }, { leadId: LEAD_ID, klasse: 'negativ' }, { leadId: LEAD_ID, klasse: 'sonstige' }]);
     expect(await screen.findByTestId('akquise-meldung')).toHaveTextContent('Antwort erfasst: Sonstige Antwort.');
     const vorlage = screen.getByTestId('akquise-vorlage');
-    expect(vorlage).toHaveTextContent('Bei Ihrem Profil würde ich aktuell vor allem diese drei Dinge angehen');
+    expect(vorlage).toHaveTextContent('Du bist einer von zehn Founding Partnern');
     expect(vorlage).not.toHaveTextContent(/überwacht|meldet sich nur/);
+  });
+
+  it('WP17.1 — Befund ohne Typ: Warnung, Vorschau nennt den fehlenden Typ, kein Sendeknopf', async () => {
+    const { ops, calls } = mockOps();
+    render(<Akquise rufeAdminOps={ops} />);
+    fireEvent.click(await screen.findByText('Ohne Typ OHG'));
+    expect(await screen.findByTestId('akquise-befund-typ-fehlt')).toHaveTextContent('Kein Befund-Typ gewählt');
+    fireEvent.click(screen.getByTestId('akquise-vorschau'));
+    expect(await screen.findByTestId('akquise-vorschau-gesperrt')).toHaveTextContent(VERSAND_GRUND_TEXT.befund_typ_fehlt);
+    expect(screen.queryByTestId('akquise-senden')).toBeNull();
+    expect(calls.filter((c) => c.action === 'acquisition_send')).toHaveLength(0);
+  });
+
+  it('WP17.1 — Befund-Typ waehlen und speichern; Hinweis zum Typ; Tabelle je Typ', async () => {
+    const { ops, calls } = mockOps({ befundTypen: { unbeantwortet: { angeschrieben: 4, zugestellt: 4, antworten: 1, antwortenPositiv: 1 }, profil_luecke: { angeschrieben: 2, zugestellt: 1, antworten: 0, antwortenPositiv: 0 } } });
+    render(<Akquise rufeAdminOps={ops} />);
+    const typen = await screen.findByTestId('akquise-typen');
+    const zeilen = within(typen).getAllByRole('row').map((x) => x.textContent);
+    expect(zeilen.slice(1)).toEqual(['2 · Unbeantwortete Bewertungen4411', '5 · Lücken im Profil2100']);
+    fireEvent.click(screen.getByText('Ohne Typ OHG'));
+    const auswahl = await screen.findByTestId('lead-befund-typ');
+    expect(within(auswahl).getAllByRole('option').map((o) => o.textContent)).toEqual(['— bitte wählen —', '1 · Starkes Profil', '2 · Unbeantwortete Bewertungen', '3 · Kritische Bewertung ohne Antwort', '4 · Wenige oder alte Bewertungen', '5 · Lücken im Profil']);
+    fireEvent.change(auswahl, { target: { value: 'starkes_profil' } });
+    expect(screen.getByTestId('lead-befund-typ-hinweis')).toHaveTextContent('Nur wählen, wenn du wirklich eine Lücke gesehen hast');
+    fireEvent.click(screen.getByTestId('akquise-speichern'));
+    await waitFor(() => expect(calls.find((c) => c.action === 'acquisition_lead_update')).toBeTruthy());
+    expect(calls.find((c) => c.action === 'acquisition_lead_update').params.lead).toMatchObject({ finding_type: 'starkes_profil' });
   });
 
   it('T23 — Testmodus: Band oben, Vorschau und Bestaetigung nennen den Testempfaenger, nicht den Lead', async () => {
