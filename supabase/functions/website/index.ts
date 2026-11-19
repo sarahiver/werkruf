@@ -36,8 +36,10 @@ const MODELL = 'claude-haiku-4-5';
 
 /* ── Fehler ── */
 class WebsiteFehler extends Error {
-  constructor(public code: string, public status: number, public anzeigbar = false) { super(code); }
+  constructor(public code: string, public status: number, public anzeigbar = false, public ursache: string | null = null) { super(code); }
 }
+/** Datenbankfehler mit Postgres-/PostgREST-Code (ohne Inhalt) fuer die Logs. */
+const dbFehler = (e: { code?: string } | null) => new WebsiteFehler('internal_error', 500, false, e?.code ?? 'db');
 
 function requireEnv(name: string): string {
   const v = Deno.env.get(name);
@@ -122,12 +124,12 @@ async function eigenerStandort(locationId: unknown, userId: string): Promise<Zei
   const { data, error } = await admin().from('google_locations')
     .select('id, account_id, user_id, title, primary_phone, locality, primary_category, place_id, review_count, average_rating, google_profile')
     .eq('id', locationId).eq('user_id', userId).is('deleted_at', null).maybeSingle();
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   if (!data) throw new WebsiteFehler('not_found', 404);
   // user_id allein ist keine Eigentuemerschaft: Verbindung muss ebenfalls dem Nutzer gehoeren.
   const { data: konto, error: kErr } = await admin().from('google_accounts').select('id')
     .eq('id', data.account_id).eq('user_id', userId).is('deleted_at', null).maybeSingle();
-  if (kErr) throw new WebsiteFehler('internal_error', 500);
+  if (kErr) throw dbFehler(kErr);
   if (!konto) throw new WebsiteFehler('not_found', 404);
   return data;
 }
@@ -135,7 +137,7 @@ async function eigenerStandort(locationId: unknown, userId: string): Promise<Zei
 async function fotosVon(userId: string): Promise<{ id: string; url: string }[]> {
   const { data, error } = await admin().from('business_photos').select('id, cloudinary_url')
     .eq('profile_id', userId).order('created_at', { ascending: false }).limit(60);
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   return (data ?? []).map((f: Zeile) => ({ id: f.id, url: f.cloudinary_url }));
 }
 
@@ -144,14 +146,14 @@ async function bewertungenVon(locationId: string): Promise<Zeile[]> {
     .select('reviewer_display_name, reviewer_is_anonymous, star_rating, comment, google_created_at')
     .eq('location_id', locationId).eq('status', 'active').not('comment', 'is', null)
     .order('google_created_at', { ascending: false }).limit(20);
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   return data ?? [];
 }
 
 async function websiteVon(locationId: string, userId: string): Promise<Zeile | null> {
   const { data, error } = await admin().from('websites').select('*')
     .eq('location_id', locationId).eq('user_id', userId).maybeSingle();
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   return data;
 }
 
@@ -171,7 +173,7 @@ async function freieAdresse(wunsch: string, ort: string, eigeneId: string | null
     .filter((s) => s && slugGueltig(s));
   for (const s of kandidaten) {
     const { data, error } = await admin().from('websites').select('id').eq('slug', s).maybeSingle();
-    if (error) throw new WebsiteFehler('internal_error', 500);
+    if (error) throw dbFehler(error);
     if (!data || data.id === eigeneId) return s;
   }
   return `${basis.slice(0, 40)}-${crypto.randomUUID().slice(0, 6)}`;
@@ -237,7 +239,7 @@ async function speichern(request: Request): Promise<Response> {
     if (vorhanden.status === 'veroeffentlicht' && !impressum.ok) return json(request, { ok: false, grund: 'impressum', impressum }, 422);
     const { data, error } = await admin().from('websites').update(zeile)
       .eq('id', vorhanden.id).eq('user_id', user.id).select('*').single();
-    if (error) throw new WebsiteFehler('internal_error', 500);
+    if (error) throw dbFehler(error);
     w = data;
   } else {
     const slug = await freieAdresse(location.title || v.impressum?.firma || '', adresseAus(location, location.google_profile)?.ort || location.locality || '', null);
@@ -262,7 +264,7 @@ async function texte(request: Request): Promise<Response> {
   const { data: limit, error: lErr } = await admin().rpc('check_rate_limit', {
     p_key: `website-texte:${user.id}`, p_limit: VORSCHLAEGE_PRO_TAG, p_window: '1 day',
   });
-  if (lErr) throw new WebsiteFehler('internal_error', 500);
+  if (lErr) throw dbFehler(lErr);
   if (!(limit as { allowed?: boolean })?.allowed) return json(request, { ok: false, grund: 'limit' });
 
   const profil = location.google_profile || {};
@@ -318,7 +320,7 @@ async function veroeffentlichen(request: Request): Promise<Response> {
     veroeffentlicht_am: an ? (w.veroeffentlicht_am ?? new Date().toISOString()) : w.veroeffentlicht_am,
     updated_at: new Date().toISOString(),
   }).eq('id', w.id).eq('user_id', user.id);
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   await audit(user.id, an ? 'website.veroeffentlicht' : 'website.zurueckgezogen', w.id);
   return json(request, { ok: true, status: an ? 'veroeffentlicht' : 'entwurf', slug: w.slug });
 }
@@ -333,7 +335,7 @@ async function seite(request: Request, url: URL): Promise<Response> {
 
   const { data: w, error } = await admin().from('websites').select('*')
     .eq('slug', slug).eq('status', 'veroeffentlicht').maybeSingle();
-  if (error) throw new WebsiteFehler('internal_error', 500);
+  if (error) throw dbFehler(error);
   if (!w) return nichtDa();
   const zugang = await leseAccess(admin(), w.user_id).catch(() => ({ erlaubt: false }));
   if (!zugang.erlaubt) return nichtDa();
@@ -341,7 +343,7 @@ async function seite(request: Request, url: URL): Promise<Response> {
   const { data: location, error: lErr } = await admin().from('google_locations')
     .select('id, title, primary_phone, locality, primary_category, place_id, review_count, average_rating, google_profile')
     .eq('id', w.location_id).eq('user_id', w.user_id).is('deleted_at', null).maybeSingle();
-  if (lErr) throw new WebsiteFehler('internal_error', 500);
+  if (lErr) throw dbFehler(lErr);
   if (!location) return nichtDa();
   const [fotos, bewertungen] = await Promise.all([fotosVon(w.user_id), bewertungenVon(location.id)]);
   const modell = baueModell({ location, website: w, fotos, bewertungen });
@@ -372,7 +374,9 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return await route.handler(request, url);
   } catch (err) {
     const f = err instanceof WebsiteFehler ? err : new WebsiteFehler('internal_error', 500);
-    if (!(err instanceof WebsiteFehler)) console.error(JSON.stringify({ scope: 'website', route: name, event: 'unerwartet' }));
+    if (f.status >= 500) {
+      console.error(JSON.stringify({ scope: 'website', route: name, event: err instanceof WebsiteFehler ? 'fehler' : 'unerwartet', code: f.code, ursache: f.ursache }));
+    }
     return json(request, { error: { code: f.code, anzeigbar: f.anzeigbar } }, f.status);
   }
 });
